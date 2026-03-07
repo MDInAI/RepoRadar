@@ -102,7 +102,7 @@ def test_main_exits_on_startup_firehose_failure(monkeypatch) -> None:
 
 
 def test_main_runs_firehose_on_interval_then_stops_on_signal(monkeypatch) -> None:
-    """Worker should run a second Firehose pass after the interval and stop cleanly on signal."""
+    """Worker runs a startup pass, then exactly one interval pass, then exits cleanly via signal."""
     run_calls: list[int] = []
 
     class StubSettings:
@@ -114,7 +114,7 @@ def test_main_runs_firehose_on_interval_then_stops_on_signal(monkeypatch) -> Non
         class provider:
             github_requests_per_minute = 60
             intake_pacing_seconds = 30
-            firehose_interval_seconds = 0  # zero-length interval so the loop fires immediately
+            firehose_interval_seconds = 0  # zero-length interval — loop fires immediately
 
     success_result = FirehoseRunResult(
         status=FirehoseRunStatus.SUCCESS,
@@ -123,25 +123,40 @@ def test_main_runs_firehose_on_interval_then_stops_on_signal(monkeypatch) -> Non
         artifact_error=None,
     )
 
-    async def fake_run_firehose_job_async() -> FirehoseRunResult:
+    # Capture the asyncio stop_event created inside main() so we can set it from
+    # the fake to_thread, triggering a clean shutdown after the second run.
+    _real_event_class = asyncio.Event
+    stop_event_ref: list[asyncio.Event] = []
+
+    class _CapturingEvent:
+        """Wraps asyncio.Event and captures the first instance (the worker stop_event)."""
+
+        def __init__(self) -> None:
+            self._inner = _real_event_class()
+            if not stop_event_ref:
+                stop_event_ref.append(self._inner)
+
+        def set(self) -> None:
+            self._inner.set()
+
+        def is_set(self) -> bool:
+            return self._inner.is_set()
+
+        async def wait(self) -> None:
+            await self._inner.wait()
+
+    async def fake_to_thread(func: object, *args: object, **kwargs: object) -> FirehoseRunResult:
         run_calls.append(1)
-        # After the second run, cancel the event loop so the test terminates.
-        if len(run_calls) >= 2:
-            asyncio.get_running_loop().stop()
+        if len(run_calls) >= 2 and stop_event_ref:
+            # Signal clean shutdown after the second run (startup + first interval pass).
+            stop_event_ref[0].set()
         return success_result
 
-    async def patched_to_thread(func, *args, **kwargs):  # noqa: ANN001
-        return await fake_run_firehose_job_async()
-
     monkeypatch.setattr(main, "settings", StubSettings())
-    monkeypatch.setattr(asyncio, "to_thread", patched_to_thread)
+    monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(asyncio, "Event", _CapturingEvent)
 
-    async def run_with_timeout() -> None:
-        # Limit to avoid hanging; the interval=0 ensures the second pass fires quickly.
-        await asyncio.wait_for(main.main(), timeout=5.0)
+    # main() exits cleanly when stop_event is set — no exception expected.
+    asyncio.run(main.main())
 
-    with pytest.raises((asyncio.TimeoutError, SystemExit, RuntimeError)):
-        asyncio.run(run_with_timeout())
-
-    # At minimum the startup pass must have run.
-    assert len(run_calls) >= 1
+    assert len(run_calls) == 2  # startup pass + exactly one interval pass

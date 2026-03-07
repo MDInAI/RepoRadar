@@ -135,12 +135,9 @@ def _persist_batch(
 
 def _determine_status(outcomes: list[FirehoseModeOutcome]) -> FirehoseRunStatus:
     has_error = any(outcome.error for outcome in outcomes)
-    has_success = any(
-        outcome.error is None and (
-            outcome.fetched_count > 0 or outcome.inserted_count > 0 or outcome.skipped_count > 0
-        )
-        for outcome in outcomes
-    )
+    # Any outcome that completed without an error counts as a success, even when it
+    # returned an empty batch — zero results is valid data, not a failure.
+    has_success = any(outcome.error is None for outcome in outcomes)
     if has_error and has_success:
         return FirehoseRunStatus.PARTIAL_FAILURE
     if has_error:

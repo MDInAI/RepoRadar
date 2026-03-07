@@ -115,6 +115,39 @@ def test_firehose_job_rolls_back_session_after_persistence_failure(tmp_path: Pat
     assert result.outcomes[1].inserted_count == 1
 
 
+def test_firehose_job_classifies_empty_batch_alongside_error_as_partial_failure(tmp_path: Path) -> None:
+    """A zero-result batch (no error) alongside an errored batch must yield PARTIAL_FAILURE, not FAILED."""
+
+    class EmptyThenErrorProvider:
+        def discover(
+            self,
+            *,
+            mode: FirehoseMode,
+            per_page: int = 25,
+            page: int = 1,
+        ) -> list[DiscoveredRepository]:
+            if mode is FirehoseMode.NEW:
+                return []
+            raise RuntimeError("boom")
+
+    result = run_firehose_job(
+        session=object(),
+        provider=EmptyThenErrorProvider(),
+        runtime_dir=tmp_path,
+        pacing_seconds=0,
+        modes=(FirehoseMode.NEW, FirehoseMode.TRENDING),
+        sleep_fn=lambda _seconds: None,
+        persist_batch=lambda _session, repositories, mode: IntakePersistenceResult(
+            inserted_count=0, skipped_count=0
+        ),
+    )
+
+    assert result.status is FirehoseRunStatus.PARTIAL_FAILURE
+    assert result.outcomes[0].error is None
+    assert result.outcomes[0].fetched_count == 0
+    assert result.outcomes[1].error == "boom"
+
+
 def test_firehose_job_records_accurate_fetched_count_when_persistence_fails(tmp_path: Path) -> None:
     """fetched_count must reflect actual discovered repos even when persist raises."""
     discovered = [_repository(FirehoseMode.NEW, i) for i in range(5)]

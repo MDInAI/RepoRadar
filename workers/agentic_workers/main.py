@@ -5,7 +5,9 @@ import logging
 import math
 import signal
 import sys
+import threading
 import time
+from typing import Callable
 
 from sqlmodel import Session
 
@@ -27,7 +29,10 @@ def calculate_firehose_pacing_seconds() -> int:
     return max(settings.provider.intake_pacing_seconds, request_budget_floor)
 
 
-def run_configured_firehose_job():
+def run_configured_firehose_job(
+    *,
+    sleep_fn: Callable[[int], None] = time.sleep,
+) -> FirehoseRunResult:
     provider = GitHubFirehoseProvider(github_token=settings.github_provider_token_value)
     with Session(engine) as session:
         return run_firehose_job(
@@ -36,7 +41,7 @@ def run_configured_firehose_job():
             runtime_dir=settings.runtime.runtime_dir,
             pacing_seconds=calculate_firehose_pacing_seconds(),
             modes=(FirehoseMode.NEW, FirehoseMode.TRENDING),
-            sleep_fn=time.sleep,
+            sleep_fn=sleep_fn,
         )
 
 
@@ -56,19 +61,27 @@ async def main():
     logger.info("Starting Agentic-Workflow worker processes...")
 
     stop_event = asyncio.Event()
+    # Mirrors stop_event for threads: allows in-progress pacing sleeps to be
+    # interrupted immediately on SIGINT/SIGTERM rather than waiting out the delay.
+    _thread_stop = threading.Event()
 
     def handle_sigint():
         logger.info("Received stop signal. Shutting down...")
         stop_event.set()
+        _thread_stop.set()
 
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, handle_sigint)
 
+    def _interruptible_sleep(seconds: int) -> None:
+        """Pacing sleep that returns early when a shutdown signal is received."""
+        _thread_stop.wait(timeout=seconds)
+
     # Startup pass — a total failure stops the worker so the process supervisor
     # can detect and restart it rather than leaving a silently broken worker running.
     try:
-        result = await asyncio.to_thread(run_configured_firehose_job)
+        result = await asyncio.to_thread(run_configured_firehose_job, sleep_fn=_interruptible_sleep)
         _log_firehose_result(result)
     except Exception:
         logger.exception("Startup Firehose ingestion pass failed. Exiting.")
@@ -91,7 +104,7 @@ async def main():
             break
 
         try:
-            result = await asyncio.to_thread(run_configured_firehose_job)
+            result = await asyncio.to_thread(run_configured_firehose_job, sleep_fn=_interruptible_sleep)
             _log_firehose_result(result)
         except Exception:
             logger.exception("Firehose run failed. Continuing to next interval.")
