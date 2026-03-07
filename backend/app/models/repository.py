@@ -51,6 +51,11 @@ class RepositoryDiscoverySource(StrEnum):
     BACKFILL = "backfill"
 
 
+class RepositoryFirehoseMode(StrEnum):
+    NEW = "new"
+    TRENDING = "trending"
+
+
 class RepositoryQueueStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
@@ -68,6 +73,14 @@ class RepositoryIntake(SQLModel, table=True):
         CheckConstraint(
             "full_name = owner_login || '/' || repository_name",
             name="ck_repository_intake_full_name_consistent",
+        ),
+        CheckConstraint(
+            "("
+            "discovery_source = 'firehose' AND firehose_discovery_mode IS NOT NULL"
+            ") OR ("
+            "discovery_source != 'firehose' AND firehose_discovery_mode IS NULL"
+            ")",
+            name="ck_repository_intake_firehose_mode_matches_discovery_source",
         ),
         Index("ix_repository_intake_discovery_source", "discovery_source"),
         Index("ix_repository_intake_full_name", "full_name"),
@@ -106,6 +119,19 @@ class RepositoryIntake(SQLModel, table=True):
             ),
             nullable=False,
             server_default=text("'unknown'"),
+        ),
+    )
+    firehose_discovery_mode: RepositoryFirehoseMode | None = Field(
+        default=None,
+        sa_column=Column(
+            SQLEnum(
+                RepositoryFirehoseMode,
+                values_callable=_enum_values,
+                name="repository_firehose_mode",
+                native_enum=False,
+                create_constraint=True,
+            ),
+            nullable=True,
         ),
     )
     queue_status: RepositoryQueueStatus = Field(

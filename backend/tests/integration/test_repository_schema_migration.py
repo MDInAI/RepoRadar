@@ -43,6 +43,7 @@ def test_repository_intake_migration_creates_schema_and_enforces_identity(
         "repository_name",
         "full_name",
         "discovery_source",
+        "firehose_discovery_mode",
         "queue_status",
         "discovered_at",
         "queue_created_at",
@@ -90,7 +91,7 @@ def test_repository_intake_migration_creates_schema_and_enforces_identity(
         row = connection.execute(
             text(
                 """
-                SELECT source_provider, discovery_source, queue_status
+                SELECT source_provider, discovery_source, firehose_discovery_mode, queue_status
                 FROM repository_intake
                 WHERE github_repository_id = :github_repository_id
                 """
@@ -100,6 +101,7 @@ def test_repository_intake_migration_creates_schema_and_enforces_identity(
 
         assert row.source_provider == "github"
         assert row.discovery_source == "unknown"
+        assert row.firehose_discovery_mode is None
         assert row.queue_status == "pending"
 
         with pytest.raises(IntegrityError):
@@ -163,6 +165,100 @@ def test_repository_intake_migration_rejects_invalid_queue_status(
                     "repository_name": "hello-world",
                     "full_name": "octocat/hello-world",
                     "queue_status": "invalid_status",
+                },
+            )
+
+
+def test_repository_intake_migration_accepts_firehose_mode_for_firehose_rows(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "firehose-mode.db"
+    database_url = f"sqlite:///{database_path}"
+
+    command.upgrade(_build_alembic_config(database_url), "head")
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO repository_intake (
+                    github_repository_id,
+                    owner_login,
+                    repository_name,
+                    full_name,
+                    discovery_source,
+                    firehose_discovery_mode
+                ) VALUES (
+                    :github_repository_id,
+                    :owner_login,
+                    :repository_name,
+                    :full_name,
+                    :discovery_source,
+                    :firehose_discovery_mode
+                )
+                """
+            ),
+            {
+                "github_repository_id": 222223,
+                "owner_login": "octocat",
+                "repository_name": "firehose-repo",
+                "full_name": "octocat/firehose-repo",
+                "discovery_source": "firehose",
+                "firehose_discovery_mode": "new",
+            },
+        )
+
+        row = connection.execute(
+            text(
+                """
+                SELECT discovery_source, firehose_discovery_mode
+                FROM repository_intake
+                WHERE github_repository_id = :github_repository_id
+                """
+            ),
+            {"github_repository_id": 222223},
+        ).one()
+
+    assert row.discovery_source == "firehose"
+    assert row.firehose_discovery_mode == "new"
+
+
+def test_repository_intake_migration_rejects_firehose_rows_without_firehose_mode(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "missing-firehose-mode.db"
+    database_url = f"sqlite:///{database_path}"
+
+    command.upgrade(_build_alembic_config(database_url), "head")
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO repository_intake (
+                        github_repository_id,
+                        owner_login,
+                        repository_name,
+                        full_name,
+                        discovery_source
+                    ) VALUES (
+                        :github_repository_id,
+                        :owner_login,
+                        :repository_name,
+                        :full_name,
+                        :discovery_source
+                    )
+                    """
+                ),
+                {
+                    "github_repository_id": 222224,
+                    "owner_login": "octocat",
+                    "repository_name": "broken-firehose-repo",
+                    "full_name": "octocat/broken-firehose-repo",
+                    "discovery_source": "firehose",
                 },
             )
 

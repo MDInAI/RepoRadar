@@ -6,6 +6,7 @@ import pytest
 
 from app.models import (
     RepositoryDiscoverySource,
+    RepositoryFirehoseMode,
     RepositoryIntake,
     RepositoryQueueStatus,
 )
@@ -22,6 +23,7 @@ def test_repository_intake_defaults_cover_queue_baseline() -> None:
 
     assert record.source_provider == "github"
     assert record.discovery_source is RepositoryDiscoverySource.UNKNOWN
+    assert record.firehose_discovery_mode is None
     assert record.queue_status is RepositoryQueueStatus.PENDING
     assert record.discovered_at is not None
     assert record.queue_created_at is not None
@@ -58,6 +60,9 @@ def test_repository_intake_metadata_uses_canonical_identity_and_query_indexes() 
     assert table.c.queue_status.type.enums == [status.value for status in RepositoryQueueStatus]
     assert table.c.discovery_source.type.enums == [
         source.value for source in RepositoryDiscoverySource
+    ]
+    assert table.c.firehose_discovery_mode.type.enums == [
+        source.value for source in RepositoryFirehoseMode
     ]
     assert {index.name for index in table.indexes} == {
         "ix_repository_intake_discovery_source",

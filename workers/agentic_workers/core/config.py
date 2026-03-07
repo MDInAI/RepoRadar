@@ -16,6 +16,7 @@ class WorkerProviderSettings(BaseModel):
     github_provider_token_configured: bool
     github_requests_per_minute: int
     intake_pacing_seconds: int
+    firehose_interval_seconds: int
 
 
 class WorkerOpenClawReferenceSettings(BaseModel):
@@ -33,6 +34,7 @@ class Settings(BaseSettings):
     GITHUB_PROVIDER_TOKEN: SecretStr | None = None
     GITHUB_REQUESTS_PER_MINUTE: int = 60
     INTAKE_PACING_SECONDS: int = 30
+    FIREHOSE_INTERVAL_SECONDS: int = 3600
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -68,7 +70,7 @@ class Settings(BaseSettings):
             return value.expanduser()
         return value
 
-    @field_validator("GITHUB_REQUESTS_PER_MINUTE", "INTAKE_PACING_SECONDS")
+    @field_validator("GITHUB_REQUESTS_PER_MINUTE", "INTAKE_PACING_SECONDS", "FIREHOSE_INTERVAL_SECONDS")
     @classmethod
     def _require_positive_numbers(cls, value: int) -> int:
         if value <= 0:
@@ -95,6 +97,7 @@ class Settings(BaseSettings):
             github_provider_token_configured=bool(self.github_provider_token_value),
             github_requests_per_minute=self.GITHUB_REQUESTS_PER_MINUTE,
             intake_pacing_seconds=self.INTAKE_PACING_SECONDS,
+            firehose_interval_seconds=self.FIREHOSE_INTERVAL_SECONDS,
         )
 
     @property
