@@ -115,6 +115,111 @@ def test_firehose_job_rolls_back_session_after_persistence_failure(tmp_path: Pat
     assert result.outcomes[1].inserted_count == 1
 
 
+def test_firehose_job_stops_at_mode_boundary_when_shutdown_requested() -> None:
+    """After pacing sleep returns early (SIGINT), should_stop prevents the next mode from running."""
+    stop_flag = [False]
+    discover_modes: list[FirehoseMode] = []
+
+    class TrackingProvider:
+        def discover(
+            self,
+            *,
+            mode: FirehoseMode,
+            per_page: int = 100,
+            page: int = 1,
+        ) -> list[DiscoveredRepository]:
+            discover_modes.append(mode)
+            return [_repository(mode, 1)]
+
+    def interruptible_sleep(seconds: int) -> None:
+        stop_flag[0] = True  # simulates SIGINT waking up the pacing sleep early
+
+    result = run_firehose_job(
+        session=object(),
+        provider=TrackingProvider(),
+        runtime_dir=None,
+        pacing_seconds=1,
+        modes=(FirehoseMode.NEW, FirehoseMode.TRENDING),
+        sleep_fn=interruptible_sleep,
+        should_stop=lambda: stop_flag[0],
+        persist_batch=lambda _s, repos, mode: IntakePersistenceResult(
+            inserted_count=len(repos), skipped_count=0
+        ),
+    )
+
+    assert discover_modes == [FirehoseMode.NEW]  # TRENDING skipped after sleep set stop_flag
+    assert len(result.outcomes) == 1
+    assert result.outcomes[0].mode is FirehoseMode.NEW
+    assert result.status is FirehoseRunStatus.SUCCESS
+
+
+def test_firehose_job_fetches_multiple_pages_per_mode(tmp_path: Path) -> None:
+    """When pages > 1, the job issues successive discover() calls until a partial page."""
+    discover_calls: list[tuple[FirehoseMode, int]] = []
+
+    class MultiPageProvider:
+        def discover(
+            self,
+            *,
+            mode: FirehoseMode,
+            per_page: int = 100,
+            page: int = 1,
+        ) -> list[DiscoveredRepository]:
+            discover_calls.append((mode, page))
+            if page == 1:
+                return [_repository(mode, page * 100 + i) for i in range(per_page)]
+            return []  # page 2 is empty — signals end of results
+
+    result = run_firehose_job(
+        session=object(),
+        provider=MultiPageProvider(),
+        runtime_dir=None,
+        pacing_seconds=0,
+        modes=(FirehoseMode.NEW,),
+        pages=2,
+        sleep_fn=lambda _seconds: None,
+        persist_batch=lambda _s, repos, mode: IntakePersistenceResult(
+            inserted_count=len(repos), skipped_count=0
+        ),
+    )
+
+    assert discover_calls == [(FirehoseMode.NEW, 1), (FirehoseMode.NEW, 2)]
+    # fetched_count is the total across all pages (100 from page 1, 0 from page 2)
+    assert result.outcomes[0].fetched_count == 100
+    assert result.outcomes[0].inserted_count == 100
+
+
+def test_firehose_job_stops_paging_on_partial_page(tmp_path: Path) -> None:
+    """A page with fewer results than per_page signals the end — no further requests are made."""
+    discover_calls: list[tuple[FirehoseMode, int]] = []
+
+    class ShortFirstPageProvider:
+        def discover(
+            self,
+            *,
+            mode: FirehoseMode,
+            per_page: int = 100,
+            page: int = 1,
+        ) -> list[DiscoveredRepository]:
+            discover_calls.append((mode, page))
+            return [_repository(mode, i) for i in range(5)]  # always fewer than per_page
+
+    run_firehose_job(
+        session=object(),
+        provider=ShortFirstPageProvider(),
+        runtime_dir=None,
+        pacing_seconds=0,
+        modes=(FirehoseMode.NEW,),
+        pages=3,  # would fetch 3 pages if not stopped early
+        sleep_fn=lambda _seconds: None,
+        persist_batch=lambda _s, repos, mode: IntakePersistenceResult(
+            inserted_count=len(repos), skipped_count=0
+        ),
+    )
+
+    assert discover_calls == [(FirehoseMode.NEW, 1)]  # stopped after partial page 1
+
+
 def test_firehose_job_classifies_empty_batch_alongside_error_as_partial_failure(tmp_path: Path) -> None:
     """A zero-result batch (no error) alongside an errored batch must yield PARTIAL_FAILURE, not FAILED."""
 

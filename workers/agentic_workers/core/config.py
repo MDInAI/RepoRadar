@@ -17,6 +17,8 @@ class WorkerProviderSettings(BaseModel):
     github_requests_per_minute: int
     intake_pacing_seconds: int
     firehose_interval_seconds: int
+    firehose_per_page: int
+    firehose_pages: int
 
 
 class WorkerOpenClawReferenceSettings(BaseModel):
@@ -35,6 +37,8 @@ class Settings(BaseSettings):
     GITHUB_REQUESTS_PER_MINUTE: int = 60
     INTAKE_PACING_SECONDS: int = 30
     FIREHOSE_INTERVAL_SECONDS: int = 3600
+    FIREHOSE_PER_PAGE: int = 100
+    FIREHOSE_PAGES: int = 1
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -70,7 +74,13 @@ class Settings(BaseSettings):
             return value.expanduser()
         return value
 
-    @field_validator("GITHUB_REQUESTS_PER_MINUTE", "INTAKE_PACING_SECONDS", "FIREHOSE_INTERVAL_SECONDS")
+    @field_validator(
+        "GITHUB_REQUESTS_PER_MINUTE",
+        "INTAKE_PACING_SECONDS",
+        "FIREHOSE_INTERVAL_SECONDS",
+        "FIREHOSE_PER_PAGE",
+        "FIREHOSE_PAGES",
+    )
     @classmethod
     def _require_positive_numbers(cls, value: int) -> int:
         if value <= 0:
@@ -98,6 +108,8 @@ class Settings(BaseSettings):
             github_requests_per_minute=self.GITHUB_REQUESTS_PER_MINUTE,
             intake_pacing_seconds=self.INTAKE_PACING_SECONDS,
             firehose_interval_seconds=self.FIREHOSE_INTERVAL_SECONDS,
+            firehose_per_page=self.FIREHOSE_PER_PAGE,
+            firehose_pages=self.FIREHOSE_PAGES,
         )
 
     @property

@@ -63,9 +63,11 @@ def run_firehose_job(
     runtime_dir: Path | None,
     pacing_seconds: int,
     modes: tuple[FirehoseMode, ...] = (FirehoseMode.NEW, FirehoseMode.TRENDING),
-    per_page: int = 25,
+    per_page: int = 100,
     page: int = 1,
+    pages: int = 1,
     sleep_fn: Callable[[int], None],
+    should_stop: Callable[[], bool] | None = None,
     persist_batch: Callable[
         [Session, list[DiscoveredRepository]],
         IntakePersistenceResult,
@@ -78,9 +80,20 @@ def run_firehose_job(
     outcomes: list[FirehoseModeOutcome] = []
 
     for index, mode in enumerate(modes):
+        # Honour a shutdown signal before starting each new discovery mode.
+        if should_stop is not None and should_stop():
+            break
+
         repositories: list[DiscoveredRepository] = []
         try:
-            repositories = provider.discover(mode=mode, per_page=per_page, page=page)
+            for page_num in range(page, page + pages):
+                if should_stop is not None and should_stop():
+                    break
+                page_repos = provider.discover(mode=mode, per_page=per_page, page=page_num)
+                repositories.extend(page_repos)
+                if len(page_repos) < per_page:
+                    # Partial page means no further results exist for this mode.
+                    break
             persisted = persistence(session, repositories, mode=mode)
             outcomes.append(
                 FirehoseModeOutcome(

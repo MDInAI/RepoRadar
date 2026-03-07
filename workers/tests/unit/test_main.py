@@ -38,6 +38,8 @@ def test_configured_firehose_job_uses_settings_and_runtime_paths(monkeypatch, tm
         class provider:
             github_requests_per_minute = 120
             intake_pacing_seconds = 3
+            firehose_per_page = 100
+            firehose_pages = 1
 
     def fake_run_firehose_job(**kwargs: object) -> FirehoseRunResult:
         captured.update(kwargs)
@@ -75,6 +77,20 @@ def test_firehose_pacing_respects_request_budget_floor(monkeypatch) -> None:
     assert main.calculate_firehose_pacing_seconds() == 3
 
 
+def test_calculate_firehose_interval_clamps_to_request_budget(monkeypatch) -> None:
+    """Interval must be >= modes × pacing so the outer loop stays within the RPM budget."""
+
+    class StubSettings:
+        class provider:
+            github_requests_per_minute = 20  # pacing = ceil(60/20) = 3s
+            intake_pacing_seconds = 1  # lower than budget floor — floor wins
+            firehose_interval_seconds = 1  # too small for 2 modes × 3s = 6s minimum
+
+    monkeypatch.setattr(main, "settings", StubSettings())
+    # 2 modes × 3s pacing = 6s minimum; configured 1s is clamped up
+    assert main.calculate_firehose_interval_seconds() == 6
+
+
 def test_main_exits_on_startup_firehose_failure(monkeypatch) -> None:
     """A fatal exception during the startup Firehose pass must cause sys.exit(1)."""
 
@@ -88,6 +104,8 @@ def test_main_exits_on_startup_firehose_failure(monkeypatch) -> None:
             github_requests_per_minute = 60
             intake_pacing_seconds = 30
             firehose_interval_seconds = 3600
+            firehose_per_page = 100
+            firehose_pages = 1
 
     def failing_job() -> None:
         raise RuntimeError("database unavailable")
@@ -114,7 +132,9 @@ def test_main_runs_firehose_on_interval_then_stops_on_signal(monkeypatch) -> Non
         class provider:
             github_requests_per_minute = 60
             intake_pacing_seconds = 30
-            firehose_interval_seconds = 0  # zero-length interval — loop fires immediately
+            firehose_interval_seconds = 3600
+            firehose_per_page = 100
+            firehose_pages = 1
 
     success_result = FirehoseRunResult(
         status=FirehoseRunStatus.SUCCESS,
@@ -155,6 +175,8 @@ def test_main_runs_firehose_on_interval_then_stops_on_signal(monkeypatch) -> Non
     monkeypatch.setattr(main, "settings", StubSettings())
     monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
     monkeypatch.setattr(asyncio, "Event", _CapturingEvent)
+    # Return 0 so asyncio.wait_for raises TimeoutError immediately — no real sleep.
+    monkeypatch.setattr(main, "calculate_firehose_interval_seconds", lambda: 0)
 
     # main() exits cleanly when stop_event is set — no exception expected.
     asyncio.run(main.main())
