@@ -19,20 +19,25 @@ def _enum_values(enum_type: type[StrEnum]) -> list[str]:
 
 
 class UTCDateTimeType(TypeDecorator):
-    """DateTime TypeDecorator that always reads back as UTC-aware datetimes.
+    """DateTime TypeDecorator that enforces UTC-aware datetimes on write and read.
 
-    SQLite's DateTime dialect strips timezone info on round-trip even when
-    timezone=True is set. This decorator forcibly restores timezone.utc so
-    all comparisons against _utcnow() use aware datetimes throughout.
+    On write: raises ValueError for naive datetimes so callers cannot silently
+    persist local timestamps that will be relabelled as UTC on readback.
+    On read: restores timezone.utc since SQLite's DateTime dialect strips tzinfo.
     """
 
     impl = DateTime
     cache_ok = True
 
     def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
-        if value is not None and value.tzinfo is not None:
-            return value.astimezone(timezone.utc).replace(tzinfo=None)
-        return value
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            raise ValueError(
+                f"UTCDateTimeType requires a timezone-aware datetime; "
+                f"got naive datetime {value!r}. Pass datetime.now(timezone.utc) instead."
+            )
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
 
     def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
         if value is not None and value.tzinfo is None:
@@ -56,6 +61,7 @@ class RepositoryQueueStatus(StrEnum):
 class RepositoryIntake(SQLModel, table=True):
     __tablename__ = "repository_intake"
     __table_args__ = (
+        CheckConstraint("source_provider IN ('github')", name="ck_repository_intake_source_provider_valid"),
         CheckConstraint("owner_login != ''", name="ck_repository_intake_owner_login_not_blank"),
         CheckConstraint("repository_name != ''", name="ck_repository_intake_repository_name_not_blank"),
         CheckConstraint("full_name != ''", name="ck_repository_intake_full_name_not_blank"),

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import datetime, timezone
+
+import pytest
 
 from app.models import (
     RepositoryDiscoverySource,
     RepositoryIntake,
     RepositoryQueueStatus,
 )
+from app.models.repository import UTCDateTimeType
 
 
 def test_repository_intake_defaults_cover_queue_baseline() -> None:
@@ -30,6 +33,22 @@ def test_repository_intake_defaults_cover_queue_baseline() -> None:
     assert record.discovered_at.tzinfo == timezone.utc
     assert record.queue_created_at.tzinfo == timezone.utc
     assert record.status_updated_at.tzinfo == timezone.utc
+
+
+def test_utc_datetime_type_rejects_naive_datetimes() -> None:
+    type_instance = UTCDateTimeType()
+    with pytest.raises(ValueError, match="timezone-aware"):
+        type_instance.process_bind_param(datetime(2026, 3, 7, 12, 0, 0), dialect=None)
+
+
+def test_utc_datetime_type_accepts_and_normalizes_aware_datetimes() -> None:
+    type_instance = UTCDateTimeType()
+    aware = datetime(2026, 3, 7, 12, 0, 0, tzinfo=timezone.utc)
+    result = type_instance.process_bind_param(aware, dialect=None)
+    # Result should be naive (tzinfo stripped for SQLite storage) and UTC-equivalent
+    assert result is not None
+    assert result.tzinfo is None
+    assert result == aware.replace(tzinfo=None)
 
 
 def test_repository_intake_metadata_uses_canonical_identity_and_query_indexes() -> None:

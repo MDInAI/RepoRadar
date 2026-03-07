@@ -243,6 +243,33 @@ def test_repository_intake_migration_lifecycle_timestamps_are_utc_aware(
     )
 
 
+def test_repository_intake_migration_rejects_invalid_source_provider(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "invalid-provider.db"
+    database_url = f"sqlite:///{database_path}"
+
+    command.upgrade(_build_alembic_config(database_url), "head")
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "INSERT INTO repository_intake "
+                    "(github_repository_id, owner_login, repository_name, full_name, source_provider) "
+                    "VALUES (:github_repository_id, :owner_login, :repository_name, :full_name, :source_provider)"
+                ),
+                {
+                    "github_repository_id": 600001,
+                    "owner_login": "octocat",
+                    "repository_name": "hello-world",
+                    "full_name": "octocat/hello-world",
+                    "source_provider": "definitely-not-github",
+                },
+            )
+
+
 def test_repository_intake_migration_rejects_blank_metadata(
     tmp_path: Path,
 ) -> None:
