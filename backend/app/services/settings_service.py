@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 import os
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,11 @@ class WorkerSettingsProjection:
     github_provider_token_configured: bool
     github_requests_per_minute: int
     intake_pacing_seconds: int
+    backfill_interval_seconds: int
+    backfill_per_page: int
+    backfill_pages: int
+    backfill_window_days: int
+    backfill_min_created_date: date
     source: str
     overrides_loaded: bool
 
@@ -190,6 +196,41 @@ class SettingsService:
             issues=issues,
             applied_override_keys=applied_override_keys,
         )
+        backfill_interval_seconds = self._int_override(
+            overrides,
+            "BACKFILL_INTERVAL_SECONDS",
+            self.app_settings.BACKFILL_INTERVAL_SECONDS,
+            issues=issues,
+            applied_override_keys=applied_override_keys,
+        )
+        backfill_per_page = self._int_override(
+            overrides,
+            "BACKFILL_PER_PAGE",
+            self.app_settings.BACKFILL_PER_PAGE,
+            issues=issues,
+            applied_override_keys=applied_override_keys,
+        )
+        backfill_pages = self._int_override(
+            overrides,
+            "BACKFILL_PAGES",
+            self.app_settings.BACKFILL_PAGES,
+            issues=issues,
+            applied_override_keys=applied_override_keys,
+        )
+        backfill_window_days = self._int_override(
+            overrides,
+            "BACKFILL_WINDOW_DAYS",
+            self.app_settings.BACKFILL_WINDOW_DAYS,
+            issues=issues,
+            applied_override_keys=applied_override_keys,
+        )
+        backfill_min_created_date = self._date_override(
+            overrides,
+            "BACKFILL_MIN_CREATED_DATE",
+            self.app_settings.BACKFILL_MIN_CREATED_DATE,
+            issues=issues,
+            applied_override_keys=applied_override_keys,
+        )
         source = "workers-env" if applied_override_keys else "shared-project-env"
 
         projection = WorkerSettingsProjection(
@@ -199,6 +240,11 @@ class SettingsService:
             github_provider_token_configured=bool(github_token),
             github_requests_per_minute=requests_per_minute,
             intake_pacing_seconds=intake_pacing_seconds,
+            backfill_interval_seconds=backfill_interval_seconds,
+            backfill_per_page=backfill_per_page,
+            backfill_pages=backfill_pages,
+            backfill_window_days=backfill_window_days,
+            backfill_min_created_date=backfill_min_created_date,
             source=source,
             overrides_loaded=bool(applied_override_keys),
         )
@@ -349,6 +395,32 @@ class SettingsService:
         provider = self.app_settings.backend_provider
         reference = self.app_settings.openclaw_reference
 
+        def _calculate_effective_backfill_interval(
+            configured_interval: int,
+            pacing: int,
+            backfill_pages: int,
+        ) -> int:
+            # Replicate the shared budget calculation from the worker
+            try:
+                firehose_pages = self.app_settings.backend_provider.firehose_pages
+            except AttributeError:
+                try:
+                    firehose_pages = self.app_settings.FIREHOSE_PAGES
+                except AttributeError:
+                    firehose_pages = 3
+                    
+            firehose_modes_count = 2 # NEW and TRENDING
+            firehose_requests = firehose_modes_count * firehose_pages
+            
+            min_cycle = (firehose_requests + backfill_pages) * pacing
+            return max(configured_interval, min_cycle)
+
+        effective_backfill_interval = _calculate_effective_backfill_interval(
+            provider.backfill_interval_seconds,
+            provider.intake_pacing_seconds,
+            provider.backfill_pages,
+        )
+
         return [
             MaskedSettingSummary(
                 key="DATABASE_URL",
@@ -412,6 +484,59 @@ class SettingsService:
                 notes=["Worker pacing stays project-owned rather than OpenClaw-native."],
             ),
             MaskedSettingSummary(
+                key="BACKFILL_INTERVAL_SECONDS",
+                label="Backfill interval",
+                owner="agentic-workflow",
+                source="project-env",
+                configured=True,
+                required=True,
+                value=str(effective_backfill_interval),
+                notes=[
+                    "Backfill cadence remains project-owned worker configuration.",
+                    f"Configured: {provider.backfill_interval_seconds}s, Effective (clamped by budget): {effective_backfill_interval}s",
+                ],
+            ),
+            MaskedSettingSummary(
+                key="BACKFILL_PER_PAGE",
+                label="Backfill page size",
+                owner="agentic-workflow",
+                source="project-env",
+                configured=True,
+                required=True,
+                value=str(provider.backfill_per_page),
+                notes=["Historical GitHub search page size stays in project-owned settings."],
+            ),
+            MaskedSettingSummary(
+                key="BACKFILL_PAGES",
+                label="Backfill pages per run",
+                owner="agentic-workflow",
+                source="project-env",
+                configured=True,
+                required=True,
+                value=str(provider.backfill_pages),
+                notes=["Backfill pacing stays bounded by an explicit per-run page cap."],
+            ),
+            MaskedSettingSummary(
+                key="BACKFILL_WINDOW_DAYS",
+                label="Backfill window size",
+                owner="agentic-workflow",
+                source="project-env",
+                configured=True,
+                required=True,
+                value=str(provider.backfill_window_days),
+                notes=["Historical search windows remain explicit and deterministic."],
+            ),
+            MaskedSettingSummary(
+                key="BACKFILL_MIN_CREATED_DATE",
+                label="Backfill oldest created date",
+                owner="agentic-workflow",
+                source="project-env",
+                configured=True,
+                required=True,
+                value=provider.backfill_min_created_date.isoformat(),
+                notes=["Historical backfill stays bounded by a project-owned oldest-date cutoff."],
+            ),
+            MaskedSettingSummary(
                 key="OPENCLAW_CONFIG_PATH",
                 label="OpenClaw config path reference",
                 owner="openclaw",
@@ -433,6 +558,35 @@ class SettingsService:
             else "Workers inherit the shared project env when launched via scripts/dev.sh."
         )
         workspace_value = str(worker.workspace_dir) if worker.workspace_dir else None
+
+        def _calculate_effective_backfill_interval(
+            configured_interval: int,
+            pacing: int,
+            backfill_pages: int,
+            firehose_pages: int,
+        ) -> int:
+            firehose_modes_count = 2 # NEW and TRENDING
+            firehose_requests = firehose_modes_count * firehose_pages
+            min_cycle = (firehose_requests + backfill_pages) * pacing
+            return max(configured_interval, min_cycle)
+            
+        # For the worker settings projection, we don't have firehose_pages directly in the projection,
+        # but we can try to get it from self.app_settings.FIREHOSE_PAGES or default to 3
+        try:
+            worker_firehose_pages = self.app_settings.FIREHOSE_PAGES
+        except AttributeError:
+            # Fallback to backend_provider if FIREHOSE_PAGES not directly on app_settings
+            try:
+                worker_firehose_pages = self.app_settings.backend_provider.firehose_pages
+            except AttributeError:
+                worker_firehose_pages = 3
+            
+        worker_effective_backfill_interval = _calculate_effective_backfill_interval(
+            worker.backfill_interval_seconds,
+            worker.intake_pacing_seconds,
+            worker.backfill_pages,
+            worker_firehose_pages,
+        )
 
         return [
             MaskedSettingSummary(
@@ -500,6 +654,59 @@ class SettingsService:
                 configured=True,
                 required=True,
                 value=str(worker.intake_pacing_seconds),
+                notes=[source_notes],
+            ),
+            MaskedSettingSummary(
+                key="workers.BACKFILL_INTERVAL_SECONDS",
+                label="Worker backfill interval",
+                owner="agentic-workflow",
+                source=worker.source,
+                configured=True,
+                required=True,
+                value=str(worker_effective_backfill_interval),
+                notes=[
+                    source_notes,
+                    f"Configured: {worker.backfill_interval_seconds}s, Effective (clamped by budget): {worker_effective_backfill_interval}s",
+                ],
+            ),
+            MaskedSettingSummary(
+                key="workers.BACKFILL_PER_PAGE",
+                label="Worker backfill page size",
+                owner="agentic-workflow",
+                source=worker.source,
+                configured=True,
+                required=True,
+                value=str(worker.backfill_per_page),
+                notes=[source_notes],
+            ),
+            MaskedSettingSummary(
+                key="workers.BACKFILL_PAGES",
+                label="Worker backfill pages per run",
+                owner="agentic-workflow",
+                source=worker.source,
+                configured=True,
+                required=True,
+                value=str(worker.backfill_pages),
+                notes=[source_notes],
+            ),
+            MaskedSettingSummary(
+                key="workers.BACKFILL_WINDOW_DAYS",
+                label="Worker backfill window size",
+                owner="agentic-workflow",
+                source=worker.source,
+                configured=True,
+                required=True,
+                value=str(worker.backfill_window_days),
+                notes=[source_notes],
+            ),
+            MaskedSettingSummary(
+                key="workers.BACKFILL_MIN_CREATED_DATE",
+                label="Worker backfill oldest created date",
+                owner="agentic-workflow",
+                source=worker.source,
+                configured=True,
+                required=True,
+                value=worker.backfill_min_created_date.isoformat(),
                 notes=[source_notes],
             ),
         ]
@@ -780,6 +987,46 @@ class SettingsService:
                 "worker_intake_pacing_seconds_differs",
                 "Worker intake pacing interval differs from the backend process view.",
             ),
+            (
+                "workers.BACKFILL_INTERVAL_SECONDS",
+                "agentic-workflow",
+                str(worker.backfill_interval_seconds),
+                str(self.app_settings.BACKFILL_INTERVAL_SECONDS),
+                "worker_backfill_interval_seconds_differs",
+                "Worker backfill interval differs from the backend process view.",
+            ),
+            (
+                "workers.BACKFILL_PER_PAGE",
+                "agentic-workflow",
+                str(worker.backfill_per_page),
+                str(self.app_settings.BACKFILL_PER_PAGE),
+                "worker_backfill_per_page_differs",
+                "Worker backfill page size differs from the backend process view.",
+            ),
+            (
+                "workers.BACKFILL_PAGES",
+                "agentic-workflow",
+                str(worker.backfill_pages),
+                str(self.app_settings.BACKFILL_PAGES),
+                "worker_backfill_pages_differs",
+                "Worker backfill pages-per-run differs from the backend process view.",
+            ),
+            (
+                "workers.BACKFILL_WINDOW_DAYS",
+                "agentic-workflow",
+                str(worker.backfill_window_days),
+                str(self.app_settings.BACKFILL_WINDOW_DAYS),
+                "worker_backfill_window_days_differs",
+                "Worker backfill window size differs from the backend process view.",
+            ),
+            (
+                "workers.BACKFILL_MIN_CREATED_DATE",
+                "agentic-workflow",
+                worker.backfill_min_created_date.isoformat(),
+                self.app_settings.BACKFILL_MIN_CREATED_DATE.isoformat(),
+                "worker_backfill_min_created_date_differs",
+                "Worker backfill oldest created-date cutoff differs from the backend process view.",
+            ),
         ]
 
         for field, owner, worker_value, backend_value, code, message in comparisons:
@@ -903,6 +1150,38 @@ class SettingsService:
                     owner="agentic-workflow",
                     code="worker_setting_invalid_integer",
                     message=f"{key} must be a positive integer.",
+                    source="workers-env",
+                )
+            )
+            return fallback
+
+        applied_override_keys.add(key)
+        return parsed
+
+    @staticmethod
+    def _date_override(
+        overrides: dict[str, str],
+        key: str,
+        fallback: date,
+        *,
+        issues: list[ConfigurationValidationIssue],
+        applied_override_keys: set[str],
+    ) -> date:
+        raw_value = overrides.get(key)
+        if raw_value is None or key in os.environ:
+            return fallback
+
+        candidate = raw_value.strip()
+        try:
+            parsed = date.fromisoformat(candidate)
+        except ValueError:
+            issues.append(
+                ConfigurationValidationIssue(
+                    severity="error",
+                    field=f"workers.{key}",
+                    owner="agentic-workflow",
+                    code="worker_setting_invalid_date",
+                    message=f"{key} must be an ISO date (YYYY-MM-DD).",
                     source="workers-env",
                 )
             )
