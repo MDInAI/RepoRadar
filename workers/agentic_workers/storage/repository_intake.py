@@ -25,9 +25,46 @@ def persist_firehose_batch(
     repositories: list[DiscoveredRepository],
     *,
     mode: FirehoseMode,
+    commit: bool = True,
+) -> IntakePersistenceResult:
+    return persist_repository_batch(
+        session,
+        repositories,
+        discovery_source=RepositoryDiscoverySource.FIREHOSE,
+        firehose_mode=mode,
+        commit=commit,
+    )
+
+
+def persist_backfill_batch(
+    session: Session,
+    repositories: list[DiscoveredRepository],
+    *,
+    commit: bool = True,
+) -> IntakePersistenceResult:
+    return persist_repository_batch(
+        session,
+        repositories,
+        discovery_source=RepositoryDiscoverySource.BACKFILL,
+        firehose_mode=None,
+        commit=commit,
+    )
+
+
+def persist_repository_batch(
+    session: Session,
+    repositories: list[DiscoveredRepository],
+    *,
+    discovery_source: RepositoryDiscoverySource,
+    firehose_mode: FirehoseMode | None,
+    commit: bool = True,
 ) -> IntakePersistenceResult:
     if not repositories:
         return IntakePersistenceResult(inserted_count=0, skipped_count=0)
+    if discovery_source is RepositoryDiscoverySource.FIREHOSE and firehose_mode is None:
+        raise ValueError("firehose_mode is required for firehose batches")
+    if discovery_source is not RepositoryDiscoverySource.FIREHOSE and firehose_mode is not None:
+        raise ValueError("firehose_mode must be omitted for non-firehose batches")
 
     repository_ids = [repository.github_repository_id for repository in repositories]
     existing_ids = set(
@@ -53,8 +90,12 @@ def persist_firehose_batch(
                 owner_login=repository.owner_login,
                 repository_name=repository.repository_name,
                 full_name=repository.full_name,
-                discovery_source=RepositoryDiscoverySource.FIREHOSE,
-                firehose_discovery_mode=RepositoryFirehoseMode(mode.value),
+                discovery_source=discovery_source,
+                firehose_discovery_mode=(
+                    RepositoryFirehoseMode(firehose_mode.value)
+                    if firehose_mode is not None
+                    else None
+                ),
                 queue_status=RepositoryQueueStatus.PENDING,
                 discovered_at=now,
                 queue_created_at=now,
@@ -64,5 +105,6 @@ def persist_firehose_batch(
         existing_ids.add(repository.github_repository_id)
         inserted_count += 1
 
-    session.commit()
+    if commit:
+        session.commit()
     return IntakePersistenceResult(inserted_count=inserted_count, skipped_count=skipped_count)

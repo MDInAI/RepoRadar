@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlmodel import Session, create_engine, select
@@ -33,6 +34,7 @@ def _repository(mode: FirehoseMode, repository_id: int) -> DiscoveredRepository:
         owner_login="octocat",
         repository_name=f"repo-{repository_id}",
         full_name=f"octocat/repo-{repository_id}",
+        created_at=datetime(2026, 3, 7, repository_id % 24, 0, tzinfo=timezone.utc),
         firehose_discovery_mode=mode,
     )
 

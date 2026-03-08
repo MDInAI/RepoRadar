@@ -65,12 +65,20 @@ def test_settings_service_returns_masked_configuration_summary(tmp_path: Path) -
     provider_token = next(
         item for item in response.project_settings if item.key == "GITHUB_PROVIDER_TOKEN"
     )
+    backfill_interval = next(
+        item for item in response.project_settings if item.key == "BACKFILL_INTERVAL_SECONDS"
+    )
+    worker_backfill_window = next(
+        item for item in response.worker_settings if item.key == "workers.BACKFILL_WINDOW_DAYS"
+    )
 
     assert gateway_url.value == "wss://gateway.local:18789"
     assert gateway_token.value == "configured"
     assert gateway_token.secret is True
     assert provider_token.value == "configured"
     assert provider_token.secret is True
+    assert backfill_interval.value == "21600"
+    assert worker_backfill_window.value == "30"
     assert all(item.source == "shared-project-env" for item in response.worker_settings)
 
 
@@ -306,6 +314,11 @@ def test_settings_service_surfaces_worker_drift_warnings(tmp_path: Path) -> None
                 "GITHUB_PROVIDER_TOKEN=worker-provider-token",
                 "GITHUB_REQUESTS_PER_MINUTE=25",
                 "INTAKE_PACING_SECONDS=15",
+                "BACKFILL_INTERVAL_SECONDS=7200",
+                "BACKFILL_PER_PAGE=40",
+                "BACKFILL_PAGES=3",
+                "BACKFILL_WINDOW_DAYS=14",
+                "BACKFILL_MIN_CREATED_DATE=2019-01-01",
             ]
         ),
         encoding="utf-8",
@@ -336,9 +349,22 @@ def test_settings_service_surfaces_worker_drift_warnings(tmp_path: Path) -> None
         for issue in response.validation.issues
     )
     assert any(
+        issue.code == "worker_backfill_interval_seconds_differs"
+        for issue in response.validation.issues
+    )
+    assert any(
+        issue.code == "worker_backfill_min_created_date_differs"
+        for issue in response.validation.issues
+    )
+    assert any(
         item.key == "workers.OPENCLAW_WORKSPACE_DIR"
         and item.source == "workers-env"
         and item.value == str(worker_workspace)
+        for item in response.worker_settings
+    )
+    assert any(
+        item.key == "workers.BACKFILL_WINDOW_DAYS"
+        and item.value == "14"
         for item in response.worker_settings
     )
 

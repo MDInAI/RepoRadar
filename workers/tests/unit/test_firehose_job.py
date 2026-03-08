@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlmodel import Session, create_engine
@@ -30,6 +31,7 @@ def _repository(mode: FirehoseMode, repository_id: int) -> DiscoveredRepository:
         owner_login="octocat",
         repository_name=f"repo-{repository_id}",
         full_name=f"octocat/repo-{repository_id}",
+        created_at=datetime(2026, 3, 7, repository_id % 24, 0, tzinfo=timezone.utc),
         firehose_discovery_mode=mode,
     )
 
@@ -70,6 +72,7 @@ def test_firehose_job_sleeps_between_modes_and_collects_success_results(tmp_path
         (FirehoseMode.NEW, [_repository(FirehoseMode.NEW, 1)]),
         (FirehoseMode.TRENDING, [_repository(FirehoseMode.TRENDING, 2)]),
     ]
+    # Single-page modes: only the inter-mode sleep fires (no intra-mode pacing needed)
     assert sleep_calls == [7]
 
 
@@ -153,9 +156,10 @@ def test_firehose_job_stops_at_mode_boundary_when_shutdown_requested() -> None:
     assert result.status is FirehoseRunStatus.SUCCESS
 
 
-def test_firehose_job_fetches_multiple_pages_per_mode(tmp_path: Path) -> None:
-    """When pages > 1, the job issues successive discover() calls until a partial page."""
+def test_firehose_job_fetches_multiple_pages_per_mode_with_pacing(tmp_path: Path) -> None:
+    """When pages > 1, the job paces successive pages and issues discover() calls until a partial page."""
     discover_calls: list[tuple[FirehoseMode, int]] = []
+    sleep_calls: list[int] = []
 
     class MultiPageProvider:
         def discover(
@@ -174,10 +178,10 @@ def test_firehose_job_fetches_multiple_pages_per_mode(tmp_path: Path) -> None:
         session=object(),
         provider=MultiPageProvider(),
         runtime_dir=None,
-        pacing_seconds=0,
+        pacing_seconds=5,
         modes=(FirehoseMode.NEW,),
         pages=2,
-        sleep_fn=lambda _seconds: None,
+        sleep_fn=sleep_calls.append,
         persist_batch=lambda _s, repos, mode: IntakePersistenceResult(
             inserted_count=len(repos), skipped_count=0
         ),
@@ -187,6 +191,51 @@ def test_firehose_job_fetches_multiple_pages_per_mode(tmp_path: Path) -> None:
     # fetched_count is the total across all pages (100 from page 1, 0 from page 2)
     assert result.outcomes[0].fetched_count == 100
     assert result.outcomes[0].inserted_count == 100
+    # Pacing delay must have been applied between page 1 and page 2
+    assert sleep_calls == [5]
+
+
+def test_firehose_job_stops_between_pages_when_shutdown_requested() -> None:
+    """SIGINT during intra-mode pacing must skip the next page request."""
+    stop_flag = [False]
+    discover_calls: list[tuple[FirehoseMode, int]] = []
+    sleep_calls: list[int] = []
+
+    class MultiPageProvider:
+        def discover(
+            self,
+            *,
+            mode: FirehoseMode,
+            per_page: int = 100,
+            page: int = 1,
+        ) -> list[DiscoveredRepository]:
+            discover_calls.append((mode, page))
+            return [_repository(mode, page * 100 + i) for i in range(per_page)]
+
+    def interruptible_sleep(seconds: int) -> None:
+        sleep_calls.append(seconds)
+        stop_flag[0] = True
+
+    result = run_firehose_job(
+        session=object(),
+        provider=MultiPageProvider(),
+        runtime_dir=None,
+        pacing_seconds=5,
+        modes=(FirehoseMode.NEW,),
+        pages=2,
+        sleep_fn=interruptible_sleep,
+        should_stop=lambda: stop_flag[0],
+        persist_batch=lambda _s, repos, mode: IntakePersistenceResult(
+            inserted_count=len(repos), skipped_count=0
+        ),
+    )
+
+    assert discover_calls == [(FirehoseMode.NEW, 1)]
+    assert sleep_calls == [5]
+    assert len(result.outcomes) == 1
+    assert result.outcomes[0].fetched_count == 100
+    assert result.outcomes[0].inserted_count == 100
+    assert result.status is FirehoseRunStatus.SUCCESS
 
 
 def test_firehose_job_stops_paging_on_partial_page(tmp_path: Path) -> None:

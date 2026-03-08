@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 from pydantic import BaseModel, SecretStr, field_validator
@@ -17,6 +18,11 @@ class BackendProviderSettings(BaseModel):
     github_provider_token_configured: bool
     github_requests_per_minute: int
     intake_pacing_seconds: int
+    backfill_interval_seconds: int
+    backfill_per_page: int
+    backfill_pages: int
+    backfill_window_days: int
+    backfill_min_created_date: date
 
 
 class OpenClawReferenceSettings(BaseModel):
@@ -39,6 +45,11 @@ class Settings(BaseSettings):
     GITHUB_PROVIDER_TOKEN: SecretStr | None = None
     GITHUB_REQUESTS_PER_MINUTE: int = 60
     INTAKE_PACING_SECONDS: int = 30
+    BACKFILL_INTERVAL_SECONDS: int = 21600
+    BACKFILL_PER_PAGE: int = 100
+    BACKFILL_PAGES: int = 2
+    BACKFILL_WINDOW_DAYS: int = 30
+    BACKFILL_MIN_CREATED_DATE: date = date(2008, 1, 1)
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -74,7 +85,15 @@ class Settings(BaseSettings):
             return value.expanduser()
         return value
 
-    @field_validator("FRONTEND_PORT", "GITHUB_REQUESTS_PER_MINUTE", "INTAKE_PACING_SECONDS")
+    @field_validator(
+        "FRONTEND_PORT",
+        "GITHUB_REQUESTS_PER_MINUTE",
+        "INTAKE_PACING_SECONDS",
+        "BACKFILL_INTERVAL_SECONDS",
+        "BACKFILL_PER_PAGE",
+        "BACKFILL_PAGES",
+        "BACKFILL_WINDOW_DAYS",
+    )
     @classmethod
     def _require_positive_numbers(cls, value: int) -> int:
         if value <= 0:
@@ -108,6 +127,11 @@ class Settings(BaseSettings):
             github_provider_token_configured=bool(self.github_provider_token_value),
             github_requests_per_minute=self.GITHUB_REQUESTS_PER_MINUTE,
             intake_pacing_seconds=self.INTAKE_PACING_SECONDS,
+            backfill_interval_seconds=self.BACKFILL_INTERVAL_SECONDS,
+            backfill_per_page=self.BACKFILL_PER_PAGE,
+            backfill_pages=self.BACKFILL_PAGES,
+            backfill_window_days=self.BACKFILL_WINDOW_DAYS,
+            backfill_min_created_date=self.BACKFILL_MIN_CREATED_DATE,
         )
 
     @property

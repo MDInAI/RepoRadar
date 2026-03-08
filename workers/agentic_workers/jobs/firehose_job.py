@@ -86,9 +86,15 @@ def run_firehose_job(
 
         repositories: list[DiscoveredRepository] = []
         try:
-            for page_num in range(page, page + pages):
+            for page_idx, page_num in enumerate(range(page, page + pages)):
                 if should_stop is not None and should_stop():
                     break
+                # Pace successive pages within the same mode so requests are never
+                # burst back-to-back; the first page of each mode skips the delay.
+                if page_idx > 0:
+                    sleep_fn(pacing_seconds)
+                    if should_stop is not None and should_stop():
+                        break
                 page_repos = provider.discover(mode=mode, per_page=per_page, page=page_num)
                 repositories.extend(page_repos)
                 if len(page_repos) < per_page:

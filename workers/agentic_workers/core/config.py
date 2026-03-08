@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 from pydantic import BaseModel, SecretStr, field_validator
@@ -19,6 +20,11 @@ class WorkerProviderSettings(BaseModel):
     firehose_interval_seconds: int
     firehose_per_page: int
     firehose_pages: int
+    backfill_interval_seconds: int
+    backfill_per_page: int
+    backfill_pages: int
+    backfill_window_days: int
+    backfill_min_created_date: date
 
 
 class WorkerOpenClawReferenceSettings(BaseModel):
@@ -38,7 +44,12 @@ class Settings(BaseSettings):
     INTAKE_PACING_SECONDS: int = 30
     FIREHOSE_INTERVAL_SECONDS: int = 3600
     FIREHOSE_PER_PAGE: int = 100
-    FIREHOSE_PAGES: int = 1
+    FIREHOSE_PAGES: int = 3
+    BACKFILL_INTERVAL_SECONDS: int = 21600
+    BACKFILL_PER_PAGE: int = 100
+    BACKFILL_PAGES: int = 2
+    BACKFILL_WINDOW_DAYS: int = 30
+    BACKFILL_MIN_CREATED_DATE: date = date(2008, 1, 1)
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -80,6 +91,10 @@ class Settings(BaseSettings):
         "FIREHOSE_INTERVAL_SECONDS",
         "FIREHOSE_PER_PAGE",
         "FIREHOSE_PAGES",
+        "BACKFILL_INTERVAL_SECONDS",
+        "BACKFILL_PER_PAGE",
+        "BACKFILL_PAGES",
+        "BACKFILL_WINDOW_DAYS",
     )
     @classmethod
     def _require_positive_numbers(cls, value: int) -> int:
@@ -110,6 +125,11 @@ class Settings(BaseSettings):
             firehose_interval_seconds=self.FIREHOSE_INTERVAL_SECONDS,
             firehose_per_page=self.FIREHOSE_PER_PAGE,
             firehose_pages=self.FIREHOSE_PAGES,
+            backfill_interval_seconds=self.BACKFILL_INTERVAL_SECONDS,
+            backfill_per_page=self.BACKFILL_PER_PAGE,
+            backfill_pages=self.BACKFILL_PAGES,
+            backfill_window_days=self.BACKFILL_WINDOW_DAYS,
+            backfill_min_created_date=self.BACKFILL_MIN_CREATED_DATE,
         )
 
     @property

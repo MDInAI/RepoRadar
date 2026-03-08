@@ -1,9 +1,20 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, CheckConstraint, Column, DateTime, Enum as SQLEnum, String, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Column,
+    Date,
+    DateTime,
+    Enum as SQLEnum,
+    Integer,
+    String,
+    text,
+)
 from sqlalchemy.engine import Dialect
 from sqlalchemy.schema import Index
 from sqlalchemy.types import TypeDecorator
@@ -184,3 +195,59 @@ class RepositoryIntake(SQLModel, table=True):
         default=None,
         sa_column=Column(UTCDateTimeType(), nullable=True),
     )
+
+
+class BackfillProgress(SQLModel, table=True):
+    __tablename__ = "backfill_progress"
+    __table_args__ = (
+        CheckConstraint("source_provider IN ('github')", name="ck_backfill_progress_source_provider_valid"),
+        CheckConstraint("next_page > 0", name="ck_backfill_progress_next_page_positive"),
+        CheckConstraint(
+            "window_start_date < created_before_boundary",
+            name="ck_backfill_progress_window_before_boundary",
+        ),
+    )
+
+    source_provider: str = Field(
+        default="github",
+        sa_column=Column(
+            String(32),
+            primary_key=True,
+            nullable=False,
+            server_default=text("'github'"),
+        ),
+    )
+    window_start_date: date = Field(
+        sa_column=Column(Date(), nullable=False),
+    )
+    created_before_boundary: date = Field(
+        sa_column=Column(Date(), nullable=False),
+    )
+    created_before_cursor: datetime | None = Field(
+        default=None,
+        sa_column=Column(UTCDateTimeType(), nullable=True),
+    )
+    next_page: int = Field(
+        default=1,
+        sa_column=Column(Integer, nullable=False, server_default=text("1")),
+    )
+    exhausted: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default=text("0")),
+    )
+    last_checkpointed_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(UTCDateTimeType(), nullable=True),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(
+            UTCDateTimeType(),
+            nullable=False,
+            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
+        ),
+    )
+
+
+def exhausted_backfill_boundary(min_created_date: date) -> date:
+    return min_created_date + timedelta(days=1)

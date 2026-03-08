@@ -11,17 +11,21 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.models import (  # noqa: E402
+    BackfillProgress,
     RepositoryDiscoverySource,
     RepositoryFirehoseMode,
     RepositoryIntake,
     RepositoryQueueStatus,
     SQLModel,
+    exhausted_backfill_boundary,
 )
 
 __all__ = [
+    "BackfillProgress",
     "RepositoryDiscoverySource",
     "RepositoryFirehoseMode",
     "RepositoryIntake",
     "RepositoryQueueStatus",
     "SQLModel",
+    "exhausted_backfill_boundary",
 ]

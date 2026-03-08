@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 
 from app.models import (
+    BackfillProgress,
     RepositoryDiscoverySource,
     RepositoryFirehoseMode,
     RepositoryIntake,
@@ -69,3 +70,20 @@ def test_repository_intake_metadata_uses_canonical_identity_and_query_indexes() 
         "ix_repository_intake_full_name",
         "ix_repository_intake_queue_status",
     }
+
+
+def test_backfill_progress_defaults_support_durable_resume_state() -> None:
+    record = BackfillProgress(
+        window_start_date=date(2026, 2, 1),
+        created_before_boundary=date(2026, 3, 1),
+    )
+
+    assert record.source_provider == "github"
+    assert record.created_before_cursor is None
+    assert record.next_page == 1
+    assert record.exhausted is False
+    assert record.last_checkpointed_at is None
+    assert record.updated_at.tzinfo == timezone.utc
+
+    table = BackfillProgress.__table__
+    assert list(table.primary_key.columns.keys()) == ["source_provider"]
