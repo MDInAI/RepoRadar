@@ -31,8 +31,12 @@ def test_repository_intake_migration_creates_schema_and_enforces_identity(
     inspector = inspect(engine)
 
     assert "repository_intake" in inspector.get_table_names()
+    assert "backfill_progress" in inspector.get_table_names()
     assert inspector.get_pk_constraint("repository_intake")["constrained_columns"] == [
         "github_repository_id"
+    ]
+    assert inspector.get_pk_constraint("backfill_progress")["constrained_columns"] == [
+        "source_provider"
     ]
 
     columns = {column["name"]: column for column in inspector.get_columns("repository_intake")}
@@ -62,6 +66,23 @@ def test_repository_intake_migration_creates_schema_and_enforces_identity(
         "ix_repository_intake_full_name",
         "ix_repository_intake_queue_status",
     }
+
+    backfill_columns = {
+        column["name"]: column for column in inspector.get_columns("backfill_progress")
+    }
+    assert {
+        "source_provider",
+        "window_start_date",
+        "created_before_boundary",
+        "created_before_cursor",
+        "next_page",
+        "exhausted",
+        "last_checkpointed_at",
+        "updated_at",
+    } <= set(backfill_columns)
+    assert not backfill_columns["window_start_date"]["nullable"]
+    assert not backfill_columns["created_before_boundary"]["nullable"]
+    assert not backfill_columns["next_page"]["nullable"]
 
     with engine.begin() as connection:
         connection.execute(
@@ -165,6 +186,110 @@ def test_repository_intake_migration_rejects_invalid_queue_status(
                     "repository_name": "hello-world",
                     "full_name": "octocat/hello-world",
                     "queue_status": "invalid_status",
+                },
+            )
+
+
+def test_backfill_progress_migration_accepts_and_reads_checkpoint_rows(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "backfill-progress.db"
+    database_url = f"sqlite:///{database_path}"
+
+    command.upgrade(_build_alembic_config(database_url), "head")
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO backfill_progress (
+                    source_provider,
+                    window_start_date,
+                    created_before_boundary,
+                    created_before_cursor,
+                    next_page,
+                    exhausted
+                ) VALUES (
+                    :source_provider,
+                    :window_start_date,
+                    :created_before_boundary,
+                    :created_before_cursor,
+                    :next_page,
+                    :exhausted
+                )
+                """
+            ),
+            {
+                "source_provider": "github",
+                "window_start_date": "2026-02-01",
+                "created_before_boundary": "2026-03-01",
+                "created_before_cursor": "2026-02-20 12:00:00+00:00",
+                "next_page": 3,
+                "exhausted": 0,
+            },
+        )
+
+        row = connection.execute(
+            text(
+                """
+                SELECT
+                    source_provider,
+                    window_start_date,
+                    created_before_boundary,
+                    created_before_cursor,
+                    next_page,
+                    exhausted
+                FROM backfill_progress
+                WHERE source_provider = :source_provider
+                """
+            ),
+            {"source_provider": "github"},
+        ).one()
+
+    assert row.source_provider == "github"
+    assert str(row.window_start_date) == "2026-02-01"
+    assert str(row.created_before_boundary) == "2026-03-01"
+    assert str(row.created_before_cursor).startswith("2026-02-20 12:00:00")
+    assert row.next_page == 3
+    assert row.exhausted == 0
+
+
+def test_backfill_progress_migration_rejects_invalid_windows(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "backfill-progress-invalid.db"
+    database_url = f"sqlite:///{database_path}"
+
+    command.upgrade(_build_alembic_config(database_url), "head")
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        with pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO backfill_progress (
+                        source_provider,
+                        window_start_date,
+                        created_before_boundary,
+                        next_page,
+                        exhausted
+                    ) VALUES (
+                        :source_provider,
+                        :window_start_date,
+                        :created_before_boundary,
+                        :next_page,
+                        :exhausted
+                    )
+                    """
+                ),
+                {
+                    "source_provider": "github",
+                    "window_start_date": "2026-03-01",
+                    "created_before_boundary": "2026-03-01",
+                    "next_page": 0,
+                    "exhausted": 0,
                 },
             )
 

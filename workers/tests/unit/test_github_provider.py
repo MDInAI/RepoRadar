@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 
+import agentic_workers.providers.github_provider as github_provider_module
 from agentic_workers.providers.github_provider import (
     FirehoseMode,
     GitHubFirehoseProvider,
@@ -132,6 +133,77 @@ def test_provider_builds_trending_query_without_auth_header() -> None:
     }
 
 
+def test_provider_builds_backfill_query_with_created_window_and_backfill_headers() -> None:
+    transport = RecordingTransport({"items": [_repository_payload(repository_id=345678)]})
+    provider = GitHubFirehoseProvider(
+        transport=transport,
+        github_token="test-token",
+        today=date(2026, 3, 7),
+    )
+
+    repositories = provider.discover_backfill(
+        window_start_date=date(2026, 2, 1),
+        created_before_boundary=date(2026, 3, 1),
+        per_page=75,
+        page=2,
+    )
+
+    assert len(repositories) == 1
+    assert repositories[0].github_repository_id == 345678
+    assert repositories[0].firehose_discovery_mode is None
+
+    call = transport.calls[0]
+    assert call["headers"] == {
+        "Accept": "application/vnd.github+json",
+        "Authorization": "Bearer test-token",
+        "User-Agent": "agentic-workflow-backfill",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    assert call["params"] == {
+        "page": "2",
+        "per_page": "75",
+        "q": "created:>=2026-02-01 created:<2026-03-01T00:00:00Z archived:false is:public",
+        "sort": "created",
+        "order": "desc",
+    }
+    assert repositories[0].created_at == datetime(2026, 3, 7, 0, 0, tzinfo=timezone.utc)
+
+
+def test_provider_builds_backfill_query_with_exact_resume_cursor() -> None:
+    transport = RecordingTransport({"items": [_repository_payload(repository_id=456789)]})
+    provider = GitHubFirehoseProvider(
+        transport=transport,
+        github_token=None,
+        today=date(2026, 3, 7),
+    )
+
+    provider.discover_backfill(
+        window_start_date=date(2026, 2, 1),
+        created_before_boundary=date(2026, 3, 1),
+        created_before_cursor=datetime(2026, 2, 15, 12, 30, tzinfo=timezone.utc),
+        per_page=25,
+        page=1,
+    )
+
+    assert transport.calls[0]["params"]["q"] == (
+        "created:>=2026-02-01 created:<=2026-02-15T12:30:00Z archived:false is:public"
+    )
+
+
+def test_provider_defaults_today_from_utc_clock(monkeypatch) -> None:
+    transport = RecordingTransport({"items": [_repository_payload(repository_id=567890)]})
+    monkeypatch.setattr(github_provider_module, "_utc_today", lambda: date(2026, 3, 8))
+
+    provider = GitHubFirehoseProvider(
+        transport=transport,
+        github_token=None,
+    )
+
+    provider.discover(mode=FirehoseMode.NEW, per_page=10, page=1)
+
+    assert transport.calls[0]["params"]["q"] == "created:>=2026-03-07 archived:false is:public"
+
+
 def test_provider_rejects_malformed_repository_payloads() -> None:
     transport = RecordingTransport(
         {
@@ -148,5 +220,3 @@ def test_provider_rejects_malformed_repository_payloads() -> None:
 
     with pytest.raises(GitHubPayloadError, match="owner.login"):
         provider.discover(mode=FirehoseMode.NEW)
-
-
