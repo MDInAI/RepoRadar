@@ -61,7 +61,9 @@ def upgrade() -> None:
                 server_default=sa.text("'pending'"),
             )
         )
-        batch_op.add_column(sa.Column("analysis_started_at", sa.DateTime(timezone=True), nullable=True))
+        batch_op.add_column(
+            sa.Column("analysis_started_at", sa.DateTime(timezone=True), nullable=True)
+        )
         batch_op.add_column(
             sa.Column("analysis_completed_at", sa.DateTime(timezone=True), nullable=True)
         )

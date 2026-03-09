@@ -156,6 +156,35 @@ def test_repository_triage_endpoint_returns_pending_without_fake_explanation(
     }
 
 
+def test_repository_triage_endpoint_hides_stale_explanation_for_pending_repository(
+    api_client: TestClient,
+    triage_harness: TriageApiHarness,
+) -> None:
+    _seed_repository(
+        triage_harness.session,
+        repository_id=304,
+        triage_status=RepositoryTriageStatus.PENDING,
+        triaged_at=None,
+        explanation=RepositoryTriageExplanation(
+            github_repository_id=304,
+            explanation_kind=RepositoryTriageExplanationKind.ALLOWLIST_MISS,
+            explanation_summary="Rejected because no include rules matched the configured allowlist.",
+            matched_include_rules=[],
+            matched_exclude_rules=[],
+            explained_at=datetime(2026, 3, 8, 12, 50, tzinfo=timezone.utc),
+        ),
+    )
+
+    response = api_client.get("/api/v1/repositories/304/triage")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "triage_status": "pending",
+        "triaged_at": None,
+        "explanation": None,
+    }
+
+
 def test_repository_triage_endpoint_returns_structured_not_found_error(
     api_client: TestClient,
 ) -> None:

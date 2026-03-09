@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 
@@ -116,7 +117,11 @@ class Settings(BaseSettings):
             if not candidate:
                 return ()
             if candidate.startswith("["):
-                return value
+                try:
+                    parsed = json.loads(candidate)
+                    return tuple(str(part).strip() for part in parsed if str(part).strip())
+                except (json.JSONDecodeError, ValueError):
+                    pass
             return tuple(part.strip() for part in candidate.split(",") if part.strip())
         if isinstance(value, (list, tuple)):
             return tuple(str(part).strip() for part in value if str(part).strip())

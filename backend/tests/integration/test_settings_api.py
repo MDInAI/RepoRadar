@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.api.routes.settings import get_settings_service
+from app.api.deps import get_settings_service
 from app.core.config import Settings
 from app.main import app
 from app.services.settings_service import SettingsService
@@ -180,8 +180,7 @@ def test_settings_summary_endpoint_returns_structured_422_for_invalid_workspace_
     assert response.status_code == 422
     issues = response.json()["error"]["details"]["validation"]["issues"]
     assert any(
-        issue["field"] == "OPENCLAW_WORKSPACE_DIR"
-        and issue["code"] == "workspace_dir_invalid"
+        issue["field"] == "OPENCLAW_WORKSPACE_DIR" and issue["code"] == "workspace_dir_invalid"
         for issue in issues
     )
 
@@ -306,8 +305,7 @@ def test_settings_summary_endpoint_surfaces_worker_drift_warnings(
     assert response.status_code == 200
     payload = response.json()
     assert any(
-        issue["code"] == "worker_workspace_dir_differs"
-        for issue in payload["validation"]["issues"]
+        issue["code"] == "worker_workspace_dir_differs" for issue in payload["validation"]["issues"]
     )
     assert any(
         issue["code"] == "worker_github_provider_token_differs"
@@ -322,8 +320,7 @@ def test_settings_summary_endpoint_surfaces_worker_drift_warnings(
         for issue in payload["validation"]["issues"]
     )
     assert any(
-        item["key"] == "workers.OPENCLAW_WORKSPACE_DIR"
-        and item["source"] == "workers-env"
+        item["key"] == "workers.OPENCLAW_WORKSPACE_DIR" and item["source"] == "workers-env"
         for item in payload["worker_settings"]
     )
 

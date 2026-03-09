@@ -19,12 +19,12 @@ cd "$BACKEND_DIR"
 case "${1:-upgrade}" in
   upgrade)
     echo "Running upgrade to head..."
-    alembic upgrade head
+    uv run alembic upgrade head
     echo "✓ Migrations applied"
     ;;
   downgrade)
     echo "Running downgrade by 1..."
-    alembic downgrade -1
+    uv run alembic downgrade -1
     echo "✓ Downgrade complete"
     ;;
   generate)
@@ -33,7 +33,7 @@ case "${1:-upgrade}" in
       exit 1
     fi
     echo "Generating migration: $2"
-    alembic revision --autogenerate -m "$2"
+    uv run alembic revision --autogenerate -m "$2"
     echo "✓ Migration generated"
     ;;
   *)

@@ -20,7 +20,9 @@ class RepositoryArtifactKind(StrEnum):
 class RepositoryArtifact(SQLModel, table=True):
     __tablename__ = "repository_artifact"
     __table_args__ = (
-        CheckConstraint("runtime_relative_path != ''", name="ck_repository_artifact_path_not_blank"),
+        CheckConstraint(
+            "runtime_relative_path != ''", name="ck_repository_artifact_path_not_blank"
+        ),
         CheckConstraint("source_kind != ''", name="ck_repository_artifact_source_kind_not_blank"),
         CheckConstraint("content_sha256 != ''", name="ck_repository_artifact_sha_not_blank"),
         CheckConstraint("content_type != ''", name="ck_repository_artifact_content_type_not_blank"),

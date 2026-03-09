@@ -136,9 +136,7 @@ def test_gateway_contract_endpoint_returns_metadata(api_client: TestClient) -> N
     assert {
         agent["agent_key"]: agent["agent_role"] for agent in payload["named_agents"]
     } == EXPECTED_AGENT_ROLES
-    assert any(
-        item["name"] == "realtime-events" for item in payload["canonical_interfaces"]
-    )
+    assert any(item["name"] == "realtime-events" for item in payload["canonical_interfaces"])
 
 
 def test_gateway_runtime_endpoint_returns_zero_bucket_intake_shape(
@@ -152,7 +150,9 @@ def test_gateway_runtime_endpoint_returns_zero_bucket_intake_shape(
     assert payload["availability"] == "available"
     assert payload["runtime"]["runtime_mode"] == "multi-agent"
     assert payload["runtime"]["source_of_truth"] == "agentic-workflow+gateway"
-    assert [agent["agent_key"] for agent in payload["runtime"]["agent_states"]] == EXPECTED_ALL_AGENT_KEYS
+    assert [
+        agent["agent_key"] for agent in payload["runtime"]["agent_states"]
+    ] == EXPECTED_ALL_AGENT_KEYS
     assert payload["runtime"]["agent_states"][0]["agent_role"] == "control-plane-coordinator"
     assert payload["runtime"]["agent_states"][0]["session_affinity"] == {
         "source_of_truth": "gateway",
@@ -246,9 +246,7 @@ def test_gateway_runtime_endpoint_returns_mixed_intake_status_from_backend_state
     assert backfill["queue"]["checkpoint"]["kind"] == "backfill"
     assert backfill["queue"]["checkpoint"]["window_start_date"] == "2025-01-01"
     assert backfill["queue"]["checkpoint"]["created_before_boundary"] == "2025-01-31"
-    assert backfill["queue"]["checkpoint"]["created_before_cursor"] == (
-        "2025-01-15T12:00:00Z"
-    )
+    assert backfill["queue"]["checkpoint"]["created_before_cursor"] == ("2025-01-15T12:00:00Z")
 
     assert bouncer["queue"]["status"] == "reserved"
 
@@ -499,9 +497,7 @@ def test_gateway_contract_endpoint_returns_settings_validation_error_for_invalid
                 )
             )
 
-    with override_gateway_contract_service(
-        GatewayContractService(adapter=SettingsBackedAdapter())
-    ):
+    with override_gateway_contract_service(GatewayContractService(adapter=SettingsBackedAdapter())):
         response = test_client.get("/api/v1/gateway/contract")
 
     assert response.status_code == 422
@@ -528,11 +524,7 @@ def test_gateway_runtime_endpoint_returns_intake_surface_for_invalid_gateway_url
                     },
                     "auth": {"token": "gateway-token"},
                 },
-                "agents": {
-                    "defaults": {
-                        "model": {"primary": "test-model"}
-                    }
-                },
+                "agents": {"defaults": {"model": {"primary": "test-model"}}},
             }
         ),
         encoding="utf-8",

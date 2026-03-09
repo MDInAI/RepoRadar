@@ -45,9 +45,9 @@ def test_repository_intake_migration_creates_schema_and_enforces_identity(
     assert inspector.get_pk_constraint("firehose_progress")["constrained_columns"] == [
         "source_provider"
     ]
-    assert inspector.get_pk_constraint("repository_triage_explanation")[
-        "constrained_columns"
-    ] == ["github_repository_id"]
+    assert inspector.get_pk_constraint("repository_triage_explanation")["constrained_columns"] == [
+        "github_repository_id"
+    ]
 
     columns = {column["name"]: column for column in inspector.get_columns("repository_intake")}
     assert {
@@ -130,8 +130,7 @@ def test_repository_intake_migration_creates_schema_and_enforces_identity(
     assert not firehose_columns["resume_required"]["nullable"]
 
     explanation_columns = {
-        column["name"]: column
-        for column in inspector.get_columns("repository_triage_explanation")
+        column["name"]: column for column in inspector.get_columns("repository_triage_explanation")
     }
     assert {
         "github_repository_id",
@@ -254,7 +253,9 @@ def test_repository_intake_migration_creates_schema_and_enforces_identity(
         assert row.analysis_started_at is None
         assert row.analysis_failure_code is None
         assert (
-            connection.execute(text("SELECT COUNT(*) FROM repository_triage_explanation")).scalar_one()
+            connection.execute(
+                text("SELECT COUNT(*) FROM repository_triage_explanation")
+            ).scalar_one()
             == 0
         )
         assert (
@@ -435,7 +436,10 @@ def test_repository_intake_migration_creates_schema_and_enforces_identity(
         assert artifact_row.provenance_metadata == '{"normalization_version":"story-3.4-v1"}'
         assert str(artifact_row.generated_at).startswith("2026-03-08 13:45:00")
 
-        with pytest.raises(IntegrityError, match="UNIQUE constraint failed: repository_intake.github_repository_id|UNIQUE constraint failed: repository_intake.full_name|PRIMARY KEY must be unique"):
+        with pytest.raises(
+            IntegrityError,
+            match="UNIQUE constraint failed: repository_intake.github_repository_id|UNIQUE constraint failed: repository_intake.full_name|PRIMARY KEY must be unique",
+        ):
             connection.execute(
                 text(
                     """
@@ -459,6 +463,118 @@ def test_repository_intake_migration_creates_schema_and_enforces_identity(
                     "full_name": "duplicate-owner/duplicate-repo",
                 },
             )
+
+
+def test_repository_triage_explanation_migration_validates_story_3_2_in_isolation(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "repository-triage-explanation.db"
+    database_url = f"sqlite:///{database_path}"
+
+    command.upgrade(_build_alembic_config(database_url), "20260308_0009")
+
+    engine = create_engine(database_url)
+    inspector = inspect(engine)
+
+    assert "repository_intake" in inspector.get_table_names()
+    assert "repository_triage_explanation" in inspector.get_table_names()
+    assert "repository_analysis_result" not in inspector.get_table_names()
+    assert "repository_artifact" not in inspector.get_table_names()
+
+    explanation_columns = {
+        column["name"]: column for column in inspector.get_columns("repository_triage_explanation")
+    }
+    assert {
+        "github_repository_id",
+        "explanation_kind",
+        "explanation_summary",
+        "matched_include_rules",
+        "matched_exclude_rules",
+        "explained_at",
+    } == set(explanation_columns)
+    assert not explanation_columns["github_repository_id"]["nullable"]
+    assert not explanation_columns["explanation_kind"]["nullable"]
+    assert not explanation_columns["explanation_summary"]["nullable"]
+    assert not explanation_columns["matched_include_rules"]["nullable"]
+    assert not explanation_columns["matched_exclude_rules"]["nullable"]
+    assert not explanation_columns["explained_at"]["nullable"]
+
+    explanation_foreign_keys = inspector.get_foreign_keys("repository_triage_explanation")
+    assert len(explanation_foreign_keys) == 1
+    assert explanation_foreign_keys[0]["referred_table"] == "repository_intake"
+    assert explanation_foreign_keys[0]["referred_columns"] == ["github_repository_id"]
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO repository_intake (
+                    github_repository_id,
+                    owner_login,
+                    repository_name,
+                    full_name
+                ) VALUES (
+                    :github_repository_id,
+                    :owner_login,
+                    :repository_name,
+                    :full_name
+                )
+                """
+            ),
+            {
+                "github_repository_id": 2468,
+                "owner_login": "octocat",
+                "repository_name": "triage-repo",
+                "full_name": "octocat/triage-repo",
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO repository_triage_explanation (
+                    github_repository_id,
+                    explanation_kind,
+                    explanation_summary,
+                    matched_include_rules,
+                    matched_exclude_rules,
+                    explained_at
+                ) VALUES (
+                    :github_repository_id,
+                    :explanation_kind,
+                    :explanation_summary,
+                    :matched_include_rules,
+                    :matched_exclude_rules,
+                    :explained_at
+                )
+                """
+            ),
+            {
+                "github_repository_id": 2468,
+                "explanation_kind": "include_rule",
+                "explanation_summary": "Accepted because include rules matched: saas.",
+                "matched_include_rules": '["saas"]',
+                "matched_exclude_rules": "[]",
+                "explained_at": "2026-03-08 12:30:00+00:00",
+            },
+        )
+
+        explanation_row = connection.execute(
+            text(
+                """
+                SELECT explanation_kind, explanation_summary, matched_include_rules,
+                       matched_exclude_rules
+                FROM repository_triage_explanation
+                WHERE github_repository_id = :github_repository_id
+                """
+            ),
+            {"github_repository_id": 2468},
+        ).one()
+        assert explanation_row.explanation_kind == "include_rule"
+        assert explanation_row.explanation_summary == (
+            "Accepted because include rules matched: saas."
+        )
+        assert explanation_row.matched_include_rules == '["saas"]'
+        assert explanation_row.matched_exclude_rules == "[]"
 
 
 def test_repository_intake_migration_rejects_invalid_queue_status(
@@ -580,7 +696,9 @@ def test_backfill_progress_migration_rejects_invalid_windows(
 
     engine = create_engine(database_url)
     with engine.begin() as connection:
-        with pytest.raises(IntegrityError, match="ck_backfill_progress_next_page_positive|CHECK constraint failed"):
+        with pytest.raises(
+            IntegrityError, match="ck_backfill_progress_next_page_positive|CHECK constraint failed"
+        ):
             connection.execute(
                 text(
                     """
@@ -753,7 +871,10 @@ def test_firehose_progress_migration_rejects_incomplete_resume_rows(
 
     engine = create_engine(database_url)
     with engine.begin() as connection:
-        with pytest.raises(IntegrityError, match="ck_firehose_progress_resume_state_complete|CHECK constraint failed"):
+        with pytest.raises(
+            IntegrityError,
+            match="ck_firehose_progress_resume_state_complete|CHECK constraint failed",
+        ):
             connection.execute(
                 text(
                     """
@@ -841,7 +962,10 @@ def test_repository_intake_migration_rejects_firehose_rows_without_firehose_mode
 
     engine = create_engine(database_url)
     with engine.begin() as connection:
-        with pytest.raises(IntegrityError, match="ck_repository_intake_firehose_mode_matches_discovery_source|CHECK constraint failed"):
+        with pytest.raises(
+            IntegrityError,
+            match="ck_repository_intake_firehose_mode_matches_discovery_source|CHECK constraint failed",
+        ):
             connection.execute(
                 text(
                     """
@@ -956,7 +1080,10 @@ def test_repository_intake_migration_rejects_invalid_source_provider(
 
     engine = create_engine(database_url)
     with engine.begin() as connection:
-        with pytest.raises(IntegrityError, match="ck_repository_intake_source_provider_valid|CHECK constraint failed"):
+        with pytest.raises(
+            IntegrityError,
+            match="ck_repository_intake_source_provider_valid|CHECK constraint failed",
+        ):
             connection.execute(
                 text(
                     "INSERT INTO repository_intake "
@@ -986,17 +1113,32 @@ def test_repository_intake_migration_rejects_blank_metadata(
         for blank_field, params, expected_constraint in [
             (
                 "owner_login",
-                {"github_repository_id": 400001, "owner_login": "", "repository_name": "r", "full_name": "/r"},
+                {
+                    "github_repository_id": 400001,
+                    "owner_login": "",
+                    "repository_name": "r",
+                    "full_name": "/r",
+                },
                 "ck_repository_intake_owner_login_not_blank|CHECK constraint failed",
             ),
             (
                 "repository_name",
-                {"github_repository_id": 400002, "owner_login": "o", "repository_name": "", "full_name": "o/"},
+                {
+                    "github_repository_id": 400002,
+                    "owner_login": "o",
+                    "repository_name": "",
+                    "full_name": "o/",
+                },
                 "ck_repository_intake_repository_name_not_blank|CHECK constraint failed",
             ),
             (
                 "full_name",
-                {"github_repository_id": 400003, "owner_login": "o", "repository_name": "r", "full_name": ""},
+                {
+                    "github_repository_id": 400003,
+                    "owner_login": "o",
+                    "repository_name": "r",
+                    "full_name": "",
+                },
                 "ck_repository_intake_full_name_not_blank|CHECK constraint failed",
             ),
         ]:
@@ -1021,7 +1163,10 @@ def test_repository_intake_migration_rejects_inconsistent_full_name(
 
     engine = create_engine(database_url)
     with engine.begin() as connection:
-        with pytest.raises(IntegrityError, match="ck_repository_intake_full_name_consistent|CHECK constraint failed"):
+        with pytest.raises(
+            IntegrityError,
+            match="ck_repository_intake_full_name_consistent|CHECK constraint failed",
+        ):
             connection.execute(
                 text(
                     "INSERT INTO repository_intake "

@@ -31,6 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # Global custom error handler for AppError
 @app.exception_handler(AppError)
 async def app_error_handler(request: Request, exc: AppError):
@@ -46,6 +47,7 @@ async def app_error_handler(request: Request, exc: AppError):
         ).model_dump(),
     )
 
+
 # Global catch-all for 500s
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
@@ -59,6 +61,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
             ),
         ).model_dump(),
     )
+
 
 # Include routes
 app.include_router(health.router, prefix="/health", tags=["health"])

@@ -1,18 +1,10 @@
 from __future__ import annotations
 
-import ast
-import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict, cast
 
-
-_JSON5_KEY_PATTERN = re.compile(r'([{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)(\s*:)')
-_JSON5_CONSTANTS = {
-    "true": "True",
-    "false": "False",
-    "null": "None",
-}
+import pyjson5
 
 
 class OpenClawConfigError(ValueError):
@@ -30,25 +22,49 @@ class OpenClawGatewayConfig:
     allow_insecure_tls: bool
 
 
+class OpenClawGatewayAuthSection(TypedDict, total=False):
+    token: str
+
+
+class OpenClawGatewayRemoteSection(TypedDict, total=False):
+    url: str
+    allowInsecureTls: bool
+
+
+class OpenClawGatewaySection(TypedDict, total=False):
+    url: str
+    auth: OpenClawGatewayAuthSection
+    remote: OpenClawGatewayRemoteSection
+    allowInsecureTls: bool
+
+
+class OpenClawModelSection(TypedDict, total=False):
+    primary: str
+
+
+class OpenClawAgentDefaultsSection(TypedDict, total=False):
+    model: str | OpenClawModelSection
+
+
+class OpenClawAgentsSection(TypedDict, total=False):
+    defaults: OpenClawAgentDefaultsSection
+
+
 def load_openclaw_config(config_path: Path) -> dict[str, Any]:
     try:
         raw_text = config_path.read_text(encoding="utf-8")
     except OSError as exc:
         raise OpenClawConfigReadError(str(exc)) from exc
 
+    if not raw_text.strip():
+        return {}
     return parse_openclaw_config(raw_text)
 
 
 def parse_openclaw_config(raw_text: str) -> dict[str, Any]:
-    normalized = _strip_json5_comments(raw_text)
-    normalized = _transform_outside_strings(
-        normalized,
-        _normalize_json5_segment,
-    ).strip()
-
     try:
-        loaded = ast.literal_eval(normalized)
-    except (SyntaxError, ValueError) as exc:
+        loaded = pyjson5.loads(raw_text)
+    except Exception as exc:
         raise OpenClawConfigError(str(exc)) from exc
 
     if not isinstance(loaded, dict):
@@ -58,8 +74,8 @@ def parse_openclaw_config(raw_text: str) -> dict[str, Any]:
 
 
 def extract_gateway_config(payload: dict[str, Any]) -> OpenClawGatewayConfig:
-    gateway_config = _as_dict(payload.get("gateway"))
-    auth_config = _as_dict(gateway_config.get("auth"))
+    gateway_config = _gateway_section(payload)
+    auth_config = _gateway_auth_section(gateway_config)
 
     return OpenClawGatewayConfig(
         url=extract_gateway_url(gateway_config),
@@ -69,20 +85,8 @@ def extract_gateway_config(payload: dict[str, Any]) -> OpenClawGatewayConfig:
 
 
 def extract_default_model(payload: dict[str, Any]) -> str | None:
-    agent_defaults = _as_dict(_as_dict(payload.get("agents")).get("defaults"))
-    value = agent_defaults.get("model")
-
-    if isinstance(value, str):
-        candidate = value.strip()
-        return candidate or None
-
-    if isinstance(value, dict):
-        primary = value.get("primary")
-        if isinstance(primary, str):
-            candidate = primary.strip()
-            return candidate or None
-
-    return None
+    agent_defaults = _agents_defaults_section(payload)
+    return _normalize_model_value(agent_defaults.get("model"))
 
 
 def extract_gateway_url(gateway_config: dict[str, Any]) -> str | None:
@@ -90,7 +94,7 @@ def extract_gateway_url(gateway_config: dict[str, Any]) -> str | None:
     if direct_url:
         return direct_url
 
-    remote_config = _as_dict(gateway_config.get("remote"))
+    remote_config = _gateway_remote_section(gateway_config)
     return _as_string(remote_config.get("url"))
 
 
@@ -98,100 +102,39 @@ def extract_gateway_allow_insecure_tls(gateway_config: dict[str, Any]) -> bool:
     if "allowInsecureTls" in gateway_config:
         return _as_bool(gateway_config.get("allowInsecureTls"))
 
-    remote_config = _as_dict(gateway_config.get("remote"))
+    remote_config = _gateway_remote_section(gateway_config)
     return _as_bool(remote_config.get("allowInsecureTls"))
 
 
-def _strip_json5_comments(raw_text: str) -> str:
-    result: list[str] = []
-    index = 0
-    in_string: str | None = None
-    escaping = False
-
-    while index < len(raw_text):
-        char = raw_text[index]
-        next_char = raw_text[index + 1] if index + 1 < len(raw_text) else ""
-
-        if in_string is not None:
-            result.append(char)
-            if escaping:
-                escaping = False
-            elif char == "\\":
-                escaping = True
-            elif char == in_string:
-                in_string = None
-            index += 1
-            continue
-
-        if char in {'"', "'"}:
-            in_string = char
-            result.append(char)
-            index += 1
-            continue
-
-        if char == "/" and next_char == "/":
-            index += 2
-            while index < len(raw_text) and raw_text[index] not in "\r\n":
-                index += 1
-            continue
-
-        if char == "/" and next_char == "*":
-            index += 2
-            while index + 1 < len(raw_text):
-                if raw_text[index] == "*" and raw_text[index + 1] == "/":
-                    index += 2
-                    break
-                index += 1
-            continue
-
-        result.append(char)
-        index += 1
-
-    return "".join(result)
+def _gateway_section(payload: dict[str, Any]) -> OpenClawGatewaySection:
+    return cast(OpenClawGatewaySection, _as_dict(payload.get("gateway")))
 
 
-def _transform_outside_strings(raw_text: str, transform: Any) -> str:
-    result: list[str] = []
-    segment: list[str] = []
-    in_string: str | None = None
-    escaping = False
-
-    for char in raw_text:
-        if in_string is None:
-            if char in {'"', "'"}:
-                if segment:
-                    result.append(transform("".join(segment)))
-                    segment = []
-                in_string = char
-                segment.append(char)
-            else:
-                segment.append(char)
-            continue
-
-        segment.append(char)
-        if escaping:
-            escaping = False
-        elif char == "\\":
-            escaping = True
-        elif char == in_string:
-            result.append("".join(segment))
-            segment = []
-            in_string = None
-
-    if segment:
-        if in_string is None:
-            result.append(transform("".join(segment)))
-        else:
-            result.append("".join(segment))
-
-    return "".join(result)
+def _gateway_auth_section(
+    gateway_config: OpenClawGatewaySection | dict[str, Any],
+) -> OpenClawGatewayAuthSection:
+    return cast(OpenClawGatewayAuthSection, _as_dict(gateway_config.get("auth")))
 
 
-def _normalize_json5_segment(segment: str) -> str:
-    segment = _JSON5_KEY_PATTERN.sub(r'\1"\2"\3', segment)
-    for source, target in _JSON5_CONSTANTS.items():
-        segment = re.sub(rf"\b{source}\b", target, segment)
-    return segment
+def _gateway_remote_section(
+    gateway_config: OpenClawGatewaySection | dict[str, Any],
+) -> OpenClawGatewayRemoteSection:
+    return cast(OpenClawGatewayRemoteSection, _as_dict(gateway_config.get("remote")))
+
+
+def _agents_defaults_section(payload: dict[str, Any]) -> OpenClawAgentDefaultsSection:
+    agents = cast(OpenClawAgentsSection, _as_dict(payload.get("agents")))
+    return cast(OpenClawAgentDefaultsSection, _as_dict(agents.get("defaults")))
+
+
+def _normalize_model_value(value: Any) -> str | None:
+    result = _as_string(value)
+    if result is not None:
+        return result
+    if isinstance(value, dict):
+        model_config = cast(OpenClawModelSection, value)
+        return _as_string(model_config.get("primary"))
+    return None
 
 
 def _as_dict(value: Any) -> dict[str, Any]:

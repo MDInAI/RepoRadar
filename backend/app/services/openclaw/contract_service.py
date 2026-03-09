@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Protocol
 
 from app.core.errors import AppError
@@ -35,6 +36,8 @@ from app.services.openclaw.transport import (
     map_gateway_transport_error,
     resolve_gateway_target,
 )
+
+logger = logging.getLogger(__name__)
 
 CONTRACT_VERSION = "1.2.0"
 _QUEUE_PLACEHOLDER_NOTE = (
@@ -144,6 +147,7 @@ class GatewayContractService:
 
     def get_contract_metadata(self) -> GatewayContractResponse:
         target = self._resolve_target()
+        logger.info("Gateway contract metadata resolved: configured=%s", target.configured)
         return GatewayContractResponse(
             contract_version=CONTRACT_VERSION,
             architecture_flow="frontend -> Agentic-Workflow backend -> Gateway",
@@ -272,11 +276,17 @@ class GatewayContractService:
         try:
             target = self._resolve_target()
             gateway_url = target.url
+            logger.debug(
+                "Gateway runtime surface: target resolved, configured=%s", target.configured
+            )
         except AppError as exc:
             # Story 2.6: Allow runtime inspection to succeed even if gateway transport
             # target resolution fails (e.g. invalid/missing configuration) so that
             # backend-owned intake queues are still rendered.
             if exc.status_code == 422:
+                logger.warning(
+                    "Gateway target resolution failed (422); runtime surface proceeding without URL"
+                )
                 gateway_url = None
             else:
                 raise

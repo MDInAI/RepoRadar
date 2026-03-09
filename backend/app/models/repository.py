@@ -166,9 +166,13 @@ class RepositoryMonetizationPotential(StrEnum):
 class RepositoryIntake(SQLModel, table=True):
     __tablename__ = "repository_intake"
     __table_args__ = (
-        CheckConstraint("source_provider IN ('github')", name="ck_repository_intake_source_provider_valid"),
+        CheckConstraint(
+            "source_provider IN ('github')", name="ck_repository_intake_source_provider_valid"
+        ),
         CheckConstraint("owner_login != ''", name="ck_repository_intake_owner_login_not_blank"),
-        CheckConstraint("repository_name != ''", name="ck_repository_intake_repository_name_not_blank"),
+        CheckConstraint(
+            "repository_name != ''", name="ck_repository_intake_repository_name_not_blank"
+        ),
         CheckConstraint("full_name != ''", name="ck_repository_intake_full_name_not_blank"),
         CheckConstraint("stargazers_count >= 0", name="ck_repository_intake_stars_non_negative"),
         CheckConstraint("forks_count >= 0", name="ck_repository_intake_forks_non_negative"),
@@ -428,8 +432,13 @@ class RepositoryTriageExplanation(SQLModel, table=True):
 class RepositoryAnalysisResult(SQLModel, table=True):
     __tablename__ = "repository_analysis_result"
     __table_args__ = (
-        CheckConstraint("source_provider IN ('github')", name="ck_repository_analysis_result_source_provider_valid"),
-        CheckConstraint("source_kind != ''", name="ck_repository_analysis_result_source_kind_not_blank"),
+        CheckConstraint(
+            "source_provider IN ('github')",
+            name="ck_repository_analysis_result_source_provider_valid",
+        ),
+        CheckConstraint(
+            "source_kind != ''", name="ck_repository_analysis_result_source_kind_not_blank"
+        ),
     )
 
     github_repository_id: int = Field(
@@ -508,7 +517,9 @@ class RepositoryAnalysisResult(SQLModel, table=True):
 class BackfillProgress(SQLModel, table=True):
     __tablename__ = "backfill_progress"
     __table_args__ = (
-        CheckConstraint("source_provider IN ('github')", name="ck_backfill_progress_source_provider_valid"),
+        CheckConstraint(
+            "source_provider IN ('github')", name="ck_backfill_progress_source_provider_valid"
+        ),
         CheckConstraint("next_page > 0", name="ck_backfill_progress_next_page_positive"),
         CheckConstraint(
             "window_start_date < created_before_boundary",
@@ -568,7 +579,9 @@ class BackfillProgress(SQLModel, table=True):
 class FirehoseProgress(SQLModel, table=True):
     __tablename__ = "firehose_progress"
     __table_args__ = (
-        CheckConstraint("source_provider IN ('github')", name="ck_firehose_progress_source_provider_valid"),
+        CheckConstraint(
+            "source_provider IN ('github')", name="ck_firehose_progress_source_provider_valid"
+        ),
         CheckConstraint("next_page > 0", name="ck_firehose_progress_next_page_positive"),
         CheckConstraint(
             "(resume_required = 0) OR ("

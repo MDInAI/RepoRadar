@@ -51,9 +51,13 @@ def upgrade() -> None:
         sa.Column("owner_login", sa.String(length=255), nullable=False),
         sa.Column("repository_name", sa.String(length=255), nullable=False),
         sa.Column("full_name", sa.String(length=511), nullable=False),
-        sa.CheckConstraint("source_provider IN ('github')", name="ck_repository_intake_source_provider_valid"),
+        sa.CheckConstraint(
+            "source_provider IN ('github')", name="ck_repository_intake_source_provider_valid"
+        ),
         sa.CheckConstraint("owner_login != ''", name="ck_repository_intake_owner_login_not_blank"),
-        sa.CheckConstraint("repository_name != ''", name="ck_repository_intake_repository_name_not_blank"),
+        sa.CheckConstraint(
+            "repository_name != ''", name="ck_repository_intake_repository_name_not_blank"
+        ),
         sa.CheckConstraint("full_name != ''", name="ck_repository_intake_full_name_not_blank"),
         sa.CheckConstraint(
             "full_name = owner_login || '/' || repository_name",
