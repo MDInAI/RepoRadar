@@ -1,14 +1,24 @@
 from typing import TypeVar
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response, status
 
-from app.api.deps import get_repository_exploration_service, get_repository_triage_service
+from app.api.deps import (
+    get_repository_curation_service,
+    get_repository_exploration_service,
+    get_repository_triage_service,
+)
 from app.core.errors import AppError
 from app.models import (
     RepositoryAnalysisStatus,
     RepositoryDiscoverySource,
     RepositoryMonetizationPotential,
     RepositoryTriageStatus,
+)
+from app.schemas.repository_curation import (
+    RepositoryCurationResponse,
+    RepositoryStarRequest,
+    RepositoryUserTagRequest,
+    RepositoryUserTagResponse,
 )
 from app.schemas.repository_exploration import (
     RepositoryCatalogPageResponse,
@@ -18,6 +28,7 @@ from app.schemas.repository_exploration import (
     RepositoryExplorationResponse,
 )
 from app.schemas.repository_triage import RepositoryTriageResponse
+from app.services.repository_curation_service import RepositoryCurationService
 from app.services.repository_exploration_service import RepositoryExplorationService
 from app.services.repository_triage_service import RepositoryTriageService
 
@@ -26,6 +37,7 @@ router = APIRouter(prefix="/repositories", tags=["repositories"])
 
 TriageServiceDep = Depends(get_repository_triage_service)
 ExplorationServiceDep = Depends(get_repository_exploration_service)
+CurationServiceDep = Depends(get_repository_curation_service)
 TEnum = TypeVar("TEnum")
 
 
@@ -62,6 +74,8 @@ def get_repository_catalog_query_params(
     monetization_potential: str | None = Query(default=None),
     min_stars: int | None = Query(default=None),
     max_stars: int | None = Query(default=None),
+    starred_only: bool = Query(default=False),
+    user_tag: str | None = Query(default=None),
     sort_by: str = Query(default=RepositoryCatalogSortBy.STARS.value),
     sort_order: str = Query(default=RepositoryCatalogSortOrder.DESC.value),
 ) -> RepositoryCatalogQueryParams:
@@ -106,6 +120,7 @@ def get_repository_catalog_query_params(
         )
 
     normalized_search = search.strip() if search else None
+    normalized_user_tag = user_tag.strip() if user_tag else None
 
     return RepositoryCatalogQueryParams(
         page=page,
@@ -133,6 +148,8 @@ def get_repository_catalog_query_params(
         ),
         min_stars=min_stars,
         max_stars=max_stars,
+        starred_only=starred_only,
+        user_tag=normalized_user_tag or None,
         sort_by=_parse_repository_catalog_enum(sort_by, RepositoryCatalogSortBy, "sort_by")
         or RepositoryCatalogSortBy.STARS,
         sort_order=_parse_repository_catalog_enum(
@@ -145,6 +162,18 @@ def get_repository_catalog_query_params(
 
 
 CatalogQueryParamsDep = Depends(get_repository_catalog_query_params)
+
+
+def _normalize_repository_user_tag_path(tag_label: str) -> str:
+    normalized = tag_label.strip()
+    if normalized == "" or len(normalized) > 100:
+        raise AppError(
+            message="tag_label must be between 1 and 100 characters after trimming.",
+            code="invalid_repository_user_tag",
+            status_code=400,
+            details={"tag_label": tag_label},
+        )
+    return normalized
 
 
 @router.get("", response_model=RepositoryCatalogPageResponse)
@@ -163,6 +192,56 @@ def read_repository_triage(
 ) -> RepositoryTriageResponse:
     """Expose the stored repository triage status and explanation snapshot."""
     return service.get_repository_triage(github_repository_id)
+
+
+@router.get("/{github_repository_id}/curation", response_model=RepositoryCurationResponse)
+def read_repository_curation(
+    github_repository_id: int,
+    service: RepositoryCurationService = CurationServiceDep,
+) -> RepositoryCurationResponse:
+    """Expose the operator-owned curation state for a repository."""
+    return service.get_repository_curation(github_repository_id)
+
+
+@router.put("/{github_repository_id}/star", response_model=RepositoryCurationResponse)
+def update_repository_star(
+    github_repository_id: int,
+    request: RepositoryStarRequest,
+    service: RepositoryCurationService = CurationServiceDep,
+) -> RepositoryCurationResponse:
+    """Persist starred state changes for a repository."""
+    return service.set_repository_starred(github_repository_id, request.starred)
+
+
+@router.post(
+    "/{github_repository_id}/tags",
+    response_model=RepositoryUserTagResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_repository_user_tag(
+    github_repository_id: int,
+    request: RepositoryUserTagRequest,
+    service: RepositoryCurationService = CurationServiceDep,
+) -> RepositoryUserTagResponse:
+    """Add an operator-owned curation tag to a repository."""
+    return service.add_repository_user_tag(github_repository_id, request.tag_label)
+
+
+@router.delete(
+    "/{github_repository_id}/tags/{tag_label:path}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_repository_user_tag(
+    github_repository_id: int,
+    tag_label: str,
+    service: RepositoryCurationService = CurationServiceDep,
+) -> Response:
+    """Remove an operator-owned curation tag from a repository."""
+    service.remove_repository_user_tag(
+        github_repository_id,
+        _normalize_repository_user_tag_path(tag_label),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{github_repository_id}", response_model=RepositoryExplorationResponse)

@@ -1,6 +1,8 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.api.routes.repositories import get_repository_exploration_service
+from app.core.config import settings
 from app.main import app
 from app.models import (
     RepositoryAnalysisResult,
@@ -19,6 +22,8 @@ from app.models import (
     RepositoryIntake,
     RepositoryMonetizationPotential,
     RepositoryQueueStatus,
+    RepositoryTriageExplanation,
+    RepositoryTriageExplanationKind,
     RepositoryTriageStatus,
 )
 from app.repositories.repository_exploration_repository import RepositoryExplorationRepository
@@ -26,7 +31,10 @@ from app.services.repository_exploration_service import RepositoryExplorationSer
 
 
 def _build_repository_exploration_service(session: Session) -> RepositoryExplorationService:
-    return RepositoryExplorationService(RepositoryExplorationRepository(session))
+    return RepositoryExplorationService(
+        RepositoryExplorationRepository(session),
+        runtime_dir=settings.AGENTIC_RUNTIME_DIR,
+    )
 
 
 @contextmanager
@@ -55,10 +63,14 @@ def db_session() -> Iterator[Session]:
 
 @pytest.fixture
 def client(db_session: Session) -> Iterator[TestClient]:
-    service = _build_repository_exploration_service(db_session)
-    with override_repository_exploration_service(service):
+    app.dependency_overrides[get_repository_exploration_service] = (
+        lambda: _build_repository_exploration_service(db_session)
+    )
+    try:
         with TestClient(app) as test_client:
             yield test_client
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -156,8 +168,10 @@ def test_get_repository_exploration_success(
     client: TestClient,
     db_session: Session,
     base_repository: RepositoryIntake,
+    tmp_path: Path,
 ) -> None:
     # Add artifacts and analysis
+    now = datetime(2026, 3, 9, 12, 0, tzinfo=timezone.utc)
     artifact = RepositoryArtifact(
         github_repository_id=base_repository.github_repository_id,
         artifact_kind=RepositoryArtifactKind.README_SNAPSHOT,
@@ -166,33 +180,115 @@ def test_get_repository_exploration_success(
         byte_size=1024,
         content_type="text/markdown",
         source_kind="github_readme",
-        generated_at=datetime(2026, 3, 9, 12, 0, tzinfo=timezone.utc),
+        provenance_metadata={
+            "normalization_version": "story-3.4-v1",
+            "raw_character_count": 2200,
+            "normalized_character_count": 840,
+            "removed_line_count": 12,
+        },
+        generated_at=now,
     )
     db_session.add(artifact)
+    db_session.add(
+        RepositoryArtifact(
+            github_repository_id=base_repository.github_repository_id,
+            artifact_kind=RepositoryArtifactKind.ANALYSIS_RESULT,
+            runtime_relative_path="analyses/888.json",
+            content_sha256="analysishash",
+            byte_size=2048,
+            content_type="application/json",
+            source_kind="repository_analysis",
+            provenance_metadata={"analysis_provider": "StaticAnalysisProvider"},
+            generated_at=now,
+        )
+    )
 
     analysis = RepositoryAnalysisResult(
         github_repository_id=base_repository.github_repository_id,
         monetization_potential=RepositoryMonetizationPotential.HIGH,
         pros=["Great tech"],
+        cons=["Pricing unknown"],
+        missing_feature_signals=["Missing SSO"],
+        source_metadata={
+            "readme_artifact_path": "readmes/888.md",
+            "analysis_artifact_path": "analyses/888.json",
+            "analysis_provider": "StaticAnalysisProvider",
+            "normalization_version": "story-3.4-v1",
+            "raw_character_count": 2200,
+            "normalized_character_count": 840,
+            "removed_line_count": 12,
+        },
         analyzed_at=datetime(2026, 3, 9, 12, 5, tzinfo=timezone.utc),
     )
     db_session.add(analysis)
+    base_repository.triaged_at = now
+    db_session.add(base_repository)
+    db_session.add(
+        RepositoryTriageExplanation(
+            github_repository_id=base_repository.github_repository_id,
+            explanation_kind=RepositoryTriageExplanationKind.INCLUDE_RULE,
+            explanation_summary="Accepted because workflow automation matched the include set.",
+            matched_include_rules=["workflow", "automation"],
+            matched_exclude_rules=[],
+            explained_at=now,
+        )
+    )
     db_session.commit()
+    runtime_dir = tmp_path / "runtime"
+    (runtime_dir / "readmes").mkdir(parents=True)
+    (runtime_dir / "analyses").mkdir(parents=True)
+    (runtime_dir / "readmes" / "888.md").write_text(
+        "# Test Repo\n\nWorkflow automation with analytics.",
+        encoding="utf-8",
+    )
+    (runtime_dir / "analyses" / "888.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "story-3.4-v1",
+                "github_repository_id": 888,
+                "analysis_provider": "StaticAnalysisProvider",
+                "analysis": {
+                    "monetization_potential": "high",
+                    "pros": ["Great tech"],
+                    "cons": ["Pricing unknown"],
+                    "missing_feature_signals": ["Missing SSO"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    original_runtime_dir = settings.AGENTIC_RUNTIME_DIR
+    settings.AGENTIC_RUNTIME_DIR = runtime_dir
 
-    response = client.get(f"/api/v1/repositories/{base_repository.github_repository_id}")
+    try:
+        response = client.get(f"/api/v1/repositories/{base_repository.github_repository_id}")
+    finally:
+        settings.AGENTIC_RUNTIME_DIR = original_runtime_dir
+
     assert response.status_code == 200
     data = response.json()
 
     assert data["github_repository_id"] == 888
     assert data["full_name"] == "testowner/testrepo"
+    assert data["owner_login"] == "testowner"
+    assert data["repository_name"] == "testrepo"
     assert data["triage_status"] == "accepted"
     assert data["stargazers_count"] == 100
     assert data["has_readme_artifact"] is True
-    assert data["has_analysis_artifact"] is False
-    assert len(data["artifacts"]) == 1
-    assert data["artifacts"][0]["artifact_kind"] == "readme_snapshot"
+    assert data["has_analysis_artifact"] is True
+    assert len(data["artifacts"]) == 2
     assert data["analysis_summary"]["monetization_potential"] == "high"
     assert "Great tech" in data["analysis_summary"]["pros"]
+    assert data["triage"]["explanation"]["kind"] == "include_rule"
+    assert data["triage"]["explanation"]["matched_include_rules"] == ["workflow", "automation"]
+    assert data["readme_snapshot"]["content"] == "# Test Repo\n\nWorkflow automation with analytics."
+    assert data["readme_snapshot"]["normalization_version"] == "story-3.4-v1"
+    assert data["analysis_artifact"]["provider_name"] == "StaticAnalysisProvider"
+    assert data["analysis_artifact"]["payload"]["analysis"]["missing_feature_signals"] == [
+        "Missing SSO"
+    ]
+    assert data["is_starred"] is False
+    assert data["user_tags"] == []
 
 
 def test_get_repository_exploration_not_found(client: TestClient) -> None:
@@ -222,6 +318,8 @@ def test_list_repository_catalog_returns_paginated_results(
     assert data["items"][0]["monetization_potential"] == "high"
     assert data["items"][0]["has_readme_artifact"] is True
     assert data["items"][0]["has_analysis_artifact"] is False
+    assert data["items"][0]["is_starred"] is False
+    assert data["items"][0]["user_tags"] == []
 
 
 def test_list_repository_catalog_supports_filters_and_search(

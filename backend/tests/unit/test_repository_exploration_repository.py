@@ -164,6 +164,8 @@ def test_list_repository_catalog_returns_default_sort_and_pagination(tmp_path: P
                 monetization_potential=None,
                 min_stars=None,
                 max_stars=None,
+                starred_only=False,
+                user_tag=None,
                 sort_by="stars",
                 sort_order="desc",
             )
@@ -177,6 +179,8 @@ def test_list_repository_catalog_returns_default_sort_and_pagination(tmp_path: P
     assert page.items[0].monetization_potential is RepositoryMonetizationPotential.HIGH
     assert page.items[0].has_readme_artifact is True
     assert page.items[0].has_analysis_artifact is True
+    assert page.items[0].is_starred is False
+    assert page.items[0].user_tags == []
 
 
 def test_list_repository_catalog_supports_combined_filters_and_search(tmp_path: Path) -> None:
@@ -195,6 +199,8 @@ def test_list_repository_catalog_supports_combined_filters_and_search(tmp_path: 
                 monetization_potential=RepositoryMonetizationPotential.HIGH,
                 min_stars=300,
                 max_stars=None,
+                starred_only=False,
+                user_tag=None,
                 sort_by="pushed_at",
                 sort_order="desc",
             )
@@ -216,6 +222,8 @@ def _default_params(**overrides: object) -> RepositoryCatalogListParams:
         monetization_potential=None,
         min_stars=None,
         max_stars=None,
+        starred_only=False,
+        user_tag=None,
         sort_by="stars",
         sort_order="desc",
     )
@@ -429,6 +437,8 @@ def test_list_repository_catalog_supports_sorting_and_empty_page(tmp_path: Path)
                 monetization_potential=None,
                 min_stars=200,
                 max_stars=None,
+                starred_only=False,
+                user_tag=None,
                 sort_by="forks",
                 sort_order="asc",
             )

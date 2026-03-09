@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from math import ceil
+from collections import defaultdict
 
 from sqlalchemy import exists, func, or_
 from sqlmodel import Session, select
@@ -14,7 +15,12 @@ from app.models import (
     RepositoryArtifactKind,
     RepositoryDiscoverySource,
     RepositoryIntake,
+    RepositoryQueueStatus,
+    RepositoryUserCuration,
+    RepositoryUserTag,
     RepositoryMonetizationPotential,
+    RepositoryTriageExplanation,
+    RepositoryTriageExplanationKind,
     RepositoryTriageStatus,
 )
 
@@ -28,6 +34,7 @@ class RepositoryArtifactRefRecord:
     content_type: str
     source_kind: str
     source_url: str | None
+    provenance_metadata: dict[str, object]
     generated_at: datetime
 
 
@@ -37,22 +44,48 @@ class RepositoryAnalysisSummaryRecord:
     pros: list[str]
     cons: list[str]
     missing_feature_signals: list[str]
+    source_metadata: dict[str, object]
     analyzed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryTriageExplanationRecord:
+    kind: RepositoryTriageExplanationKind
+    summary: str
+    matched_include_rules: list[str]
+    matched_exclude_rules: list[str]
+    explained_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryTriageRecord:
+    triage_status: RepositoryTriageStatus
+    triaged_at: datetime | None
+    explanation: RepositoryTriageExplanationRecord | None
 
 
 @dataclass(frozen=True, slots=True)
 class RepositoryExplorationRecord:
     github_repository_id: int
+    source_provider: str
+    owner_login: str
+    repository_name: str
     full_name: str
     repository_description: str | None
     discovery_source: RepositoryDiscoverySource
+    queue_status: RepositoryQueueStatus
     triage_status: RepositoryTriageStatus
     analysis_status: RepositoryAnalysisStatus
     stargazers_count: int
     forks_count: int
+    discovered_at: datetime
+    status_updated_at: datetime
     pushed_at: datetime | None
+    triage: RepositoryTriageRecord
     analysis_summary: RepositoryAnalysisSummaryRecord | None
     artifacts: list[RepositoryArtifactRefRecord]
+    is_starred: bool
+    user_tags: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +99,8 @@ class RepositoryCatalogListParams:
     monetization_potential: RepositoryMonetizationPotential | None
     min_stars: int | None
     max_stars: int | None
+    starred_only: bool
+    user_tag: str | None
     sort_by: str
     sort_order: str
 
@@ -86,6 +121,8 @@ class RepositoryCatalogItemRecord:
     monetization_potential: RepositoryMonetizationPotential | None
     has_readme_artifact: bool
     has_analysis_artifact: bool
+    is_starred: bool
+    user_tags: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +145,13 @@ class RepositoryExplorationRepository:
         if intake is None:
             return None
 
+        curation_row = self.session.get(RepositoryUserCuration, github_repository_id)
+        tag_rows = self.session.exec(
+            select(RepositoryUserTag)
+            .where(RepositoryUserTag.github_repository_id == github_repository_id)
+            .order_by(RepositoryUserTag.created_at.asc(), RepositoryUserTag.id.asc())
+        ).all()
+
         analysis_row = self.session.get(RepositoryAnalysisResult, github_repository_id)
         analysis_summary = None
         if analysis_row is not None:
@@ -116,7 +160,23 @@ class RepositoryExplorationRepository:
                 pros=list(analysis_row.pros),
                 cons=list(analysis_row.cons),
                 missing_feature_signals=list(analysis_row.missing_feature_signals),
+                source_metadata=dict(analysis_row.source_metadata),
                 analyzed_at=analysis_row.analyzed_at,
+            )
+
+        explanation_row = self.session.get(RepositoryTriageExplanation, github_repository_id)
+        explanation = None
+        if (
+            explanation_row is not None
+            and intake.triage_status is not RepositoryTriageStatus.PENDING
+            and intake.triaged_at is not None
+        ):
+            explanation = RepositoryTriageExplanationRecord(
+                kind=explanation_row.explanation_kind,
+                summary=explanation_row.explanation_summary,
+                matched_include_rules=list(explanation_row.matched_include_rules),
+                matched_exclude_rules=list(explanation_row.matched_exclude_rules),
+                explained_at=explanation_row.explained_at,
             )
 
         artifact_rows = self.session.exec(
@@ -133,6 +193,7 @@ class RepositoryExplorationRepository:
                 content_type=row.content_type,
                 source_kind=row.source_kind,
                 source_url=row.source_url,
+                provenance_metadata=dict(row.provenance_metadata),
                 generated_at=row.generated_at,
             )
             for row in artifact_rows
@@ -140,16 +201,29 @@ class RepositoryExplorationRepository:
 
         return RepositoryExplorationRecord(
             github_repository_id=intake.github_repository_id,
+            source_provider=intake.source_provider,
+            owner_login=intake.owner_login,
+            repository_name=intake.repository_name,
             full_name=intake.full_name,
             repository_description=intake.repository_description,
             discovery_source=intake.discovery_source,
+            queue_status=intake.queue_status,
             triage_status=intake.triage_status,
             analysis_status=intake.analysis_status,
             stargazers_count=intake.stargazers_count,
             forks_count=intake.forks_count,
+            discovered_at=intake.discovered_at,
+            status_updated_at=intake.status_updated_at,
             pushed_at=intake.pushed_at,
+            triage=RepositoryTriageRecord(
+                triage_status=intake.triage_status,
+                triaged_at=intake.triaged_at,
+                explanation=explanation,
+            ),
             analysis_summary=analysis_summary,
             artifacts=artifacts,
+            is_starred=curation_row.is_starred if curation_row is not None else False,
+            user_tags=[row.tag_label for row in tag_rows],
         )
 
     def list_repository_catalog(
@@ -174,6 +248,18 @@ class RepositoryExplorationRepository:
             filters.append(RepositoryIntake.stargazers_count >= params.min_stars)
         if params.max_stars is not None:
             filters.append(RepositoryIntake.stargazers_count <= params.max_stars)
+        if params.starred_only:
+            filters.append(RepositoryUserCuration.is_starred.is_(True))
+        if params.user_tag:
+            filters.append(
+                exists(
+                    select(RepositoryUserTag.id).where(
+                        RepositoryUserTag.github_repository_id
+                        == RepositoryIntake.github_repository_id,
+                        RepositoryUserTag.tag_label == params.user_tag,
+                    )
+                )
+            )
         if params.search:
             escaped_search = (
                 params.search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -188,6 +274,9 @@ class RepositoryExplorationRepository:
 
         join_clause = (
             RepositoryIntake.github_repository_id == RepositoryAnalysisResult.github_repository_id
+        )
+        curation_join_clause = (
+            RepositoryIntake.github_repository_id == RepositoryUserCuration.github_repository_id
         )
         readme_exists = exists(
             select(RepositoryArtifact.github_repository_id).where(
@@ -221,6 +310,7 @@ class RepositoryExplorationRepository:
             select(func.count(RepositoryIntake.github_repository_id))
             .select_from(RepositoryIntake)
             .outerjoin(RepositoryAnalysisResult, join_clause)
+            .outerjoin(RepositoryUserCuration, curation_join_clause)
         )
         if filters:
             count_query = count_query.where(*filters)
@@ -242,9 +332,11 @@ class RepositoryExplorationRepository:
                 RepositoryAnalysisResult.monetization_potential,
                 readme_exists.label("has_readme_artifact"),
                 analysis_exists.label("has_analysis_artifact"),
+                RepositoryUserCuration.is_starred.label("is_starred"),
             )
             .select_from(RepositoryIntake)
             .outerjoin(RepositoryAnalysisResult, join_clause)
+            .outerjoin(RepositoryUserCuration, curation_join_clause)
             .order_by(sort_expression, tie_breaker)
             .offset((params.page - 1) * params.page_size)
             .limit(params.page_size)
@@ -253,6 +345,20 @@ class RepositoryExplorationRepository:
             query = query.where(*filters)
 
         rows = self.session.exec(query).all()
+        repository_ids = [row.github_repository_id for row in rows]
+        user_tags_by_repository_id: dict[int, list[str]] = defaultdict(list)
+        if repository_ids:
+            tag_rows = self.session.exec(
+                select(RepositoryUserTag)
+                .where(RepositoryUserTag.github_repository_id.in_(repository_ids))
+                .order_by(
+                    RepositoryUserTag.github_repository_id.asc(),
+                    RepositoryUserTag.created_at.asc(),
+                    RepositoryUserTag.id.asc(),
+                )
+            ).all()
+            for tag_row in tag_rows:
+                user_tags_by_repository_id[tag_row.github_repository_id].append(tag_row.tag_label)
         items = [
             RepositoryCatalogItemRecord(
                 github_repository_id=row.github_repository_id,
@@ -269,6 +375,8 @@ class RepositoryExplorationRepository:
                 monetization_potential=row.monetization_potential,
                 has_readme_artifact=bool(row.has_readme_artifact),
                 has_analysis_artifact=bool(row.has_analysis_artifact),
+                is_starred=bool(row.is_starred),
+                user_tags=user_tags_by_repository_id.get(row.github_repository_id, []),
             )
             for row in rows
         ]

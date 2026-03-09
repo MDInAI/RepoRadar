@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.engine import Dialect
@@ -373,6 +374,78 @@ class RepositoryIntake(SQLModel, table=True):
     analysis_failure_message: str | None = Field(
         default=None,
         sa_column=Column(Text(), nullable=True),
+    )
+
+
+class RepositoryUserCuration(SQLModel, table=True):
+    __tablename__ = "repository_user_curation"
+    __table_args__ = (
+        Index("ix_repository_user_curation_is_starred", "is_starred"),
+    )
+
+    github_repository_id: int = Field(
+        sa_column=Column(
+            BigInteger,
+            ForeignKey("repository_intake.github_repository_id", ondelete="CASCADE"),
+            primary_key=True,
+            nullable=False,
+        ),
+    )
+    is_starred: bool = Field(
+        default=False,
+        sa_column=Column(
+            Boolean,
+            nullable=False,
+            server_default=text("0"),
+        ),
+    )
+    starred_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(UTCDateTimeType(), nullable=True),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(
+            UTCDateTimeType(),
+            nullable=False,
+            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
+        ),
+    )
+
+
+class RepositoryUserTag(SQLModel, table=True):
+    __tablename__ = "repository_user_tag"
+    __table_args__ = (
+        CheckConstraint("tag_label != ''", name="ck_repository_user_tag_label_not_blank"),
+        Index("ix_repository_user_tag_github_repository_id", "github_repository_id"),
+        UniqueConstraint(
+            "github_repository_id",
+            "tag_label",
+            name="uq_repository_user_tag_github_repository_id_tag_label",
+        ),
+    )
+
+    id: int | None = Field(
+        default=None,
+        sa_column=Column(Integer, primary_key=True, autoincrement=True, nullable=False),
+    )
+    github_repository_id: int = Field(
+        sa_column=Column(
+            BigInteger,
+            ForeignKey("repository_intake.github_repository_id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+    )
+    tag_label: str = Field(
+        sa_column=Column(String(100), nullable=False),
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(
+            UTCDateTimeType(),
+            nullable=False,
+            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
+        ),
     )
 
 

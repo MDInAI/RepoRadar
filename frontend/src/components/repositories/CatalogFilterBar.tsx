@@ -96,6 +96,7 @@ export function CatalogFilterBar({
   monetization,
   minStars,
   maxStars,
+  starredOnly,
   sort,
   order,
   visibleCount,
@@ -110,6 +111,7 @@ export function CatalogFilterBar({
   onMonetizationChange,
   onMinStarsChange,
   onMaxStarsChange,
+  onStarredOnlyChange,
   onSortChange,
   onOrderChange,
   onRemoveChip,
@@ -122,6 +124,7 @@ export function CatalogFilterBar({
   monetization: RepositoryMonetizationPotential | null;
   minStars: number | null;
   maxStars: number | null;
+  starredOnly: boolean;
   sort: RepositoryCatalogSortBy;
   order: RepositoryCatalogSortOrder;
   visibleCount: number;
@@ -136,6 +139,7 @@ export function CatalogFilterBar({
   onMonetizationChange: (value: RepositoryMonetizationPotential | null) => void;
   onMinStarsChange: (value: number | null) => void;
   onMaxStarsChange: (value: number | null) => void;
+  onStarredOnlyChange: (value: boolean) => void;
   onSortChange: (value: RepositoryCatalogSortBy) => void;
   onOrderChange: (value: RepositoryCatalogSortOrder) => void;
   onRemoveChip: (key: RepositoryCatalogFilterChip["key"]) => void;
@@ -231,6 +235,16 @@ export function CatalogFilterBar({
               onMaxStarsChange(nextValue === "" ? null : Number.parseInt(nextValue, 10));
             }}
           />
+        </label>
+        <label className="flex min-w-0 items-center gap-3 rounded-[1.5rem] border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 shadow-sm">
+          <input
+            aria-label="Show starred only"
+            checked={starredOnly}
+            className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+            type="checkbox"
+            onChange={(event) => onStarredOnlyChange(event.target.checked)}
+          />
+          <span>Show starred only</span>
         </label>
       </div>
 

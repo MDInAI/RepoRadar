@@ -6,10 +6,12 @@ from sqlmodel import Session
 from app.core.config import settings
 from app.core.database import get_session
 from app.repositories.intake_runtime_repository import IntakeRuntimeRepository
+from app.repositories.repository_curation_repository import RepositoryCurationRepository
 from app.repositories.repository_exploration_repository import RepositoryExplorationRepository
 from app.repositories.repository_triage_repository import RepositoryTriageRepository
 from app.services.intake_runtime_service import GatewayIntakeRuntimeService
 from app.services.openclaw.contract_service import GatewayContractService
+from app.services.repository_curation_service import RepositoryCurationService
 from app.services.repository_exploration_service import RepositoryExplorationService
 from app.services.repository_triage_service import RepositoryTriageService
 from app.services.settings_service import SettingsService
@@ -40,7 +42,16 @@ def get_repository_triage_service(
 def get_repository_exploration_service(
     session: Session = Depends(get_db_session),
 ) -> RepositoryExplorationService:
-    return RepositoryExplorationService(RepositoryExplorationRepository(session))
+    return RepositoryExplorationService(
+        RepositoryExplorationRepository(session),
+        runtime_dir=settings.AGENTIC_RUNTIME_DIR,
+    )
+
+
+def get_repository_curation_service(
+    session: Session = Depends(get_db_session),
+) -> RepositoryCurationService:
+    return RepositoryCurationService(RepositoryCurationRepository(session))
 
 
 def get_settings_service() -> SettingsService:

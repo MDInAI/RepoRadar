@@ -475,9 +475,9 @@ const pages = [
     body: /Filter by source, triage, analysis state/,
   },
   {
-    path: "/repositories/demo-repo",
-    heading: "Repository Detail",
-    body: /Placeholder for canonical page model\./,
+    path: "/repositories/701",
+    heading: "Hydrating repository dossier",
+    body: /Pulling repository metadata, README context, triage rationale, and generated analysis artifacts/,
   },
   { path: "/ideas", heading: "Ideas", body: /Placeholder for canonical page model\./ },
   {

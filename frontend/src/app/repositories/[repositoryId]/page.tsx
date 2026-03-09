@@ -1,8 +1,11 @@
-export default function RepositoriesDetailPage() {
-  return (
-    <main className="p-8">
-      <h1 className="text-2xl font-bold">Repository Detail</h1>
-      <p className="text-neutral-400">Placeholder for canonical page model.</p>
-    </main>
-  );
+import { RepositoryDetailClient } from "@/components/repositories/RepositoryDetailClient";
+
+export default async function RepositoriesDetailPage({
+  params,
+}: {
+  params: Promise<{ repositoryId: string }> | { repositoryId: string };
+}) {
+  const resolvedParams = await Promise.resolve(params);
+  const repositoryId = Number.parseInt(resolvedParams.repositoryId, 10);
+  return <RepositoryDetailClient repositoryId={repositoryId} />;
 }

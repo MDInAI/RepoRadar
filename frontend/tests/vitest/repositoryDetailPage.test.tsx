@@ -1,0 +1,208 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+import RepositoriesDetailPage from "@/app/repositories/[repositoryId]/page";
+
+const detailResponse = {
+  github_repository_id: 701,
+  source_provider: "github",
+  owner_login: "alpha",
+  repository_name: "growth-engine",
+  full_name: "alpha/growth-engine",
+  repository_description: "Growth workflows for operators",
+  discovery_source: "firehose",
+  queue_status: "completed",
+  triage_status: "accepted",
+  analysis_status: "completed",
+  stargazers_count: 900,
+  forks_count: 90,
+  discovered_at: "2026-03-09T12:00:00Z",
+  status_updated_at: "2026-03-09T12:00:00Z",
+  pushed_at: "2026-03-09T12:00:00Z",
+  triage: {
+    triage_status: "accepted",
+    triaged_at: "2026-03-09T12:00:00Z",
+    explanation: {
+      kind: "include_rule",
+      summary: "Accepted because workflow automation matched the include set.",
+      matched_include_rules: ["workflow", "automation"],
+      matched_exclude_rules: [],
+      explained_at: "2026-03-09T12:00:00Z",
+    },
+  },
+  analysis_summary: {
+    monetization_potential: "high",
+    pros: ["Clear workflow"],
+    cons: ["Pricing unknown"],
+    missing_feature_signals: ["Missing SSO"],
+    source_metadata: {
+      readme_artifact_path: "data/readmes/701.md",
+      analysis_artifact_path: "data/analyses/701.json",
+      analysis_provider: "StaticAnalysisProvider",
+    },
+    analyzed_at: "2026-03-09T12:05:00Z",
+  },
+  readme_snapshot: {
+    artifact: {
+      artifact_kind: "readme_snapshot",
+      runtime_relative_path: "data/readmes/701.md",
+      content_sha256: "a".repeat(64),
+      byte_size: 128,
+      content_type: "text/markdown; charset=utf-8",
+      source_kind: "repository_readme",
+      source_url: "https://api.github.com/repos/alpha/growth-engine/readme",
+      provenance_metadata: {
+        normalization_version: "story-3.4-v1",
+        raw_character_count: 2400,
+        normalized_character_count: 1040,
+        removed_line_count: 10,
+      },
+      generated_at: "2026-03-09T12:00:00Z",
+    },
+    content: "# Growth Engine\n\nWorkflow automation with analytics.",
+    normalization_version: "story-3.4-v1",
+    raw_character_count: 2400,
+    normalized_character_count: 1040,
+    removed_line_count: 10,
+  },
+  analysis_artifact: {
+    artifact: {
+      artifact_kind: "analysis_result",
+      runtime_relative_path: "data/analyses/701.json",
+      content_sha256: "b".repeat(64),
+      byte_size: 256,
+      content_type: "application/json",
+      source_kind: "repository_analysis",
+      source_url: "https://api.github.com/repos/alpha/growth-engine/readme",
+      provenance_metadata: {
+        analysis_provider: "StaticAnalysisProvider",
+      },
+      generated_at: "2026-03-09T12:05:00Z",
+    },
+    provider_name: "StaticAnalysisProvider",
+    source_metadata: {
+      readme_artifact_path: "data/readmes/701.md",
+      analysis_artifact_path: "data/analyses/701.json",
+      analysis_provider: "StaticAnalysisProvider",
+    },
+    payload: {
+      schema_version: "story-3.4-v1",
+      github_repository_id: 701,
+      analysis: {
+        monetization_potential: "high",
+        pros: ["Clear workflow"],
+        cons: ["Pricing unknown"],
+        missing_feature_signals: ["Missing SSO"],
+      },
+    },
+  },
+  artifacts: [
+    {
+      artifact_kind: "analysis_result",
+      runtime_relative_path: "data/analyses/701.json",
+      content_sha256: "b".repeat(64),
+      byte_size: 256,
+      content_type: "application/json",
+      source_kind: "repository_analysis",
+      source_url: "https://api.github.com/repos/alpha/growth-engine/readme",
+      provenance_metadata: {
+        analysis_provider: "StaticAnalysisProvider",
+      },
+      generated_at: "2026-03-09T12:05:00Z",
+    },
+    {
+      artifact_kind: "readme_snapshot",
+      runtime_relative_path: "data/readmes/701.md",
+      content_sha256: "a".repeat(64),
+      byte_size: 128,
+      content_type: "text/markdown; charset=utf-8",
+      source_kind: "repository_readme",
+      source_url: "https://api.github.com/repos/alpha/growth-engine/readme",
+      provenance_metadata: {
+        normalization_version: "story-3.4-v1",
+      },
+      generated_at: "2026-03-09T12:00:00Z",
+    },
+  ],
+  has_readme_artifact: true,
+  has_analysis_artifact: true,
+  is_starred: false,
+  user_tags: ["workflow"],
+};
+
+async function renderPage() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  });
+
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response(JSON.stringify(detailResponse), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }),
+  );
+
+  const page = await RepositoriesDetailPage({
+    params: Promise.resolve({ repositoryId: "701" }),
+  });
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      {page}
+    </QueryClientProvider>,
+  );
+}
+
+describe("Repository detail page", () => {
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_API_URL = "http://api.test";
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  test("renders the dossier sections and distinguishes raw source from generated analysis", async () => {
+    await renderPage();
+
+    expect(await screen.findByRole("heading", { name: "alpha/growth-engine" })).toBeTruthy();
+    expect(screen.getByText("README Intelligence")).toBeTruthy();
+    expect(screen.getByText("Raw README Source")).toBeTruthy();
+    expect(screen.getByText("Parsed Context")).toBeTruthy();
+    expect(screen.getByText("Analyst Output")).toBeTruthy();
+    expect(screen.getByText("Generated Analysis Output")).toBeTruthy();
+    expect(screen.getByText("Analysis Provenance")).toBeTruthy();
+    expect(screen.getByText("Triage Context")).toBeTruthy();
+    expect(screen.getByText("Family Assignment")).toBeTruthy();
+    expect(screen.getByText("Create Combiner Brief")).toBeTruthy();
+    expect(screen.getByText("Similar-Project Scan")).toBeTruthy();
+    expect(screen.getByText("User Tags")).toBeTruthy();
+    expect(screen.getAllByText("workflow").length).toBeGreaterThan(0);
+  });
+
+  test("surfaces explicit action context for scaffolded actions", async () => {
+    const user = userEvent.setup();
+    await renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Stage family assignment" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Action Scaffold Ready")).toBeTruthy();
+    });
+
+    expect(screen.getAllByText("alpha/growth-engine").length).toBeGreaterThan(0);
+    const status = screen.getByRole("status");
+    expect(within(status).getByText("Destination:")).toBeTruthy();
+    expect(within(status).getByText("Ideas > Family Workspace")).toBeTruthy();
+    expect(within(status).getByText("Expected Result:")).toBeTruthy();
+  });
+});

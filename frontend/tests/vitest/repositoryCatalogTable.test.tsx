@@ -21,9 +21,14 @@ const ITEM: RepositoryCatalogItem = {
   monetization_potential: "high",
   has_readme_artifact: true,
   has_analysis_artifact: true,
+  is_starred: false,
+  user_tags: ["workflow"],
 };
 
-function renderTable(onRowClick: (repositoryId: number) => void) {
+function renderTable(
+  onRowClick: (repositoryId: number) => void,
+  onToggleStar: (repositoryId: number, starred: boolean) => void = vi.fn(),
+) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -34,7 +39,12 @@ function renderTable(onRowClick: (repositoryId: number) => void) {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <RepositoryCatalogTable items={[ITEM]} onRowClick={onRowClick} />
+      <RepositoryCatalogTable
+        items={[ITEM]}
+        onRowClick={onRowClick}
+        onToggleStar={onToggleStar}
+        togglingRepositoryId={null}
+      />
     </QueryClientProvider>,
   );
 }
@@ -53,6 +63,7 @@ describe("RepositoryCatalogTable", () => {
     expect(screen.getByText("High")).toBeTruthy();
     expect(screen.getByText("Firehose")).toBeTruthy();
     expect(screen.getByText("Completed")).toBeTruthy();
+    expect(screen.getByText("workflow")).toBeTruthy();
   });
 
   test("routes row clicks through the provided handler", async () => {
