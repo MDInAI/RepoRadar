@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 
+from app.api.deps import get_gateway_contract_service
 from app.schemas.gateway_contract import (
     GatewayContractResponse,
     GatewayEventEnvelopeResponse,
@@ -11,10 +12,6 @@ from app.schemas.gateway_contract import (
 from app.services.openclaw.contract_service import GatewayContractService
 
 router = APIRouter(prefix="/gateway", tags=["gateway"])
-
-
-def get_gateway_contract_service() -> GatewayContractService:
-    return GatewayContractService()
 
 
 ServiceDep = Depends(get_gateway_contract_service)

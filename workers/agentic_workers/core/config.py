@@ -25,6 +25,8 @@ class WorkerProviderSettings(BaseModel):
     backfill_pages: int
     backfill_window_days: int
     backfill_min_created_date: date
+    bouncer_include_rules: tuple[str, ...]
+    bouncer_exclude_rules: tuple[str, ...]
 
 
 class WorkerOpenClawReferenceSettings(BaseModel):
@@ -50,6 +52,8 @@ class Settings(BaseSettings):
     BACKFILL_PAGES: int = 2
     BACKFILL_WINDOW_DAYS: int = 30
     BACKFILL_MIN_CREATED_DATE: date = date(2008, 1, 1)
+    BOUNCER_INCLUDE_RULES: tuple[str, ...] = ()
+    BOUNCER_EXCLUDE_RULES: tuple[str, ...] = ()
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -102,6 +106,22 @@ class Settings(BaseSettings):
             raise ValueError("must be greater than zero")
         return value
 
+    @field_validator("BOUNCER_INCLUDE_RULES", "BOUNCER_EXCLUDE_RULES", mode="before")
+    @classmethod
+    def _normalize_rule_lists(cls, value: object) -> tuple[str, ...] | object:
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            candidate = value.strip()
+            if not candidate:
+                return ()
+            if candidate.startswith("["):
+                return value
+            return tuple(part.strip() for part in candidate.split(",") if part.strip())
+        if isinstance(value, (list, tuple)):
+            return tuple(str(part).strip() for part in value if str(part).strip())
+        return value
+
     @property
     def github_provider_token_value(self) -> str | None:
         if self.GITHUB_PROVIDER_TOKEN is None:
@@ -130,6 +150,8 @@ class Settings(BaseSettings):
             backfill_pages=self.BACKFILL_PAGES,
             backfill_window_days=self.BACKFILL_WINDOW_DAYS,
             backfill_min_created_date=self.BACKFILL_MIN_CREATED_DATE,
+            bouncer_include_rules=self.BOUNCER_INCLUDE_RULES,
+            bouncer_exclude_rules=self.BOUNCER_EXCLUDE_RULES,
         )
 
     @property

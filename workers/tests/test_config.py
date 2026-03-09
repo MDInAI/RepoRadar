@@ -20,6 +20,8 @@ def test_worker_settings_expose_project_and_openclaw_groups(tmp_path: Path) -> N
         BACKFILL_PAGES=4,
         BACKFILL_WINDOW_DAYS=14,
         BACKFILL_MIN_CREATED_DATE=date(2015, 1, 1),
+        BOUNCER_INCLUDE_RULES="saas, developer tools",
+        BOUNCER_EXCLUDE_RULES=("gaming", "tutorial"),
     )
 
     assert settings.runtime.database_url == "sqlite:///../runtime/data/sqlite/agentic_workflow.db"
@@ -33,6 +35,8 @@ def test_worker_settings_expose_project_and_openclaw_groups(tmp_path: Path) -> N
     assert settings.provider.backfill_pages == 4
     assert settings.provider.backfill_window_days == 14
     assert settings.provider.backfill_min_created_date == date(2015, 1, 1)
+    assert settings.provider.bouncer_include_rules == ("saas", "developer tools")
+    assert settings.provider.bouncer_exclude_rules == ("gaming", "tutorial")
     assert settings.openclaw_reference.config_path == tmp_path / "openclaw.json"
 
 

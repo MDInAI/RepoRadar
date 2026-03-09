@@ -1,3 +1,4 @@
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -95,6 +96,42 @@ class GatewayAgentQueuePlaceholder(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class GatewayQueueStateBuckets(BaseModel):
+    pending: int = 0
+    in_progress: int = 0
+    completed: int = 0
+    failed: int = 0
+
+
+class GatewayAgentIntakeCheckpoint(BaseModel):
+    kind: Literal["firehose", "backfill"]
+    next_page: int = 1
+    last_checkpointed_at: datetime | None = None
+    mirror_snapshot_generated_at: datetime | None = None
+    active_mode: Literal["new", "trending"] | None = None
+    resume_required: bool | None = None
+    new_anchor_date: date | None = None
+    trending_anchor_date: date | None = None
+    run_started_at: datetime | None = None
+    window_start_date: date | None = None
+    created_before_boundary: date | None = None
+    created_before_cursor: datetime | None = None
+    exhausted: bool | None = None
+
+
+class GatewayAgentIntakeQueueSummary(BaseModel):
+    status: Literal["live"] = "live"
+    source_of_truth: Literal["agentic-workflow"] = "agentic-workflow"
+    pending_items: int = 0
+    total_items: int = 0
+    state_counts: GatewayQueueStateBuckets = Field(default_factory=GatewayQueueStateBuckets)
+    checkpoint: GatewayAgentIntakeCheckpoint
+    notes: list[str] = Field(default_factory=list)
+
+
+GatewayAgentQueue = GatewayAgentQueuePlaceholder | GatewayAgentIntakeQueueSummary
+
+
 class GatewayAgentMonitoringPlaceholder(BaseModel):
     status: Literal["reserved"] = "reserved"
     last_heartbeat_at: str | None = None
@@ -114,7 +151,7 @@ class GatewayNamedAgentSummary(BaseModel):
     agent_role: GatewayAgentRole
     lifecycle_state: GatewayAgentLifecycleState
     mvp_scope: GatewayAgentMVPScope
-    queue: GatewayAgentQueuePlaceholder
+    queue: GatewayAgentQueue
     monitoring: GatewayAgentMonitoringPlaceholder
     session_affinity: GatewayAgentSessionAffinity
     notes: list[str] = Field(default_factory=list)
@@ -153,7 +190,7 @@ class NormalizedGatewayRuntimeState(BaseModel):
 
 class GatewayRuntimeSurfaceResponse(BaseModel):
     contract_version: str
-    availability: Literal["reserved"]
+    availability: Literal["available", "reserved"]
     runtime: NormalizedGatewayRuntimeState
 
 

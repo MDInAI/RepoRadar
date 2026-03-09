@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app.api.routes import gateway, health, settings as settings_routes
+from app.api.routes import gateway, health, repositories, settings as settings_routes
 from app.core.config import settings
 from app.core.errors import AppError
 from app.schemas.common import ErrorEnvelope, ErrorDetails
@@ -63,4 +63,5 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 # Include routes
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(gateway.router, prefix=settings.API_V1_STR)
+app.include_router(repositories.router, prefix=settings.API_V1_STR)
 app.include_router(settings_routes.router, prefix=settings.API_V1_STR)

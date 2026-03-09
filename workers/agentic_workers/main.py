@@ -9,7 +9,8 @@ import threading
 import time
 from typing import Callable
 
-from sqlmodel import Session
+from sqlalchemy import func
+from sqlmodel import Session, select
 
 from agentic_workers.core.db import engine
 from agentic_workers.core.config import settings
@@ -18,9 +19,27 @@ from agentic_workers.jobs.backfill_job import (
     BackfillRunStatus,
     run_backfill_job,
 )
+from agentic_workers.jobs.analyst_job import (
+    AnalystRunResult,
+    AnalystRunStatus,
+    run_analyst_job,
+)
+from agentic_workers.jobs.bouncer_job import (
+    BouncerRunResult,
+    BouncerRunStatus,
+    run_bouncer_job,
+)
 from agentic_workers.jobs.firehose_job import FirehoseRunResult, FirehoseRunStatus, run_firehose_job
 from agentic_workers.providers.github_provider import FirehoseMode, GitHubFirehoseProvider
+from agentic_workers.providers.readme_analyst import HeuristicReadmeAnalysisProvider
 from agentic_workers.storage.backfill_progress import load_backfill_progress
+from agentic_workers.storage.backend_models import (
+    RepositoryAnalysisStatus,
+    RepositoryIntake,
+    RepositoryQueueStatus,
+    RepositoryTriageStatus,
+)
+from agentic_workers.storage.firehose_progress import load_firehose_progress
 
 # Configure root logger
 logging.basicConfig(
@@ -72,6 +91,9 @@ def calculate_firehose_interval_seconds() -> int:
 
 def calculate_backfill_interval_seconds() -> int:
     """Return the Backfill interval with the shared Firehose/Backfill RPM budget applied."""
+    if settings.provider.backfill_interval_seconds <= 0:
+        raise ValueError("backfill_interval_seconds must be greater than zero")
+
     min_cycle = _calculate_shared_minimum_cycle_seconds(
         calculate_intake_pacing_seconds(),
         settings.provider.firehose_pages,
@@ -121,8 +143,78 @@ def run_configured_backfill_job(
         )
 
 
+def run_configured_bouncer_job(
+    *,
+    should_stop: Callable[[], bool] | None = None,
+) -> BouncerRunResult:
+    with Session(engine) as session:
+        return run_bouncer_job(
+            session=session,
+            runtime_dir=settings.runtime.runtime_dir,
+            include_rules=settings.provider.bouncer_include_rules,
+            exclude_rules=settings.provider.bouncer_exclude_rules,
+            should_stop=should_stop,
+        )
+
+
+def run_configured_analyst_job(
+    *,
+    should_stop: Callable[[], bool] | None = None,
+) -> AnalystRunResult:
+    provider = GitHubFirehoseProvider(github_token=settings.github_provider_token_value)
+    analysis_provider = HeuristicReadmeAnalysisProvider()
+    with Session(engine) as session:
+        return run_analyst_job(
+            session=session,
+            provider=provider,
+            runtime_dir=settings.runtime.runtime_dir,
+            analysis_provider=analysis_provider,
+            should_stop=should_stop,
+        )
+
+
 def should_run_backfill_startup(*, now: float | None = None) -> bool:
     return seconds_until_next_backfill_run(now=now) <= 0
+
+
+def has_pending_bouncer_work() -> bool:
+    with Session(engine) as session:
+        pending_count = session.exec(
+            select(func.count(RepositoryIntake.github_repository_id))
+            .where(RepositoryIntake.queue_status == RepositoryQueueStatus.PENDING)
+            .where(RepositoryIntake.triage_status == RepositoryTriageStatus.PENDING)
+        ).one()
+    return int(pending_count or 0) > 0
+
+
+def has_pending_analyst_work() -> bool:
+    with Session(engine) as session:
+        pending_count = session.exec(
+            select(func.count(RepositoryIntake.github_repository_id))
+            .where(RepositoryIntake.triage_status == RepositoryTriageStatus.ACCEPTED)
+            .where(RepositoryIntake.analysis_status != RepositoryAnalysisStatus.COMPLETED)
+        ).one()
+    return int(pending_count or 0) > 0
+
+
+def seconds_until_next_firehose_run(*, now: float | None = None) -> float:
+    current_time = now if now is not None else time.time()
+    with Session(engine) as session:
+        checkpoint = load_firehose_progress(session)
+    if checkpoint is None:
+        # Fresh database — run Firehose immediately on first install.
+        return 0.0
+    if checkpoint.resume_required:
+        return 0.0
+    if checkpoint.last_checkpointed_at is None:
+        return 0.0
+    elapsed = current_time - checkpoint.last_checkpointed_at.timestamp()
+    remaining = calculate_firehose_interval_seconds() - elapsed
+    return max(0.0, remaining)
+
+
+def should_run_firehose_startup(*, now: float | None = None) -> bool:
+    return seconds_until_next_firehose_run(now=now) <= 0
 
 
 def seconds_until_next_backfill_run(*, now: float | None = None) -> float:
@@ -130,10 +222,13 @@ def seconds_until_next_backfill_run(*, now: float | None = None) -> float:
     with Session(engine) as session:
         checkpoint = load_backfill_progress(session)
     if checkpoint is None:
+        # Fresh database — run Backfill immediately so the intake surface is
+        # populated on first install without waiting a full interval.
         return 0.0
-
+    if checkpoint.resume_required:
+        return 0.0
     if checkpoint.last_checkpointed_at is None:
-        return calculate_backfill_interval_seconds()
+        return 0.0
 
     elapsed = current_time - checkpoint.last_checkpointed_at.timestamp()
     remaining = calculate_backfill_interval_seconds() - elapsed
@@ -165,6 +260,85 @@ def _log_backfill_result(result: BackfillRunResult) -> None:
         logger.warning("Backfill run completed with non-success status: %s", result.status)
 
 
+def _log_bouncer_result(result: BouncerRunResult) -> None:
+    logger.info(
+        "Bouncer run complete: status=%s outcomes=%d",
+        result.status,
+        len(result.outcomes),
+    )
+    if result.artifact_error:
+        logger.warning("Bouncer runtime artifact write failed: %s", result.artifact_error)
+    if result.status is not BouncerRunStatus.SUCCESS:
+        logger.warning("Bouncer run completed with non-success status: %s", result.status)
+
+
+def _log_analyst_result(result: AnalystRunResult) -> None:
+    logger.info(
+        "Analyst run complete: status=%s outcomes=%d",
+        result.status,
+        len(result.outcomes),
+    )
+    if result.artifact_error:
+        logger.warning("Analyst runtime artifact write failed: %s", result.artifact_error)
+    if result.status is not AnalystRunStatus.SUCCESS:
+        logger.warning("Analyst run completed with non-success status: %s", result.status)
+
+
+def _log_firehose_interval_gate(next_firehose_delay: float) -> None:
+    configured_interval = float(calculate_firehose_interval_seconds())
+    if next_firehose_delay >= configured_interval > 0:
+        logger.info(
+            "Skipping immediate follow-up Firehose pass; next run remains gated by the configured %ds interval.",
+            int(configured_interval),
+        )
+
+
+async def _run_bouncer_if_pending(
+    *,
+    stop_event: asyncio.Event,
+    thread_stop: threading.Event,
+) -> bool:
+    if stop_event.is_set():
+        return False
+
+    try:
+        if not has_pending_bouncer_work():
+            return False
+    except Exception:
+        logger.exception("Unable to inspect pending Bouncer work. Skipping this pass.")
+        return False
+
+    bouncer_result = await asyncio.to_thread(
+        run_configured_bouncer_job,
+        should_stop=thread_stop.is_set,
+    )
+    _log_bouncer_result(bouncer_result)
+    return True
+
+
+async def _run_analyst_if_pending(
+    *,
+    stop_event: asyncio.Event,
+    thread_stop: threading.Event,
+) -> bool:
+    if stop_event.is_set():
+        return False
+
+    try:
+        if not has_pending_analyst_work():
+            return False
+    except Exception:
+        logger.exception("Unable to inspect pending Analyst work. Skipping this pass.")
+        return False
+
+    analyst_result = await asyncio.to_thread(
+        run_configured_analyst_job,
+        should_stop=thread_stop.is_set,
+    )
+    _log_analyst_result(analyst_result)
+    return True
+
+
 async def main():
     logger.info("Starting Agentic-Workflow worker processes...")
 
@@ -186,18 +360,27 @@ async def main():
         """Pacing sleep that returns early when a shutdown signal is received."""
         _thread_stop.wait(timeout=seconds)
 
-    # Startup passes — any fatal failure stops the worker so the process supervisor
-    # can restart it rather than leaving a silently broken worker running.
+    # Startup passes — gated by the same interval/resume logic used after boot so a
+    # restart does not unconditionally rerun jobs that just completed.  Any fatal
+    # failure stops the worker so the process supervisor can detect and restart it.
     try:
-        firehose_result = await asyncio.to_thread(
-            run_configured_firehose_job,
-            sleep_fn=_interruptible_sleep,
-            should_stop=_thread_stop.is_set,
-        )
-        _log_firehose_result(firehose_result)
-        if not stop_event.is_set():
-            await asyncio.to_thread(_interruptible_sleep, calculate_intake_pacing_seconds())
+        firehose_ran_at_startup = False
+        if should_run_firehose_startup():
+            firehose_result = await asyncio.to_thread(
+                run_configured_firehose_job,
+                sleep_fn=_interruptible_sleep,
+                should_stop=_thread_stop.is_set,
+            )
+            _log_firehose_result(firehose_result)
+            firehose_ran_at_startup = True
+        else:
+            logger.info(
+                "Skipping startup Firehose pass; next run gated by the configured %ds interval.",
+                calculate_firehose_interval_seconds(),
+            )
         if not stop_event.is_set() and should_run_backfill_startup():
+            if firehose_ran_at_startup:
+                await asyncio.to_thread(_interruptible_sleep, calculate_intake_pacing_seconds())
             backfill_result = await asyncio.to_thread(
                 run_configured_backfill_job,
                 sleep_fn=_interruptible_sleep,
@@ -206,22 +389,29 @@ async def main():
             _log_backfill_result(backfill_result)
         elif not stop_event.is_set():
             logger.info(
-                "Skipping startup Backfill pass; next run remains gated by the configured %ds interval.",
+                "Skipping startup Backfill pass; next run gated by the configured %ds interval.",
                 calculate_backfill_interval_seconds(),
             )
+        if not stop_event.is_set():
+            await _run_bouncer_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
+        if not stop_event.is_set():
+            await _run_analyst_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
     except Exception:
         logger.exception("Startup ingestion pass failed. Exiting.")
         sys.exit(1)
 
+    next_firehose_delay = seconds_until_next_firehose_run()
+    next_backfill_delay = seconds_until_next_backfill_run()
+    _log_firehose_interval_gate(next_firehose_delay)
     logger.info(
         "Worker running. Next Firehose run in %ds. Next Backfill run in %ds. Press Ctrl+C to stop.",
-        calculate_firehose_interval_seconds(),
-        int(seconds_until_next_backfill_run()),
+        int(next_firehose_delay),
+        int(next_backfill_delay),
     )
 
-    next_firehose_run_at = time.monotonic() + calculate_firehose_interval_seconds()
+    next_firehose_run_at = time.monotonic() + next_firehose_delay
     # Resume the existing interval if we skipped the startup run, otherwise start a new interval
-    next_backfill_run_at = time.monotonic() + seconds_until_next_backfill_run()
+    next_backfill_run_at = time.monotonic() + next_backfill_delay
 
     # Continuous interval loop — individual run failures are logged but do not
     # stop the worker; only an unhandled startup failure is fatal.
@@ -255,7 +445,7 @@ async def main():
                         should_stop=_thread_stop.is_set,
                     )
                     _log_firehose_result(firehose_result)
-                    next_firehose_run_at = time.monotonic() + calculate_firehose_interval_seconds()
+                    next_firehose_run_at = time.monotonic() + seconds_until_next_firehose_run()
                 else:
                     backfill_result = await asyncio.to_thread(
                         run_configured_backfill_job,
@@ -263,7 +453,7 @@ async def main():
                         should_stop=_thread_stop.is_set,
                     )
                     _log_backfill_result(backfill_result)
-                    next_backfill_run_at = time.monotonic() + calculate_backfill_interval_seconds()
+                    next_backfill_run_at = time.monotonic() + seconds_until_next_backfill_run()
             except Exception:
                 logger.exception("%s run failed. Continuing to next interval.", job_name.title())
                 if job_name == "firehose":
@@ -274,6 +464,11 @@ async def main():
 
             if index < len(due_jobs) - 1 and not stop_event.is_set():
                 await asyncio.to_thread(_interruptible_sleep, calculate_intake_pacing_seconds())
+
+        if due_jobs and not stop_event.is_set():
+            await _run_bouncer_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
+        if due_jobs and not stop_event.is_set():
+            await _run_analyst_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
 
     logger.info("Worker shutdown complete.")
 

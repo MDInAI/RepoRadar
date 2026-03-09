@@ -1,13 +1,28 @@
-export default function OverviewPage() {
+import { fetchGatewayRuntime, ReadinessRequestError } from "@/api/readiness";
+import type { GatewayRuntimeSurfaceResponse } from "@/lib/gateway-contract";
+
+import { OverviewRuntimeClient } from "./OverviewRuntimeClient";
+
+export default async function OverviewPage() {
+  let runtime: GatewayRuntimeSurfaceResponse | null = null;
+  let errorMessage: string | null = null;
+  let initialUpdatedAt: string | null = null;
+
+  try {
+    runtime = await fetchGatewayRuntime();
+    initialUpdatedAt = new Date().toISOString();
+  } catch (error) {
+    errorMessage =
+      error instanceof ReadinessRequestError
+        ? error.message
+        : "Unable to load backend-owned intake status.";
+  }
+
   return (
-    <main className="p-8">
-      <h1 className="text-2xl font-bold">Overview</h1>
-      <p className="text-neutral-400">
-        Placeholder for the operator overview. Future readiness cards will read
-        the backend Gateway contract at <code>/api/v1/gateway/*</code>, where
-        runtime mode is explicitly multi-agent and named-agent summaries stay
-        backend-owned instead of coming directly from the browser to Gateway.
-      </p>
-    </main>
+    <OverviewRuntimeClient
+      initialRuntime={runtime}
+      initialError={errorMessage}
+      initialUpdatedAt={initialUpdatedAt}
+    />
   );
 }

@@ -9,13 +9,19 @@ from typing import Callable, Protocol
 
 from sqlmodel import Session
 
-from agentic_workers.providers.github_provider import DiscoveredRepository
+from agentic_workers.providers.github_provider import (
+    DiscoveredRepository,
+    GitHubRateLimitError,
+)
 from agentic_workers.storage.backfill_progress import (
     BackfillCheckpointState,
     advance_backfill_progress,
     initialize_backfill_progress,
     load_backfill_progress,
     save_backfill_progress,
+)
+from agentic_workers.storage.intake_progress_snapshots import (
+    write_backfill_progress_snapshot,
 )
 from agentic_workers.storage.repository_intake import (
     IntakePersistenceResult,
@@ -40,6 +46,7 @@ class BackfillPageOutcome:
     skipped_count: int
     exhausted_after: bool
     error: str | None = None
+    rate_limit_backoff_seconds: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +94,9 @@ def run_backfill_job(
     write_artifact: ArtifactWriter | None = None,
     today: date | None = None,
 ) -> BackfillRunResult:
+    if window_days <= 0:
+        raise ValueError("window_days must be greater than zero")
+
     checkpoint_loader = load_progress or _load_checkpoint
     checkpoint_saver = save_progress or _save_checkpoint
     persistence = persist_batch or _persist_batch
@@ -98,8 +108,10 @@ def run_backfill_job(
         min_created_date=min_created_date,
     )
     outcomes: list[BackfillPageOutcome] = []
+    snapshot_errors: list[str] = []
+    remaining_pages = max(0, pages - checkpoint.pages_processed_in_run)
 
-    for page_index in range(pages):
+    for page_index in range(remaining_pages):
         if checkpoint.exhausted:
             break
         if should_stop is not None and should_stop():
@@ -128,7 +140,7 @@ def run_backfill_job(
                 checkpoint,
                 repositories_fetched=len(repositories),
                 oldest_created_at=oldest_created_at,
-                has_results_newer_than_oldest=(
+                batch_has_mixed_timestamps=(
                     oldest_created_at is not None
                     and any(
                         repository.created_at > oldest_created_at
@@ -139,6 +151,7 @@ def run_backfill_job(
                 window_days=window_days,
                 min_created_date=min_created_date,
                 checkpointed_at=datetime.now(timezone.utc),
+                pages_processed_in_run=checkpoint.pages_processed_in_run + 1,
             )
             checkpoint_saver(session, next_checkpoint)
             session.commit()
@@ -155,10 +168,31 @@ def run_backfill_job(
                 )
             )
             checkpoint = next_checkpoint
+        except GitHubRateLimitError as exc:
+            session.rollback()
+            backoff_seconds = max(
+                pacing_seconds * 2,
+                exc.retry_after_seconds or 0,
+            )
+            if backoff_seconds > 0 and (should_stop is None or not should_stop()):
+                sleep_fn(backoff_seconds)
+            outcomes.append(
+                BackfillPageOutcome(
+                    window_start_date=checkpoint.window_start_date,
+                    created_before_boundary=checkpoint.created_before_boundary,
+                    created_before_cursor=checkpoint.created_before_cursor,
+                    page=requested_page,
+                    fetched_count=len(repositories),
+                    inserted_count=0,
+                    skipped_count=0,
+                    exhausted_after=checkpoint.exhausted,
+                    error=str(exc),
+                    rate_limit_backoff_seconds=backoff_seconds,
+                )
+            )
+            break
         except Exception as exc:
-            rollback = getattr(session, "rollback", None)
-            if callable(rollback):
-                rollback()
+            session.rollback()
             outcomes.append(
                 BackfillPageOutcome(
                     window_start_date=checkpoint.window_start_date,
@@ -174,9 +208,48 @@ def run_backfill_job(
             )
             break
 
+    # Clear resume_required when the cycle completes without error or interruption,
+    # so the next invocation gets a fresh page budget instead of a reduced one.
+    cycle_had_errors = any(outcome.error for outcome in outcomes)
+    cycle_was_interrupted = should_stop is not None and should_stop()
+    
+    # Write snapshot after the loop has completed. It'll represent either the last page successfully
+    # processed or an error state if the loop aborted early.
+    try:
+        write_backfill_progress_snapshot(
+            runtime_dir=runtime_dir,
+            checkpoint=checkpoint,
+        )
+    except OSError as exc:
+        snapshot_errors.append(f"snapshot write failed: {exc}")
+
+    if checkpoint.resume_required and not cycle_had_errors and not cycle_was_interrupted:
+        checkpoint = BackfillCheckpointState(
+            source_provider=checkpoint.source_provider,
+            window_start_date=checkpoint.window_start_date,
+            created_before_boundary=checkpoint.created_before_boundary,
+            created_before_cursor=checkpoint.created_before_cursor,
+            next_page=checkpoint.next_page,
+            exhausted=checkpoint.exhausted,
+            last_checkpointed_at=checkpoint.last_checkpointed_at,
+            resume_required=False,
+            pages_processed_in_run=0,
+        )
+        checkpoint_saver(session, checkpoint)
+        session.commit()
+
+        # Update snapshot again to reflect the clear of resume_required
+        try:
+            write_backfill_progress_snapshot(
+                runtime_dir=runtime_dir,
+                checkpoint=checkpoint,
+            )
+        except OSError as exc:
+            snapshot_errors.append(f"snapshot write failed: {exc}")
+
     status = _determine_status(outcomes)
     artifact_path: Path | None = None
-    artifact_error: str | None = None
+    artifact_errors: list[str] = list(snapshot_errors)
     try:
         artifact_path = artifact_writer(
             runtime_dir=runtime_dir,
@@ -185,7 +258,7 @@ def run_backfill_job(
             checkpoint=checkpoint,
         )
     except OSError as exc:
-        artifact_error = str(exc)
+        artifact_errors.append(str(exc))
         if status is BackfillRunStatus.SUCCESS:
             status = BackfillRunStatus.PARTIAL_FAILURE
 
@@ -194,7 +267,7 @@ def run_backfill_job(
         outcomes=outcomes,
         checkpoint=checkpoint,
         artifact_path=artifact_path,
-        artifact_error=artifact_error,
+        artifact_error="; ".join(artifact_errors) or None,
     )
 
 
@@ -235,7 +308,7 @@ def _write_run_artifact(
 
     artifact_dir = runtime_dir / "backfill" / "ingestion-runs"
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     artifact_path = artifact_dir / f"{timestamp}.json"
     artifact_path.write_text(
         json.dumps(
@@ -243,6 +316,20 @@ def _write_run_artifact(
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "status": status.value,
                 "checkpoint": _serialize_checkpoint(checkpoint),
+                "operator_guidance": {
+                    "checkpoint_interpretation": (
+                        "A non-null created_before_cursor means Backfill is paging through a dense "
+                        "timestamp slice inside the current date window."
+                    ),
+                    "stall_recovery": (
+                        "If dense results exceed GitHub's accessible search window, Backfill shrinks "
+                        "created_before_cursor by one second and restarts at page 1."
+                    ),
+                    "rate_limit_handling": (
+                        "If an outcome includes rate_limit_backoff_seconds, the worker paused for that "
+                        "many seconds after a GitHub rate-limit response before ending the run."
+                    ),
+                },
                 "outcomes": [
                     {
                         "window_start_date": outcome.window_start_date.isoformat(),
@@ -261,6 +348,7 @@ def _write_run_artifact(
                         "skipped_count": outcome.skipped_count,
                         "exhausted_after": outcome.exhausted_after,
                         "error": outcome.error,
+                        "rate_limit_backoff_seconds": outcome.rate_limit_backoff_seconds,
                     }
                     for outcome in outcomes
                 ],
@@ -286,7 +374,9 @@ def _serialize_checkpoint(checkpoint: BackfillCheckpointState) -> dict[str, str 
             else None
         ),
         "next_page": checkpoint.next_page,
+        "pages_processed_in_run": checkpoint.pages_processed_in_run,
         "exhausted": checkpoint.exhausted,
+        "resume_required": checkpoint.resume_required,
         "last_checkpointed_at": (
             checkpoint.last_checkpointed_at.isoformat()
             if checkpoint.last_checkpointed_at is not None
