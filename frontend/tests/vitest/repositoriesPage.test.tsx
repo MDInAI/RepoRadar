@@ -34,6 +34,8 @@ const catalogResponse = {
       monetization_potential: "high",
       has_readme_artifact: true,
       has_analysis_artifact: true,
+      is_starred: false,
+      user_tags: ["workflow"],
     },
   ],
   total: 1,

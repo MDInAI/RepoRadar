@@ -21,6 +21,7 @@ interface CatalogFilterBarProps {
   monetization: RepositoryMonetizationPotential | null;
   minStars: number | null;
   maxStars: number | null;
+  starredOnly: boolean;
   sort: RepositoryCatalogSortBy;
   order: RepositoryCatalogSortOrder;
   visibleCount: number;
@@ -35,6 +36,7 @@ interface CatalogFilterBarProps {
   onMonetizationChange: (value: RepositoryMonetizationPotential | null) => void;
   onMinStarsChange: (value: number | null) => void;
   onMaxStarsChange: (value: number | null) => void;
+  onStarredOnlyChange: (value: boolean) => void;
   onSortChange: (value: RepositoryCatalogSortBy) => void;
   onOrderChange: (value: RepositoryCatalogSortOrder) => void;
   onRemoveChip: (key: RepositoryCatalogFilterChip["key"]) => void;
@@ -50,6 +52,7 @@ function renderFilterBar(overrides: Partial<CatalogFilterBarProps> = {}) {
     monetization: null,
     minStars: null,
     maxStars: null,
+    starredOnly: false,
     sort: "stars",
     order: "desc",
     visibleCount: 1,
@@ -64,6 +67,7 @@ function renderFilterBar(overrides: Partial<CatalogFilterBarProps> = {}) {
     onMonetizationChange: vi.fn(),
     onMinStarsChange: vi.fn(),
     onMaxStarsChange: vi.fn(),
+    onStarredOnlyChange: vi.fn(),
     onSortChange: vi.fn(),
     onOrderChange: vi.fn(),
     onRemoveChip: vi.fn(),
@@ -144,6 +148,9 @@ describe("CatalogFilterBar", () => {
       target: { value: "125" },
     });
     expect(props.onMaxStarsChange).toHaveBeenLastCalledWith(125);
+
+    await user.click(screen.getByLabelText("Show starred only"));
+    expect(props.onStarredOnlyChange).toHaveBeenCalledWith(true);
 
     await user.click(screen.getByLabelText("Remove Search: growth filter"));
     expect(props.onRemoveChip).toHaveBeenCalledWith("search");

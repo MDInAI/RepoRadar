@@ -18,6 +18,8 @@ from app.models import (
     RepositoryIntake,
     RepositoryMonetizationPotential,
     RepositoryQueueStatus,
+    RepositoryUserCuration,
+    RepositoryUserTag,
     RepositoryTriageExplanation,
     RepositoryTriageExplanationKind,
     RepositoryTriageStatus,
@@ -150,6 +152,40 @@ def test_repository_triage_explanation_defaults_capture_snapshot_shape() -> None
     assert not table.c.matched_include_rules.nullable
     assert not table.c.matched_exclude_rules.nullable
     assert not table.c.explained_at.nullable
+
+
+def test_repository_user_curation_defaults_capture_starred_state() -> None:
+    record = RepositoryUserCuration(github_repository_id=123)
+
+    assert record.github_repository_id == 123
+    assert record.is_starred is False
+    assert record.starred_at is None
+    assert record.updated_at.tzinfo == timezone.utc
+
+    table = RepositoryUserCuration.__table__
+    assert list(table.primary_key.columns.keys()) == ["github_repository_id"]
+    assert {index.name for index in table.indexes} == {"ix_repository_user_curation_is_starred"}
+
+
+def test_repository_user_tag_defaults_capture_operator_labels() -> None:
+    created_at = datetime(2026, 3, 9, 12, 0, tzinfo=timezone.utc)
+    record = RepositoryUserTag(
+        github_repository_id=123,
+        tag_label="workflow",
+        created_at=created_at,
+    )
+
+    assert record.github_repository_id == 123
+    assert record.tag_label == "workflow"
+    assert record.created_at == created_at
+
+    table = RepositoryUserTag.__table__
+    assert table.c.tag_label.type.length == 100
+    assert {index.name for index in table.indexes} == {"ix_repository_user_tag_github_repository_id"}
+    assert any(
+        constraint.name == "uq_repository_user_tag_github_repository_id_tag_label"
+        for constraint in table.constraints
+    )
 
 
 def test_repository_triage_explanation_tracks_in_place_rule_list_mutations() -> None:

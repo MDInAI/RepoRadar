@@ -15,7 +15,61 @@ import {
 
 const columnHelper = createColumnHelper<RepositoryCatalogItem>();
 
+function StarIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-5 w-5"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={1.8}
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M12 3.75l2.55 5.17 5.7.83-4.13 4.03.98 5.67L12 16.77 6.9 19.45l.98-5.67-4.13-4.03 5.7-.83L12 3.75z"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 const columns = [
+  columnHelper.display({
+    id: "starred",
+    header: "Starred",
+    cell: (info) => {
+      const item = info.row.original;
+      const meta = info.table.options.meta as
+        | {
+            toggleStar?: (repositoryId: number, starred: boolean) => void;
+            togglingRepositoryId?: number | null;
+          }
+        | undefined;
+      const toggleStar = meta?.toggleStar;
+      const isToggling = meta?.togglingRepositoryId === item.github_repository_id;
+
+      return (
+        <button
+          aria-label={item.is_starred ? "Unstar repository" : "Star repository"}
+          aria-pressed={item.is_starred}
+          className={`inline-flex h-10 w-10 items-center justify-center rounded-full border transition ${
+            item.is_starred
+              ? "border-amber-300 bg-amber-50 text-amber-600 hover:bg-amber-100"
+              : "border-slate-200 bg-white text-slate-400 hover:border-amber-300 hover:text-amber-500"
+          }`}
+          disabled={isToggling || !toggleStar}
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            toggleStar?.(item.github_repository_id, !item.is_starred);
+          }}
+        >
+          <StarIcon filled={item.is_starred} />
+        </button>
+      );
+    },
+  }),
   columnHelper.accessor("full_name", {
     header: "Repository",
     cell: (info) => (
@@ -71,6 +125,28 @@ const columns = [
       </span>
     ),
   }),
+  columnHelper.accessor("user_tags", {
+    header: "User Tags",
+    cell: (info) => {
+      const tags = info.getValue();
+      if (tags.length === 0) {
+        return <span className="text-sm text-slate-400">No tags</span>;
+      }
+
+      return (
+        <div className="flex max-w-[14rem] flex-wrap gap-2">
+          {tags.map((tag) => (
+            <span
+              key={tag}
+              className="rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-900"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      );
+    },
+  }),
   columnHelper.accessor("pushed_at", {
     header: "Pushed At",
     cell: (info) => <span className="text-sm text-slate-600">{formatRelativeDate(info.getValue())}</span>,
@@ -79,9 +155,13 @@ const columns = [
 
 export function RepositoryCatalogTable({
   items,
+  onToggleStar,
+  togglingRepositoryId,
   onRowClick,
 }: {
   items: RepositoryCatalogItem[];
+  onToggleStar: (repositoryId: number, starred: boolean) => void;
+  togglingRepositoryId: number | null;
   onRowClick: (repositoryId: number) => void;
 }) {
   // TanStack Table's hook is the supported integration point for this client-only grid.
@@ -90,6 +170,10 @@ export function RepositoryCatalogTable({
     data: items,
     columns,
     getCoreRowModel: getCoreRowModel(),
+    meta: {
+      toggleStar: onToggleStar,
+      togglingRepositoryId,
+    },
   });
 
   return (

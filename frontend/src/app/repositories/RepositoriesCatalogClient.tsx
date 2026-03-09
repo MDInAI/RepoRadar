@@ -1,10 +1,11 @@
 "use client";
 
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { startTransition } from "react";
 
 import {
+  type RepositoryCatalogPageResponse,
   buildRepositoryCatalogSearchParams,
   clearAllRepositoryCatalogFilters,
   clearRepositoryCatalogFilter,
@@ -12,7 +13,9 @@ import {
   fetchRepositoryCatalog,
   getRepositoryCatalogValidationMessage,
   getRepositoryCatalogQueryKey,
+  getRepositoryDetailQueryKey,
   parseRepositoryCatalogSearchParams,
+  updateRepositoryStar,
   type RepositoryAnalysisStatus,
   type RepositoryCatalogSortBy,
   type RepositoryCatalogSortOrder,
@@ -29,6 +32,7 @@ function buildRepositoriesUrl(search: string): string {
 }
 
 export function RepositoriesCatalogClient() {
+  const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
   const viewState = parseRepositoryCatalogSearchParams(searchParams);
@@ -40,6 +44,86 @@ export function RepositoriesCatalogClient() {
     queryFn: () => fetchRepositoryCatalog(viewState),
     placeholderData: keepPreviousData,
     enabled: validationMessage === null,
+  });
+
+  const starMutation = useMutation({
+    mutationFn: ({
+      repositoryId,
+      starred,
+    }: {
+      repositoryId: number;
+      starred: boolean;
+    }) => updateRepositoryStar(repositoryId, starred),
+    onMutate: async ({ repositoryId, starred }) => {
+      await queryClient.cancelQueries({ queryKey: ["repositories", "catalog"] });
+      const previousPages = queryClient.getQueriesData<RepositoryCatalogPageResponse>({
+        queryKey: ["repositories", "catalog"],
+      });
+
+      for (const [queryKey, page] of previousPages) {
+        if (!page) {
+          continue;
+        }
+        const starredOnly = queryKey[queryKey.length - 1] === true;
+        const nextItems = page.items.flatMap((item) => {
+          if (item.github_repository_id !== repositoryId) {
+            return [item];
+          }
+          if (starredOnly && !starred) {
+            return [];
+          }
+          return [{ ...item, is_starred: starred }];
+        });
+        const removedFromStarredView =
+          starredOnly &&
+          !starred &&
+          page.items.some((item) => item.github_repository_id === repositoryId);
+
+        queryClient.setQueryData<RepositoryCatalogPageResponse>(queryKey, {
+          ...page,
+          items: nextItems,
+          total: removedFromStarredView ? Math.max(0, page.total - 1) : page.total,
+          total_pages: removedFromStarredView
+            ? Math.max(
+                nextItems.length > 0 ? 1 : 0,
+                Math.ceil(Math.max(0, page.total - 1) / page.page_size),
+              )
+            : page.total_pages,
+        });
+      }
+
+      const previousDetail = queryClient.getQueryData(getRepositoryDetailQueryKey(repositoryId));
+      queryClient.setQueryData(getRepositoryDetailQueryKey(repositoryId), (current) => {
+        if (!current || typeof current !== "object") {
+          return current;
+        }
+        return {
+          ...current,
+          is_starred: starred,
+          starred_at: starred ? new Date().toISOString() : null,
+        };
+      });
+
+      return { previousPages, previousDetail, repositoryId };
+    },
+    onError: (_error, _variables, context) => {
+      if (!context) {
+        return;
+      }
+      for (const [queryKey, page] of context.previousPages) {
+        queryClient.setQueryData(queryKey, page);
+      }
+      queryClient.setQueryData(
+        getRepositoryDetailQueryKey(context.repositoryId),
+        context.previousDetail,
+      );
+    },
+    onSettled: (_data, _error, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ["repositories", "catalog"] });
+      void queryClient.invalidateQueries({
+        queryKey: getRepositoryDetailQueryKey(variables.repositoryId),
+      });
+    },
   });
 
   const updateViewState = (
@@ -85,6 +169,10 @@ export function RepositoriesCatalogClient() {
 
   const handleMaxStarsChange = (maxStars: number | null) => {
     updateViewState({ maxStars: Number.isNaN(maxStars) ? null : maxStars });
+  };
+
+  const handleStarredOnlyChange = (starredOnly: boolean) => {
+    updateViewState({ starredOnly });
   };
 
   const handleSortChange = (sort: RepositoryCatalogSortBy) => {
@@ -164,6 +252,7 @@ export function RepositoriesCatalogClient() {
           monetization={viewState.monetization}
           minStars={viewState.minStars}
           maxStars={viewState.maxStars}
+          starredOnly={viewState.starredOnly}
           sort={viewState.sort}
           order={viewState.order}
           visibleCount={data?.items.length ?? 0}
@@ -178,6 +267,7 @@ export function RepositoriesCatalogClient() {
           onMonetizationChange={handleMonetizationChange}
           onMinStarsChange={handleMinStarsChange}
           onMaxStarsChange={handleMaxStarsChange}
+          onStarredOnlyChange={handleStarredOnlyChange}
           onSortChange={handleSortChange}
           onOrderChange={handleOrderChange}
           onRemoveChip={handleRemoveChip}
@@ -237,6 +327,10 @@ export function RepositoriesCatalogClient() {
           <>
             <RepositoryCatalogTable
               items={data.items}
+              onToggleStar={(repositoryId, starred) => {
+                starMutation.mutate({ repositoryId, starred });
+              }}
+              togglingRepositoryId={starMutation.variables?.repositoryId ?? null}
               onRowClick={(repositoryId) => {
                 startTransition(() => {
                   router.push(`/repositories/${repositoryId}`);

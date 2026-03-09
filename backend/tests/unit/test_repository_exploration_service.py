@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 
 import pytest
 from sqlmodel import Session, create_engine
@@ -17,6 +18,8 @@ from app.models import (
     RepositoryIntake,
     RepositoryMonetizationPotential,
     RepositoryQueueStatus,
+    RepositoryTriageExplanation,
+    RepositoryTriageExplanationKind,
     RepositoryTriageStatus,
     SQLModel,
 )
@@ -67,8 +70,26 @@ def test_repository_exploration_service_returns_joined_metadata_summary_and_arti
                 pros=["Clear workflow"],
                 cons=["Pricing unclear"],
                 missing_feature_signals=["Missing billing"],
-                source_metadata={"readme_artifact_path": "data/readmes/707.md"},
+                source_metadata={
+                    "readme_artifact_path": "data/readmes/707.md",
+                    "analysis_artifact_path": "data/analyses/707.json",
+                    "analysis_provider": "StaticAnalysisProvider",
+                    "normalization_version": "story-3.4-v1",
+                    "raw_character_count": 3120,
+                    "normalized_character_count": 1280,
+                    "removed_line_count": 14,
+                },
                 analyzed_at=now,
+            )
+        )
+        session.add(
+            RepositoryTriageExplanation(
+                github_repository_id=707,
+                explanation_kind=RepositoryTriageExplanationKind.INCLUDE_RULE,
+                explanation_summary="Accepted because workflow automation matched the include set.",
+                matched_include_rules=["workflow", "automation"],
+                matched_exclude_rules=[],
+                explained_at=now,
             )
         )
         session.add(
@@ -100,19 +121,61 @@ def test_repository_exploration_service_returns_joined_metadata_summary_and_arti
             )
         )
         session.commit()
+        runtime_dir = tmp_path / "runtime"
+        (runtime_dir / "data" / "readmes").mkdir(parents=True)
+        (runtime_dir / "data" / "analyses").mkdir(parents=True)
+        (runtime_dir / "data" / "readmes" / "707.md").write_text(
+            "# Analyze Me\n\nWorkflow automation for SaaS operators.",
+            encoding="utf-8",
+        )
+        (runtime_dir / "data" / "analyses" / "707.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "story-3.4-v1",
+                    "github_repository_id": 707,
+                    "full_name": "octocat/analyze-me",
+                    "analysis_provider": "StaticAnalysisProvider",
+                    "analysis": {
+                        "monetization_potential": "high",
+                        "pros": ["Clear workflow"],
+                        "cons": ["Pricing unclear"],
+                        "missing_feature_signals": ["Missing billing"],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
 
-        service = RepositoryExplorationService(RepositoryExplorationRepository(session))
+        service = RepositoryExplorationService(
+            RepositoryExplorationRepository(session),
+            runtime_dir=runtime_dir,
+        )
         response = service.get_repository_exploration(707)
 
     assert response.github_repository_id == 707
     assert response.full_name == "octocat/analyze-me"
+    assert response.owner_login == "octocat"
+    assert response.repository_name == "analyze-me"
     assert response.stargazers_count == 321
     assert response.forks_count == 45
     assert response.pushed_at == now
+    assert response.queue_status.value == "completed"
+    assert response.triage.triage_status.value == "accepted"
+    assert response.triage.explanation is not None
+    assert response.triage.explanation.kind.value == "include_rule"
+    assert response.triage.explanation.matched_include_rules == ["workflow", "automation"]
     assert response.analysis_summary is not None
     assert response.analysis_summary.monetization_potential is RepositoryMonetizationPotential.HIGH
+    assert response.readme_snapshot is not None
+    assert response.readme_snapshot.content == "# Analyze Me\n\nWorkflow automation for SaaS operators."
+    assert response.readme_snapshot.normalization_version == "story-3.4-v1"
+    assert response.analysis_artifact is not None
+    assert response.analysis_artifact.provider_name == "StaticAnalysisProvider"
+    assert response.analysis_artifact.payload["analysis"]["pros"] == ["Clear workflow"]
     assert response.has_readme_artifact is True
     assert response.has_analysis_artifact is True
+    assert response.is_starred is False
+    assert response.user_tags == []
     assert [artifact.runtime_relative_path for artifact in response.artifacts] == [
         "data/analyses/707.json",
         "data/readmes/707.md",
@@ -196,3 +259,5 @@ def test_repository_exploration_service_lists_catalog_page(
     assert response.items[0].monetization_potential is RepositoryMonetizationPotential.HIGH
     assert response.items[0].has_readme_artifact is True
     assert response.items[0].has_analysis_artifact is False
+    assert response.items[0].is_starred is False
+    assert response.items[0].user_tags == []
