@@ -85,7 +85,9 @@ def test_repository_intake_metadata_uses_canonical_identity_and_query_indexes() 
     assert list(table.primary_key.columns.keys()) == ["github_repository_id"]
     assert table.c.queue_status.type.enums == [status.value for status in RepositoryQueueStatus]
     assert table.c.triage_status.type.enums == [status.value for status in RepositoryTriageStatus]
-    assert table.c.analysis_status.type.enums == [status.value for status in RepositoryAnalysisStatus]
+    assert table.c.analysis_status.type.enums == [
+        status.value for status in RepositoryAnalysisStatus
+    ]
     assert table.c.analysis_failure_code.type.enums == [
         status.value for status in RepositoryAnalysisFailureCode
     ]

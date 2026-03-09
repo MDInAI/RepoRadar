@@ -5,6 +5,13 @@ import { createServer } from "node:http";
 import process from "node:process";
 import test, { after, before } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { JSDOM, VirtualConsole } from "jsdom";
+
+const FIXTURE_TIME_ZONE = "UTC";
+const HYDRATION_ERROR_PATTERN =
+  /hydration|did not match|server rendered html|recoverable error|text content does not match/i;
+
+process.env.TZ = FIXTURE_TIME_ZONE;
 
 const PORT = Number(process.env.PORT ?? "3101");
 const HOST = "127.0.0.1";
@@ -450,6 +457,12 @@ const runtimeFixtures = {
   },
 };
 
+const UTC_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: FIXTURE_TIME_ZONE,
+});
+
 const pages = [
   {
     path: "/overview",
@@ -458,8 +471,8 @@ const pages = [
   },
   {
     path: "/repositories",
-    heading: "Repositories",
-    body: /Placeholder for canonical page model\./,
+    heading: "Browse analyzed repositories",
+    body: /Filter by source, triage, analysis state/,
   },
   {
     path: "/repositories/demo-repo",
@@ -584,6 +597,19 @@ test("landing page exposes scaffold navigation", async () => {
   }
 });
 
+test("landing page hydrates without browser-side errors", async () => {
+  const page = await openBrowserPage("/");
+
+  try {
+    const textContent = normalizeText(page.document.body.textContent ?? "");
+    assert.match(textContent, /Agentic-Workflow Dashboard/);
+    assert.match(textContent, /Local-first intelligent repository discovery and idea synthesis\./);
+    assert.deepEqual(page.hydrationErrors, [], page.consoleMessages.join("\n"));
+  } finally {
+    page.close();
+  }
+});
+
 for (const { path, heading, body } of pages) {
   test(`page ${path} renders the scaffold heading`, async () => {
     const html = await fetchPage(path);
@@ -618,15 +644,51 @@ test("overview page renders backend-fed Firehose and Backfill intake status", as
   assert.match(html, /10(?:<!-- -->)? persisted repositories/);
   assert.match(html, /5(?:<!-- -->)? persisted repositories/);
   assert.match(html, /Mirror snapshot/);
-  assert.match(html, /Mar 7, 2026, 10:16 AM/);
-  assert.match(html, /Mar 7, 2026, 9:46 AM/);
   assert.match(
     html,
-    /Created before cursor<\/dt><dd class="mt-1 text-sm font-medium text-slate-800">Jan 15, 2025, 12:00 PM<\/dd>/,
+    new RegExp(escapeRegExp(formatFixtureTimestamp("2026-03-07T10:16:00Z"))),
   );
-  assert.match(html, /Jan 15, 2025, 12:00 PM/);
+  assert.match(
+    html,
+    new RegExp(escapeRegExp(formatFixtureTimestamp("2026-03-07T09:46:00Z"))),
+  );
+  assert.match(
+    html,
+    new RegExp(
+      `Created before cursor<\\/dt><dd class="mt-1 text-sm font-medium text-slate-800">${escapeRegExp(
+        formatFixtureTimestamp("2025-01-15T12:00:00Z"),
+      )}<\\/dd>`,
+    ),
+  );
+  assert.match(
+    html,
+    new RegExp(escapeRegExp(formatFixtureTimestamp("2025-01-15T12:00:00Z"))),
+  );
   assert.match(html, /Agent Matrix/);
   assert.doesNotMatch(html, /Placeholder for the operator overview\./);
+});
+
+test("overview page hydrates with deterministic UTC timestamps", async () => {
+  currentRuntimeScenario = "success";
+
+  const page = await openBrowserPage("/overview");
+
+  try {
+    const textContent = normalizeText(page.document.body.textContent ?? "");
+    assert.match(textContent, /Pipeline Flow/);
+    assert.match(textContent, /Times shown in UTC/);
+    assert.match(
+      textContent,
+      new RegExp(escapeRegExp(formatFixtureTimestamp("2026-03-07T10:16:00Z"))),
+    );
+    assert.match(
+      textContent,
+      new RegExp(escapeRegExp(formatFixtureTimestamp("2025-01-15T12:00:00Z"))),
+    );
+    assert.deepEqual(page.hydrationErrors, [], page.consoleMessages.join("\n"));
+  } finally {
+    page.close();
+  }
 });
 
 test("overview page renders a fallback when the runtime endpoint returns a 500", async () => {
@@ -714,4 +776,143 @@ async function fetchPage(path) {
   assert.equal(response.status, 200, `${path} failed.\n${html}\n${serverLogs}`);
 
   return html;
+}
+
+async function openBrowserPage(path) {
+  const consoleMessages = [];
+  const virtualConsole = new VirtualConsole();
+  const recordConsoleMessage = (value) => {
+    consoleMessages.push(formatConsoleValue(value));
+  };
+
+  virtualConsole.on("error", recordConsoleMessage);
+  virtualConsole.on("warn", recordConsoleMessage);
+  virtualConsole.on("jsdomError", recordConsoleMessage);
+
+  const dom = await JSDOM.fromURL(`${BASE_URL}${path}`, {
+    pretendToBeVisual: true,
+    resources: "usable",
+    runScripts: "dangerously",
+    virtualConsole,
+    beforeParse(window) {
+      installBrowserShims(window, consoleMessages);
+    },
+  });
+
+  await waitForDocumentLoad(dom.window);
+  await delay(1500);
+
+  return {
+    close() {
+      dom.window.close();
+    },
+    consoleMessages,
+    document: dom.window.document,
+    hydrationErrors: consoleMessages.filter((message) => HYDRATION_ERROR_PATTERN.test(message)),
+  };
+}
+
+function installBrowserShims(window, consoleMessages) {
+  Object.defineProperty(window.Document.prototype, "currentScript", {
+    configurable: true,
+    get() {
+      return (
+        this.querySelector('script[src*="/_next/static/chunks/"]') ??
+        this.querySelector("script")
+      );
+    },
+  });
+  defineWindowGlobal(window, "fetch", globalThis.fetch.bind(globalThis));
+  defineWindowGlobal(window, "Headers", globalThis.Headers);
+  defineWindowGlobal(window, "Request", globalThis.Request);
+  defineWindowGlobal(window, "Response", globalThis.Response);
+  defineWindowGlobal(window, "AbortController", globalThis.AbortController);
+  defineWindowGlobal(window, "TextEncoder", globalThis.TextEncoder);
+  defineWindowGlobal(window, "TextDecoder", globalThis.TextDecoder);
+  defineWindowGlobal(window, "crypto", globalThis.crypto);
+  defineWindowGlobal(window, "structuredClone", globalThis.structuredClone);
+  window.ResizeObserver =
+    window.ResizeObserver ??
+    class ResizeObserver {
+      disconnect() {}
+      observe() {}
+      unobserve() {}
+    };
+  window.IntersectionObserver =
+    window.IntersectionObserver ??
+    class IntersectionObserver {
+      disconnect() {}
+      observe() {}
+      unobserve() {}
+    };
+  window.matchMedia =
+    window.matchMedia ??
+    (() => ({
+      addEventListener() {},
+      addListener() {},
+      dispatchEvent() {
+        return false;
+      },
+      matches: false,
+      media: "",
+      removeEventListener() {},
+      removeListener() {},
+    }));
+  window.scrollTo = () => {};
+
+  const OriginalDateTimeFormat = window.Intl.DateTimeFormat;
+  function FixedTimeZoneDateTimeFormat(locales, options = {}) {
+    return new OriginalDateTimeFormat(locales, {
+      ...options,
+      timeZone: options.timeZone ?? FIXTURE_TIME_ZONE,
+    });
+  }
+  FixedTimeZoneDateTimeFormat.prototype = OriginalDateTimeFormat.prototype;
+  FixedTimeZoneDateTimeFormat.supportedLocalesOf =
+    OriginalDateTimeFormat.supportedLocalesOf.bind(OriginalDateTimeFormat);
+  window.Intl.DateTimeFormat = FixedTimeZoneDateTimeFormat;
+
+  const originalConsoleError = window.console.error.bind(window.console);
+  window.console.error = (...args) => {
+    consoleMessages.push(args.map(formatConsoleValue).join(" "));
+    return originalConsoleError(...args);
+  };
+}
+
+async function waitForDocumentLoad(window) {
+  if (window.document.readyState === "complete") {
+    return;
+  }
+
+  await new Promise((resolve) => {
+    window.addEventListener("load", resolve, { once: true });
+  });
+}
+
+function defineWindowGlobal(window, key, value) {
+  if (typeof window[key] !== "undefined") {
+    return;
+  }
+
+  Object.defineProperty(window, key, {
+    configurable: true,
+    value,
+    writable: true,
+  });
+}
+
+function formatFixtureTimestamp(isoValue) {
+  return UTC_DATE_TIME_FORMATTER.format(new Date(isoValue));
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function formatConsoleValue(value) {
+  return value instanceof Error ? value.stack ?? value.message : String(value);
+}
+
+function normalizeText(value) {
+  return value.replace(/\s+/g, " ").trim();
 }

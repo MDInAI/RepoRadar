@@ -50,7 +50,7 @@ function NavigationCard({ href, title, description }: { href: string; title: str
   return (
     <Link
       href={href}
-      className="block p-6 rounded-xl border border-neutral-800 bg-neutral-900/50 hover:bg-neutral-800 hover:border-neutral-700 transition-colors shadow-sm"
+      className="block p-6 rounded-xl border border-neutral-800 bg-neutral-900/50 hover:bg-neutral-800 hover:border-neutral-700 transition-colors shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
     >
       <h2 className="text-xl font-semibold mb-2 flex items-center justify-between">
         {title}

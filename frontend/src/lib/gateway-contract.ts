@@ -263,3 +263,26 @@ export interface GatewayEventEnvelopeResponse {
 }
 
 // Frontend pages should consume Gateway data through the backend contract only.
+
+export function isGatewayContractResponse(value: unknown): value is GatewayContractResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as GatewayContractResponse).contract_version === "string" &&
+    typeof (value as GatewayContractResponse).runtime_mode === "string" &&
+    Array.isArray((value as GatewayContractResponse).named_agents)
+  );
+}
+
+export function isGatewayRuntimeSurfaceResponse(
+  value: unknown,
+): value is GatewayRuntimeSurfaceResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as GatewayRuntimeSurfaceResponse).contract_version === "string" &&
+    typeof (value as GatewayRuntimeSurfaceResponse).availability === "string" &&
+    typeof (value as GatewayRuntimeSurfaceResponse).runtime === "object" &&
+    (value as GatewayRuntimeSurfaceResponse).runtime !== null
+  );
+}

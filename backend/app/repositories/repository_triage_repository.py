@@ -40,7 +40,11 @@ class RepositoryTriageRepository:
 
         explanation_row = self.session.get(RepositoryTriageExplanation, github_repository_id)
         explanation = None
-        if explanation_row is not None:
+        if (
+            explanation_row is not None
+            and intake.triage_status is not RepositoryTriageStatus.PENDING
+            and intake.triaged_at is not None
+        ):
             explanation = RepositoryTriageExplanationRecord(
                 kind=explanation_row.explanation_kind,
                 summary=explanation_row.explanation_summary,

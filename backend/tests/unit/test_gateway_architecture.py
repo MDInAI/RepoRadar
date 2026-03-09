@@ -107,7 +107,9 @@ def test_runtime_routes_do_not_read_openclaw_config_directly() -> None:
     for root in targets:
         for path in _iter_code_files(root):
             rel = path.relative_to(repo_root)
-            for lineno, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            for lineno, raw_line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1
+            ):
                 if any(fragment in raw_line for fragment in forbidden_fragments) and any(
                     marker in raw_line for marker in file_access_markers
                 ):
@@ -178,10 +180,7 @@ def test_gateway_contract_files_encode_explicit_multi_agent_runtime_mode() -> No
         "frontend": repo_root / "frontend" / "src" / "lib" / "gateway-contract.ts",
         "route": repo_root / "backend" / "app" / "api" / "routes" / "gateway.py",
     }
-    loaded = {
-        name: path.read_text(encoding="utf-8")
-        for name, path in targets.items()
-    }
+    loaded = {name: path.read_text(encoding="utf-8") for name, path in targets.items()}
 
     assert 'Literal["multi-agent"]' in loaded["schema"]
     assert "runtime_mode" in loaded["schema"]
@@ -260,7 +259,9 @@ def test_env_examples_do_not_ship_machine_specific_workspace_paths() -> None:
 
     violations: list[str] = []
     for file_path in targets:
-        for lineno, raw_line in enumerate(file_path.read_text(encoding="utf-8").splitlines(), start=1):
+        for lineno, raw_line in enumerate(
+            file_path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
             if "/Users/" in raw_line and "OPENCLAW_WORKSPACE_DIR" in raw_line:
                 violations.append(f"{file_path.relative_to(repo_root)}:{lineno}")
 

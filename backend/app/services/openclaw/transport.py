@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -13,6 +14,9 @@ from app.services.openclaw.config_service import (
     load_openclaw_config,
 )
 
+logger = logging.getLogger(__name__)
+
+# Default port for the OpenClaw Gateway server as documented in the OpenClaw Gateway spec.
 DEFAULT_GATEWAY_PORT = 18789
 CONFIG_VALIDATION_STATUS_CODE = 422
 
@@ -133,6 +137,13 @@ def resolve_gateway_target_from_input(
 ) -> GatewayTargetResolution:
     raw_url = (target_input.url or "").strip()
     token_configured = bool((target_input.token or "").strip())
+
+    if target_input.allow_insecure_tls and settings.ENVIRONMENT != "local":
+        logger.warning(
+            "allow_insecure_tls is enabled outside a local environment (ENVIRONMENT=%s); "
+            "certificate validation is disabled",
+            settings.ENVIRONMENT,
+        )
 
     if not raw_url:
         return GatewayTargetResolution(

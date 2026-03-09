@@ -50,7 +50,9 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
         ),
-        sa.CheckConstraint("source_provider IN ('github')", name="ck_backfill_progress_source_provider_valid"),
+        sa.CheckConstraint(
+            "source_provider IN ('github')", name="ck_backfill_progress_source_provider_valid"
+        ),
         sa.CheckConstraint("next_page > 0", name="ck_backfill_progress_next_page_positive"),
         sa.CheckConstraint(
             "window_start_date < created_before_boundary",

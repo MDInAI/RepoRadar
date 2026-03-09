@@ -60,7 +60,9 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
         ),
-        sa.CheckConstraint("source_provider IN ('github')", name="ck_firehose_progress_source_provider_valid"),
+        sa.CheckConstraint(
+            "source_provider IN ('github')", name="ck_firehose_progress_source_provider_valid"
+        ),
         sa.CheckConstraint("next_page > 0", name="ck_firehose_progress_next_page_positive"),
         sa.CheckConstraint(
             "(resume_required = 0) OR ("

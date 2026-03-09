@@ -361,6 +361,7 @@ export function OverviewRuntimeClient({
               <div className="mt-1 text-amber-800">{refreshError}</div>
               <div className="mt-3 flex items-center gap-3">
                 <button
+              aria-busy={refreshSnapshot.refreshInFlight}
               className="rounded-full bg-amber-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white disabled:cursor-not-allowed disabled:bg-amber-300"
               disabled={refreshSnapshot.refreshInFlight}
               onClick={handleRetryNow}

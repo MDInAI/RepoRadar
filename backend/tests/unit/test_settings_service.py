@@ -266,8 +266,7 @@ def test_settings_service_rejects_blank_project_owned_runtime_settings(tmp_path:
     assert exc_info.value.code == "settings_validation_failed"
     assert exc_info.value.status_code == 422
     assert any(
-        issue["field"] == "DATABASE_URL"
-        for issue in exc_info.value.details["validation"]["issues"]
+        issue["field"] == "DATABASE_URL" for issue in exc_info.value.details["validation"]["issues"]
     )
 
 
@@ -296,8 +295,7 @@ def test_settings_service_rejects_blank_project_runtime_dir(tmp_path: Path) -> N
 
     assert exc_info.value.code == "settings_validation_failed"
     assert any(
-        issue["field"] == "AGENTIC_RUNTIME_DIR"
-        and issue["code"] == "runtime_dir_missing"
+        issue["field"] == "AGENTIC_RUNTIME_DIR" and issue["code"] == "runtime_dir_missing"
         for issue in exc_info.value.details["validation"]["issues"]
     )
 
@@ -324,8 +322,7 @@ def test_settings_service_rejects_missing_workspace_dir(tmp_path: Path) -> None:
 
     assert exc_info.value.code == "settings_validation_failed"
     assert any(
-        issue["field"] == "OPENCLAW_WORKSPACE_DIR"
-        and issue["code"] == "workspace_dir_missing"
+        issue["field"] == "OPENCLAW_WORKSPACE_DIR" and issue["code"] == "workspace_dir_missing"
         for issue in exc_info.value.details["validation"]["issues"]
     )
 
@@ -352,8 +349,7 @@ def test_settings_service_rejects_nonexistent_workspace_dir(tmp_path: Path) -> N
 
     assert exc_info.value.code == "settings_validation_failed"
     assert any(
-        issue["field"] == "OPENCLAW_WORKSPACE_DIR"
-        and issue["code"] == "workspace_dir_invalid"
+        issue["field"] == "OPENCLAW_WORKSPACE_DIR" and issue["code"] == "workspace_dir_invalid"
         for issue in exc_info.value.details["validation"]["issues"]
     )
 
@@ -402,20 +398,16 @@ def test_settings_service_surfaces_worker_drift_warnings(tmp_path: Path) -> None
     ).get_settings_summary()
 
     assert response.validation.valid is True
+    assert any(issue.code == "worker_workspace_dir_differs" for issue in response.validation.issues)
     assert any(
-        issue.code == "worker_workspace_dir_differs" for issue in response.validation.issues
-    )
-    assert any(
-        issue.code == "worker_github_provider_token_differs"
-        for issue in response.validation.issues
+        issue.code == "worker_github_provider_token_differs" for issue in response.validation.issues
     )
     assert any(
         issue.code == "worker_github_requests_per_minute_differs"
         for issue in response.validation.issues
     )
     assert any(
-        issue.code == "worker_intake_pacing_seconds_differs"
-        for issue in response.validation.issues
+        issue.code == "worker_intake_pacing_seconds_differs" for issue in response.validation.issues
     )
     assert any(
         issue.code == "worker_backfill_interval_seconds_differs"
@@ -432,8 +424,7 @@ def test_settings_service_surfaces_worker_drift_warnings(tmp_path: Path) -> None
         for item in response.worker_settings
     )
     assert any(
-        item.key == "workers.BACKFILL_WINDOW_DAYS"
-        and item.value == "14"
+        item.key == "workers.BACKFILL_WINDOW_DAYS" and item.value == "14"
         for item in response.worker_settings
     )
 
@@ -597,7 +588,8 @@ def test_settings_service_accepts_dotenv_inline_comments(tmp_path: Path) -> None
 
     assert response.validation.valid is True
     assert any(
-        item.key == "workers.DATABASE_URL" and item.value == "sqlite:///../runtime/data/sqlite/worker.db"
+        item.key == "workers.DATABASE_URL"
+        and item.value == "sqlite:///../runtime/data/sqlite/worker.db"
         for item in response.worker_settings
     )
     assert any(
@@ -612,12 +604,17 @@ def test_settings_service_raises_validation_error_for_unreadable_openclaw_config
 ) -> None:
     config_path = _write_openclaw_config(
         tmp_path / "openclaw.json",
-        {"gateway": {"url": "wss://test", "auth": {"token": "test"}}, "agents": {"defaults": {"model": "test"}}},
+        {
+            "gateway": {"url": "wss://test", "auth": {"token": "test"}},
+            "agents": {"defaults": {"model": "test"}},
+        },
     )
+
     def mock_read_text(*args, **kwargs):
         raise PermissionError("Permission denied")
+
     monkeypatch.setattr(Path, "read_text", mock_read_text)
-    
+
     workspace_dir = tmp_path / "workspace"
     workspace_dir.mkdir()
 

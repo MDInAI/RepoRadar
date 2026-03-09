@@ -12,6 +12,7 @@ from app.services.intake_runtime_service import GatewayIntakeRuntimeService
 from app.services.openclaw.contract_service import GatewayContractService
 from app.services.repository_exploration_service import RepositoryExplorationService
 from app.services.repository_triage_service import RepositoryTriageService
+from app.services.settings_service import SettingsService
 
 
 def get_db_session() -> Generator[Session, None, None]:
@@ -40,3 +41,7 @@ def get_repository_exploration_service(
     session: Session = Depends(get_db_session),
 ) -> RepositoryExplorationService:
     return RepositoryExplorationService(RepositoryExplorationRepository(session))
+
+
+def get_settings_service() -> SettingsService:
+    return SettingsService()

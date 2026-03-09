@@ -111,11 +111,7 @@ def test_resolve_gateway_target_reads_openclaw_config_reference(tmp_path: Path) 
                     },
                     "auth": {"token": "gateway-token"},
                 },
-                "agents": {
-                    "defaults": {
-                        "model": {"primary": "test-model"}
-                    }
-                }
+                "agents": {"defaults": {"model": {"primary": "test-model"}}},
             }
         ),
         encoding="utf-8",
@@ -224,7 +220,9 @@ def test_gateway_contract_service_returns_multi_agent_runtime_placeholders() -> 
     assert response.runtime.runtime_mode == "multi-agent"
     assert [agent.agent_key for agent in response.runtime.agent_states] == EXPECTED_AGENT_KEYS
     assert response.runtime.agent_states[0].agent_role == "control-plane-coordinator"
-    assert response.runtime.agent_states[0].session_affinity.session_id == "reserved-session-overlord"
+    assert (
+        response.runtime.agent_states[0].session_affinity.session_id == "reserved-session-overlord"
+    )
     assert response.runtime.agent_states[0].session_affinity.route_key == "agent.overlord"
     assert response.runtime.agent_states[-1].session_affinity.session_id is None
     assert response.runtime.agent_states[0].queue.status == "reserved"
@@ -310,9 +308,7 @@ def test_gateway_contract_service_returns_live_intake_runtime_surface(
     assert backfill.queue.checkpoint.next_page == 3
     assert backfill.queue.checkpoint.exhausted is False
 
-    bouncer = next(
-        agent for agent in response.runtime.agent_states if agent.agent_key == "bouncer"
-    )
+    bouncer = next(agent for agent in response.runtime.agent_states if agent.agent_key == "bouncer")
     assert bouncer.queue.status == "reserved"
 
 
@@ -383,11 +379,7 @@ def test_gateway_contract_service_returns_runtime_surface_for_invalid_gateway_ur
                     },
                     "auth": {"token": "gateway-token"},
                 },
-                "agents": {
-                    "defaults": {
-                        "model": {"primary": "test-model"}
-                    }
-                },
+                "agents": {"defaults": {"model": {"primary": "test-model"}}},
             }
         ),
         encoding="utf-8",

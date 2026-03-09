@@ -73,7 +73,9 @@ class Settings(BaseSettings):
             return candidate or None
         return value
 
-    @field_validator("AGENTIC_RUNTIME_DIR", "OPENCLAW_CONFIG_PATH", "OPENCLAW_WORKSPACE_DIR", mode="before")
+    @field_validator(
+        "AGENTIC_RUNTIME_DIR", "OPENCLAW_CONFIG_PATH", "OPENCLAW_WORKSPACE_DIR", mode="before"
+    )
     @classmethod
     def _expand_paths(cls, value: object) -> object:
         if isinstance(value, str):
