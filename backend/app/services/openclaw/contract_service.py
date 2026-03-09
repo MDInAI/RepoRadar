@@ -4,7 +4,9 @@ from typing import Protocol
 
 from app.core.errors import AppError
 from app.schemas.gateway_contract import (
+    GatewayAgentIntakeQueueSummary,
     GatewayAgentMonitoringPlaceholder,
+    GatewayAgentQueue,
     GatewayAgentQueuePlaceholder,
     GatewayAgentSessionAffinity,
     GatewayAuthorityBoundary,
@@ -27,15 +29,16 @@ from app.schemas.gateway_contract import (
     NormalizedGatewaySessionDetail,
     NormalizedGatewaySessionSummary,
 )
+from app.services.intake_runtime_service import GatewayIntakeRuntimeService
 from app.services.openclaw.transport import (
     GatewayTargetResolution,
     map_gateway_transport_error,
     resolve_gateway_target,
 )
 
-CONTRACT_VERSION = "1.1.0"
+CONTRACT_VERSION = "1.2.0"
 _QUEUE_PLACEHOLDER_NOTE = (
-    "Queue metrics remain placeholder-only until the queue stories land."
+    "Queue metrics for non-intake agents remain placeholder-only until later monitoring stories."
 )
 _MONITORING_PLACEHOLDER_NOTE = (
     "Monitoring state will come from Gateway-backed runtime and later worker stories."
@@ -134,8 +137,10 @@ class GatewayContractService:
     def __init__(
         self,
         adapter: GatewayContractAdapter | None = None,
+        intake_runtime_service: GatewayIntakeRuntimeService | None = None,
     ) -> None:
         self.adapter = adapter or SettingsGatewayContractAdapter()
+        self.intake_runtime_service = intake_runtime_service
 
     def get_contract_metadata(self) -> GatewayContractResponse:
         target = self._resolve_target()
@@ -143,7 +148,7 @@ class GatewayContractService:
             contract_version=CONTRACT_VERSION,
             architecture_flow="frontend -> Agentic-Workflow backend -> Gateway",
             runtime_mode="multi-agent",
-            named_agents=self._named_agent_placeholders(),
+            named_agents=self._named_agent_summaries(),
             authority_boundary=[
                 GatewayAuthorityBoundary(
                     owner="gateway",
@@ -197,8 +202,8 @@ class GatewayContractService:
                     app_surface="/api/v1/gateway/runtime",
                     contract_status="defined",
                     notes=(
-                        "Story 1.3 makes runtime mode explicitly multi-agent and reserves "
-                        "agent-specific placeholders on this surface."
+                        "Story 2.6 keeps the runtime mode multi-agent while letting Firehose "
+                        "and Backfill expose backend-owned intake summaries."
                     ),
                 ),
                 GatewayCanonicalInterface(
@@ -264,20 +269,38 @@ class GatewayContractService:
         )
 
     def get_runtime_surface(self) -> GatewayRuntimeSurfaceResponse:
-        target = self._resolve_target()
+        try:
+            target = self._resolve_target()
+            gateway_url = target.url
+        except AppError as exc:
+            # Story 2.6: Allow runtime inspection to succeed even if gateway transport
+            # target resolution fails (e.g. invalid/missing configuration) so that
+            # backend-owned intake queues are still rendered.
+            if exc.status_code == 422:
+                gateway_url = None
+            else:
+                raise
+
+        queue_overrides = (
+            self.intake_runtime_service.build_queue_overrides()
+            if self.intake_runtime_service is not None
+            else None
+        )
         return GatewayRuntimeSurfaceResponse(
             contract_version=CONTRACT_VERSION,
-            availability="reserved",
+            availability="available" if queue_overrides is not None else "reserved",
             runtime=NormalizedGatewayRuntimeState(
-                source_of_truth="gateway",
+                source_of_truth=(
+                    "agentic-workflow+gateway" if queue_overrides is not None else "gateway"
+                ),
                 runtime_mode="multi-agent",
-                gateway_url=target.url,
+                gateway_url=gateway_url,
                 connection_state="reserved",
                 status="unknown",
                 route_owner="/api/v1/gateway/runtime",
-                agent_states=self._named_agent_placeholders(),
+                agent_states=self._named_agent_summaries(queue_overrides=queue_overrides),
                 notes=[
-                    "Story 1.3 makes the normalized runtime contract explicitly multi-agent.",
+                    "The runtime surface keeps Gateway routing metadata and Agentic-Workflow intake data on one backend-owned contract.",
                     "Gateway connectivity does not belong to the generic /health endpoint.",
                 ],
             ),
@@ -290,7 +313,7 @@ class GatewayContractService:
             availability="reserved",
             runtime_mode="multi-agent",
             source_of_truth="gateway",
-            named_agents=self._named_agent_placeholders(),
+            named_agents=self._named_agent_summaries(),
             sessions=self._session_placeholders(),
             notes=[
                 "Story 1.3 keeps session authority with Gateway while making agent context explicit.",
@@ -370,7 +393,9 @@ class GatewayContractService:
         )
 
     @staticmethod
-    def _named_agent_placeholders() -> list[GatewayNamedAgentSummary]:
+    def _named_agent_summaries(
+        queue_overrides: dict[str, GatewayAgentIntakeQueueSummary] | None = None,
+    ) -> list[GatewayNamedAgentSummary]:
         return [
             GatewayNamedAgentSummary(
                 agent_key=agent_key,
@@ -378,8 +403,9 @@ class GatewayContractService:
                 agent_role=agent_role,
                 lifecycle_state=lifecycle_state,
                 mvp_scope=mvp_scope,
-                queue=GatewayAgentQueuePlaceholder(
-                    notes=[_QUEUE_PLACEHOLDER_NOTE],
+                queue=GatewayContractService._queue_for_agent(
+                    agent_key,
+                    queue_overrides=queue_overrides,
                 ),
                 monitoring=GatewayAgentMonitoringPlaceholder(
                     notes=[_MONITORING_PLACEHOLDER_NOTE],
@@ -401,6 +427,19 @@ class GatewayContractService:
                 note,
             ) in _AGENT_ROSTER
         ]
+
+    @staticmethod
+    def _queue_for_agent(
+        agent_key: str,
+        *,
+        queue_overrides: dict[str, GatewayAgentIntakeQueueSummary] | None = None,
+    ) -> GatewayAgentQueue:
+        if queue_overrides is not None and agent_key in queue_overrides:
+            return queue_overrides[agent_key]
+
+        return GatewayAgentQueuePlaceholder(
+            notes=[_QUEUE_PLACEHOLDER_NOTE],
+        )
 
     @classmethod
     def _session_placeholders(cls) -> list[NormalizedGatewaySessionSummary]:

@@ -97,6 +97,56 @@ export interface GatewayAgentQueuePlaceholder {
   notes: string[];
 }
 
+export interface GatewayQueueStateBuckets {
+  pending: number;
+  in_progress: number;
+  completed: number;
+  failed: number;
+}
+
+interface GatewayAgentIntakeCheckpointBase {
+  next_page: number;
+  last_checkpointed_at: string | null;
+  mirror_snapshot_generated_at: string | null;
+}
+
+export interface GatewayFirehoseIntakeCheckpoint
+  extends GatewayAgentIntakeCheckpointBase {
+  kind: "firehose";
+  active_mode: "new" | "trending" | null;
+  resume_required: boolean | null;
+  new_anchor_date: string | null;
+  trending_anchor_date: string | null;
+  run_started_at: string | null;
+}
+
+export interface GatewayBackfillIntakeCheckpoint
+  extends GatewayAgentIntakeCheckpointBase {
+  kind: "backfill";
+  window_start_date: string | null;
+  created_before_boundary: string | null;
+  created_before_cursor: string | null;
+  exhausted: boolean | null;
+}
+
+export type GatewayAgentIntakeCheckpoint =
+  | GatewayFirehoseIntakeCheckpoint
+  | GatewayBackfillIntakeCheckpoint;
+
+export interface GatewayAgentIntakeQueueSummary {
+  status: "live";
+  source_of_truth: "agentic-workflow";
+  pending_items: number;
+  total_items: number;
+  state_counts: GatewayQueueStateBuckets;
+  checkpoint: GatewayAgentIntakeCheckpoint;
+  notes: string[];
+}
+
+export type GatewayAgentQueue =
+  | GatewayAgentQueuePlaceholder
+  | GatewayAgentIntakeQueueSummary;
+
 export interface GatewayAgentMonitoringPlaceholder {
   status: "reserved";
   last_heartbeat_at: string | null;
@@ -116,7 +166,7 @@ export interface GatewayNamedAgentSummary {
   agent_role: GatewayAgentRole;
   lifecycle_state: GatewayAgentLifecycleState;
   mvp_scope: GatewayAgentMVPScope;
-  queue: GatewayAgentQueuePlaceholder;
+  queue: GatewayAgentQueue;
   monitoring: GatewayAgentMonitoringPlaceholder;
   session_affinity: GatewayAgentSessionAffinity;
   notes: string[];
@@ -144,9 +194,9 @@ export interface GatewayContractResponse {
 
 export interface GatewayRuntimeSurfaceResponse {
   contract_version: string;
-  availability: "reserved";
+  availability: "available" | "reserved";
   runtime: {
-    source_of_truth: "gateway";
+    source_of_truth: string;
     runtime_mode: GatewayRuntimeMode;
     gateway_url: string | null;
     connection_state: "reserved";

@@ -8,13 +8,10 @@ import {
   type GatewayRuntimeSurfaceResponse,
   gatewayContractEndpoints,
 } from "@/lib/gateway-contract";
+import { getRequiredApiBaseUrl } from "./base-url";
 
 function getApiBaseUrl(): string {
-  const url = process.env.NEXT_PUBLIC_API_URL;
-  if (!url) {
-    throw new Error("NEXT_PUBLIC_API_URL is required but not configured.");
-  }
-  return url;
+  return getRequiredApiBaseUrl();
 }
 
 interface ReadinessErrorEnvelope {

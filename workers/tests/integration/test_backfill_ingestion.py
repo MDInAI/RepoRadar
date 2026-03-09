@@ -13,6 +13,7 @@ from agentic_workers.storage.backend_models import (
     RepositoryDiscoverySource,
     RepositoryFirehoseMode,
     RepositoryIntake,
+    RepositoryQueueStatus,
     SQLModel,
 )
 from agentic_workers.storage.repository_intake import persist_firehose_batch
@@ -122,13 +123,20 @@ def test_backfill_job_resumes_from_stored_checkpoint_and_writes_artifacts(tmp_pa
     assert checkpoint.created_before_boundary == date(2026, 2, 6)
     assert checkpoint.created_before_cursor is None
     assert checkpoint.next_page == 1
+    assert checkpoint.pages_processed_in_run == 0
     assert checkpoint.exhausted is False
     assert second_result.artifact_path is not None
+
+    progress_snapshot = json.loads((runtime_dir / "backfill" / "progress.json").read_text())
+    assert progress_snapshot["resume_required"] is False
 
     artifact = json.loads(second_result.artifact_path.read_text())
     assert artifact["status"] == "success"
     assert artifact["checkpoint"]["created_before_boundary"] == "2026-02-06"
     assert artifact["checkpoint"]["created_before_cursor"] is None
+    assert artifact["checkpoint"]["resume_required"] is False
+    assert "checkpoint_interpretation" in artifact["operator_guidance"]
+    assert "stall_recovery" in artifact["operator_guidance"]
     assert artifact["outcomes"][0]["created_before_cursor"] == "2026-02-28T05:00:00+00:00"
     assert artifact["outcomes"][0]["page"] == 1
 
@@ -137,7 +145,20 @@ def test_backfill_persistence_skips_existing_firehose_rows(tmp_path: Path) -> No
     runtime_dir = tmp_path / "runtime"
     provider = RecordingProvider(
         {
-            (date(2026, 2, 6), date(2026, 3, 8), None, 1): [_repository(999)],
+            (
+                date(2026, 2, 6),
+                date(2026, 3, 8),
+                None,
+                1,
+            ): [
+                DiscoveredRepository(
+                    github_repository_id=999,
+                    owner_login="renamed-owner",
+                    repository_name="renamed-repo",
+                    full_name="renamed-owner/renamed-repo",
+                    created_at=datetime(2026, 2, 28, 15, 0, tzinfo=timezone.utc),
+                )
+            ],
         }
     )
 
@@ -156,6 +177,16 @@ def test_backfill_persistence_skips_existing_firehose_rows(tmp_path: Path) -> No
             ],
             mode=FirehoseMode.NEW,
         )
+        existing = session.get(RepositoryIntake, 999)
+        assert existing is not None
+        existing.queue_status = RepositoryQueueStatus.COMPLETED
+        existing.processing_started_at = datetime(2026, 2, 28, 15, 5, tzinfo=timezone.utc)
+        existing.processing_completed_at = datetime(2026, 2, 28, 15, 15, tzinfo=timezone.utc)
+        existing.status_updated_at = datetime(2026, 2, 28, 15, 15, tzinfo=timezone.utc)
+        original_completed_at = existing.processing_completed_at
+        original_status_updated_at = existing.status_updated_at
+        session.add(existing)
+        session.commit()
         result = run_backfill_job(
             session=session,
             provider=provider,
@@ -176,3 +207,9 @@ def test_backfill_persistence_skips_existing_firehose_rows(tmp_path: Path) -> No
     assert len(rows) == 1
     assert rows[0].discovery_source is RepositoryDiscoverySource.FIREHOSE
     assert rows[0].firehose_discovery_mode is RepositoryFirehoseMode.NEW
+    assert rows[0].owner_login == "renamed-owner"
+    assert rows[0].repository_name == "renamed-repo"
+    assert rows[0].full_name == "renamed-owner/renamed-repo"
+    assert rows[0].queue_status is RepositoryQueueStatus.COMPLETED
+    assert rows[0].processing_completed_at == original_completed_at
+    assert rows[0].status_updated_at == original_status_updated_at

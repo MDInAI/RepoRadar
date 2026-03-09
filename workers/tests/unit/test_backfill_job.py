@@ -3,10 +3,15 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+import pytest
+
 import agentic_workers.jobs.backfill_job as backfill_job_module
 from agentic_workers.jobs.backfill_job import BackfillRunStatus, run_backfill_job
-from agentic_workers.providers.github_provider import DiscoveredRepository
-from agentic_workers.storage.backfill_progress import BackfillCheckpointState
+from agentic_workers.providers.github_provider import DiscoveredRepository, GitHubRateLimitError
+from agentic_workers.storage.backfill_progress import (
+    BackfillCheckpointState,
+    advance_backfill_progress,
+)
 from agentic_workers.storage.repository_intake import IntakePersistenceResult
 
 
@@ -48,6 +53,8 @@ def test_backfill_job_uses_stored_checkpoint_when_resuming(tmp_path: Path) -> No
         next_page=3,
         exhausted=False,
         last_checkpointed_at=None,
+        resume_required=True,
+        pages_processed_in_run=2,
     )
 
     class Provider:
@@ -71,7 +78,7 @@ def test_backfill_job_uses_stored_checkpoint_when_resuming(tmp_path: Path) -> No
         runtime_dir=tmp_path,
         pacing_seconds=5,
         per_page=2,
-        pages=1,
+        pages=3,
         window_days=30,
         min_created_date=date(2008, 1, 1),
         sleep_fn=lambda _seconds: None,
@@ -84,7 +91,8 @@ def test_backfill_job_uses_stored_checkpoint_when_resuming(tmp_path: Path) -> No
     )
 
     assert discover_calls == [(date(2026, 2, 1), date(2026, 3, 1), None, 2, 3)]
-    assert session.commits == 1
+    # 2 commits: 1 for the page processing + 1 for clearing resume_required
+    assert session.commits == 2
     assert session.rollbacks == 0
     assert result.status is BackfillRunStatus.SUCCESS
     assert saved_checkpoints[0].next_page == 1
@@ -283,6 +291,294 @@ def test_backfill_job_keeps_page_cursor_for_equal_timestamp_spillover(tmp_path: 
     ]
     assert saved_checkpoints[0].created_before_cursor == same_timestamp
     assert saved_checkpoints[0].next_page == 2
+
+
+def test_advance_backfill_progress_keeps_last_reachable_page_when_per_page_does_not_divide_1000() -> None:
+    same_timestamp = datetime(2026, 2, 15, 5, 0, tzinfo=timezone.utc)
+    checkpoint = BackfillCheckpointState(
+        source_provider="github",
+        window_start_date=date(2026, 2, 1),
+        created_before_boundary=date(2026, 3, 1),
+        created_before_cursor=same_timestamp,
+        next_page=3,
+        exhausted=False,
+        last_checkpointed_at=None,
+    )
+
+    next_checkpoint = advance_backfill_progress(
+        checkpoint,
+        repositories_fetched=300,
+        oldest_created_at=same_timestamp,
+        batch_has_mixed_timestamps=False,
+        per_page=300,
+        window_days=30,
+        min_created_date=date(2008, 1, 1),
+    )
+
+    assert next_checkpoint.created_before_cursor == same_timestamp
+    assert next_checkpoint.next_page == 4
+
+
+def test_advance_backfill_progress_shrinks_cursor_after_reaching_safe_page_limit() -> None:
+    same_timestamp = datetime(2026, 2, 15, 5, 0, tzinfo=timezone.utc)
+    checkpoint = BackfillCheckpointState(
+        source_provider="github",
+        window_start_date=date(2026, 2, 1),
+        created_before_boundary=date(2026, 3, 1),
+        created_before_cursor=same_timestamp,
+        next_page=4,
+        exhausted=False,
+        last_checkpointed_at=None,
+    )
+
+    next_checkpoint = advance_backfill_progress(
+        checkpoint,
+        repositories_fetched=300,
+        oldest_created_at=same_timestamp,
+        batch_has_mixed_timestamps=False,
+        per_page=300,
+        window_days=30,
+        min_created_date=date(2008, 1, 1),
+    )
+
+    assert next_checkpoint.created_before_cursor == datetime(
+        2026,
+        2,
+        15,
+        4,
+        59,
+        59,
+        tzinfo=timezone.utc,
+    )
+    assert next_checkpoint.next_page == 1
+
+
+def test_backfill_job_sleeps_for_rate_limit_backoff_before_stopping(tmp_path: Path) -> None:
+    session = StubSession()
+    sleep_calls: list[int] = []
+    initial_checkpoint = BackfillCheckpointState(
+        source_provider="github",
+        window_start_date=date(2026, 2, 1),
+        created_before_boundary=date(2026, 3, 1),
+        created_before_cursor=None,
+        next_page=1,
+        exhausted=False,
+        last_checkpointed_at=None,
+    )
+
+    class Provider:
+        def discover_backfill(
+            self,
+            *,
+            window_start_date: date,
+            created_before_boundary: date,
+            created_before_cursor: datetime | None = None,
+            per_page: int = 25,
+            page: int = 1,
+        ) -> list[DiscoveredRepository]:
+            raise GitHubRateLimitError(status_code=429, retry_after_seconds=120)
+
+    result = run_backfill_job(
+        session=session,  # type: ignore[arg-type]
+        provider=Provider(),
+        runtime_dir=tmp_path,
+        pacing_seconds=5,
+        per_page=2,
+        pages=1,
+        window_days=30,
+        min_created_date=date(2008, 1, 1),
+        sleep_fn=lambda seconds: sleep_calls.append(seconds),
+        load_progress=lambda _session: initial_checkpoint,
+    )
+
+    assert result.status is BackfillRunStatus.FAILED
+    assert result.outcomes[0].error == "GitHub rate limit exceeded with status 429; retry after 120s"
+    assert sleep_calls == [120]
+    assert session.commits == 0
+    assert session.rollbacks == 1
+
+
+def test_advance_backfill_progress_preserves_cursor_pagination_for_mixed_timestamp_page() -> None:
+    current_cursor = datetime(2026, 2, 15, 6, 0, tzinfo=timezone.utc)
+    oldest_timestamp = datetime(2026, 2, 15, 5, 0, tzinfo=timezone.utc)
+    checkpoint = BackfillCheckpointState(
+        source_provider="github",
+        window_start_date=date(2026, 2, 1),
+        created_before_boundary=date(2026, 3, 1),
+        created_before_cursor=current_cursor,
+        next_page=2,
+        exhausted=False,
+        last_checkpointed_at=None,
+    )
+
+    next_checkpoint = advance_backfill_progress(
+        checkpoint,
+        repositories_fetched=100,
+        oldest_created_at=oldest_timestamp,
+        batch_has_mixed_timestamps=True,
+        per_page=100,
+        window_days=30,
+        min_created_date=date(2008, 1, 1),
+    )
+
+    assert next_checkpoint.created_before_cursor == current_cursor
+    assert next_checkpoint.next_page == 3
+
+
+def test_backfill_job_respects_page_budget_on_resume(tmp_path: Path) -> None:
+    """A resumed Backfill run must not overshoot the configured page cap.
+
+    If pages=2 and the checkpoint says next_page=2 (page 1 was consumed before
+    interruption), the resumed invocation should only process 1 more page — not
+    a fresh budget of 2.
+    """
+    session = StubSession()
+    discover_calls: list[tuple[date, date, datetime | None, int, int]] = []
+    saved_checkpoints: list[BackfillCheckpointState] = []
+    resumed_checkpoint = BackfillCheckpointState(
+        source_provider="github",
+        window_start_date=date(2026, 2, 1),
+        created_before_boundary=date(2026, 3, 1),
+        created_before_cursor=None,
+        next_page=2,
+        exhausted=False,
+        last_checkpointed_at=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc),
+        resume_required=True,
+        pages_processed_in_run=1,
+    )
+
+    class Provider:
+        def discover_backfill(
+            self,
+            *,
+            window_start_date: date,
+            created_before_boundary: date,
+            created_before_cursor: datetime | None = None,
+            per_page: int = 25,
+            page: int = 1,
+        ) -> list[DiscoveredRepository]:
+            discover_calls.append(
+                (window_start_date, created_before_boundary, created_before_cursor, per_page, page)
+            )
+            return [_repository(501), _repository(502)]
+
+    result = run_backfill_job(
+        session=session,  # type: ignore[arg-type]
+        provider=Provider(),
+        runtime_dir=tmp_path,
+        pacing_seconds=5,
+        per_page=2,
+        pages=2,
+        window_days=30,
+        min_created_date=date(2008, 1, 1),
+        sleep_fn=lambda _seconds: None,
+        load_progress=lambda _session: resumed_checkpoint,
+        save_progress=lambda _session, checkpoint: saved_checkpoints.append(checkpoint),
+        persist_batch=lambda _session, repositories: IntakePersistenceResult(
+            inserted_count=len(repositories),
+            skipped_count=0,
+        ),
+    )
+
+    assert result.status is BackfillRunStatus.SUCCESS
+    # Only 1 page should be processed — the remaining budget from a 2-page cap
+    # with 1 page already consumed before the interruption.
+    assert len(discover_calls) == 1
+    assert discover_calls[0] == (date(2026, 2, 1), date(2026, 3, 1), None, 2, 2)
+    # 2 commits: 1 for the resumed page + 1 to clear resume_required and reset
+    # the per-run budget once that logical cycle finishes.
+    assert session.commits == 2
+
+
+def test_backfill_job_respects_remaining_budget_after_cursor_reset_on_resume(
+    tmp_path: Path,
+) -> None:
+    session = StubSession()
+    discover_calls: list[tuple[date, date, datetime | None, int, int]] = []
+    resumed_checkpoint = BackfillCheckpointState(
+        source_provider="github",
+        window_start_date=date(2026, 2, 1),
+        created_before_boundary=date(2026, 3, 1),
+        created_before_cursor=datetime(2026, 2, 15, 5, 0, tzinfo=timezone.utc),
+        next_page=1,
+        exhausted=False,
+        last_checkpointed_at=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc),
+        resume_required=True,
+        pages_processed_in_run=1,
+    )
+
+    class Provider:
+        def discover_backfill(
+            self,
+            *,
+            window_start_date: date,
+            created_before_boundary: date,
+            created_before_cursor: datetime | None = None,
+            per_page: int = 25,
+            page: int = 1,
+        ) -> list[DiscoveredRepository]:
+            discover_calls.append(
+                (window_start_date, created_before_boundary, created_before_cursor, per_page, page)
+            )
+            return [_repository(601), _repository(602)]
+
+    result = run_backfill_job(
+        session=session,  # type: ignore[arg-type]
+        provider=Provider(),
+        runtime_dir=tmp_path,
+        pacing_seconds=5,
+        per_page=2,
+        pages=2,
+        window_days=30,
+        min_created_date=date(2008, 1, 1),
+        sleep_fn=lambda _seconds: None,
+        load_progress=lambda _session: resumed_checkpoint,
+        save_progress=lambda _session, _checkpoint: None,
+        persist_batch=lambda _session, repositories: IntakePersistenceResult(
+            inserted_count=len(repositories),
+            skipped_count=0,
+        ),
+    )
+
+    assert result.status is BackfillRunStatus.SUCCESS
+    assert discover_calls == [
+        (
+            date(2026, 2, 1),
+            date(2026, 3, 1),
+            datetime(2026, 2, 15, 5, 0, tzinfo=timezone.utc),
+            2,
+            1,
+        )
+    ]
+
+
+def test_backfill_job_rejects_non_positive_window_days(tmp_path: Path) -> None:
+    session = StubSession()
+
+    class Provider:
+        def discover_backfill(
+            self,
+            *,
+            window_start_date: date,
+            created_before_boundary: date,
+            created_before_cursor: datetime | None = None,
+            per_page: int = 25,
+            page: int = 1,
+        ) -> list[DiscoveredRepository]:
+            raise AssertionError("provider should not be called when window_days is invalid")
+
+    with pytest.raises(ValueError, match="window_days must be greater than zero"):
+        run_backfill_job(
+            session=session,  # type: ignore[arg-type]
+            provider=Provider(),
+            runtime_dir=tmp_path,
+            pacing_seconds=5,
+            per_page=2,
+            pages=1,
+            window_days=0,
+            min_created_date=date(2008, 1, 1),
+            sleep_fn=lambda _seconds: None,
+        )
 
 
 def test_backfill_job_defaults_today_from_utc_clock(monkeypatch, tmp_path: Path) -> None:

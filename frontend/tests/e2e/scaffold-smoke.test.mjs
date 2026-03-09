@@ -14,6 +14,7 @@ const BACKEND_URL = `http://${HOST}:${BACKEND_PORT}`;
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 let currentReadinessScenario = "success";
+let currentRuntimeScenario = "success";
 let backendServer;
 
 const readinessFixtures = {
@@ -152,7 +153,7 @@ const readinessFixtures = {
 };
 
 const gatewayContractFixture = {
-  contract_version: "1.1.0",
+  contract_version: "1.2.0",
   architecture_flow: "frontend -> Agentic-Workflow backend -> Gateway",
   runtime_mode: "multi-agent",
   named_agents: [],
@@ -184,19 +185,268 @@ const gatewayContractFixture = {
 };
 
 const gatewayRuntimeFixture = {
-  contract_version: "1.1.0",
-  availability: "reserved",
+  contract_version: "1.2.0",
+  availability: "available",
   runtime: {
-    source_of_truth: "gateway",
+    source_of_truth: "agentic-workflow+gateway",
     runtime_mode: "multi-agent",
     gateway_url: "gateway.local:18789",
     connection_state: "reserved",
     status: "unknown",
     route_owner: "/api/v1/gateway/runtime",
-    agent_states: [],
-    notes: [
-      "Story 1.3 makes the normalized runtime contract explicitly multi-agent.",
+    agent_states: [
+      {
+        agent_key: "overlord",
+        display_name: "Overlord",
+        agent_role: "control-plane-coordinator",
+        lifecycle_state: "planned",
+        mvp_scope: "initial",
+        queue: {
+          status: "reserved",
+          pending_items: null,
+          notes: [
+            "Queue metrics for non-intake agents remain placeholder-only until later monitoring stories.",
+          ],
+        },
+        monitoring: {
+          status: "reserved",
+          last_heartbeat_at: null,
+          notes: [],
+        },
+        session_affinity: {
+          source_of_truth: "gateway",
+          session_id: "reserved-session-overlord",
+          route_key: "agent.overlord",
+          status: "reserved",
+        },
+        notes: [],
+      },
+      {
+        agent_key: "firehose",
+        display_name: "Firehose",
+        agent_role: "repository-intake-firehose",
+        lifecycle_state: "planned",
+        mvp_scope: "initial",
+        queue: {
+          status: "live",
+          source_of_truth: "agentic-workflow",
+          pending_items: 7,
+          total_items: 10,
+          state_counts: {
+            pending: 7,
+            in_progress: 1,
+            completed: 1,
+            failed: 1,
+          },
+          // Fixed Story 2.6 fixture timestamps keep the overview assertions deterministic.
+          checkpoint: {
+            kind: "firehose",
+            next_page: 4,
+            last_checkpointed_at: "2026-03-07T10:15:00Z",
+            mirror_snapshot_generated_at: "2026-03-07T10:16:00Z",
+            active_mode: "trending",
+            resume_required: true,
+            new_anchor_date: "2026-03-05",
+            trending_anchor_date: "2026-02-28",
+            run_started_at: "2026-03-07T09:00:00Z",
+            window_start_date: null,
+            created_before_boundary: null,
+            created_before_cursor: null,
+            exhausted: null,
+          },
+          notes: [],
+        },
+        monitoring: {
+          status: "reserved",
+          last_heartbeat_at: null,
+          notes: [],
+        },
+        session_affinity: {
+          source_of_truth: "gateway",
+          session_id: "reserved-session-firehose",
+          route_key: "agent.firehose",
+          status: "reserved",
+        },
+        notes: [],
+      },
+      {
+        agent_key: "backfill",
+        display_name: "Backfill",
+        agent_role: "repository-intake-backfill",
+        lifecycle_state: "planned",
+        mvp_scope: "initial",
+        queue: {
+          status: "live",
+          source_of_truth: "agentic-workflow",
+          pending_items: 2,
+          total_items: 5,
+          state_counts: {
+            pending: 2,
+            in_progress: 1,
+            completed: 2,
+            failed: 0,
+          },
+          checkpoint: {
+            kind: "backfill",
+            next_page: 3,
+            last_checkpointed_at: "2026-03-07T09:45:00Z",
+            mirror_snapshot_generated_at: "2026-03-07T09:46:00Z",
+            active_mode: null,
+            resume_required: null,
+            new_anchor_date: null,
+            trending_anchor_date: null,
+            run_started_at: null,
+            window_start_date: "2025-01-01",
+            created_before_boundary: "2025-01-31",
+            created_before_cursor: "2025-01-15T12:00:00Z",
+            exhausted: false,
+          },
+          notes: [],
+        },
+        monitoring: {
+          status: "reserved",
+          last_heartbeat_at: null,
+          notes: [],
+        },
+        session_affinity: {
+          source_of_truth: "gateway",
+          session_id: "reserved-session-backfill",
+          route_key: "agent.backfill",
+          status: "reserved",
+        },
+        notes: [],
+      },
+      {
+        agent_key: "bouncer",
+        display_name: "Bouncer",
+        agent_role: "repository-triage",
+        lifecycle_state: "planned",
+        mvp_scope: "initial",
+        queue: {
+          status: "reserved",
+          pending_items: null,
+          notes: [
+            "Queue metrics for non-intake agents remain placeholder-only until later monitoring stories.",
+          ],
+        },
+        monitoring: {
+          status: "reserved",
+          last_heartbeat_at: null,
+          notes: [],
+        },
+        session_affinity: {
+          source_of_truth: "gateway",
+          session_id: "reserved-session-bouncer",
+          route_key: "agent.bouncer",
+          status: "reserved",
+        },
+        notes: [],
+      },
+      {
+        agent_key: "analyst",
+        display_name: "Analyst",
+        agent_role: "repository-analysis",
+        lifecycle_state: "planned",
+        mvp_scope: "initial",
+        queue: {
+          status: "reserved",
+          pending_items: null,
+          notes: [
+            "Queue metrics for non-intake agents remain placeholder-only until later monitoring stories.",
+          ],
+        },
+        monitoring: {
+          status: "reserved",
+          last_heartbeat_at: null,
+          notes: [],
+        },
+        session_affinity: {
+          source_of_truth: "gateway",
+          session_id: "reserved-session-analyst",
+          route_key: "agent.analyst",
+          status: "reserved",
+        },
+        notes: [],
+      },
+      {
+        agent_key: "combiner",
+        display_name: "Combiner",
+        agent_role: "idea-synthesis",
+        lifecycle_state: "reserved",
+        mvp_scope: "reserved",
+        queue: {
+          status: "reserved",
+          pending_items: null,
+          notes: [
+            "Queue metrics for non-intake agents remain placeholder-only until later monitoring stories.",
+          ],
+        },
+        monitoring: {
+          status: "reserved",
+          last_heartbeat_at: null,
+          notes: [],
+        },
+        session_affinity: {
+          source_of_truth: "gateway",
+          session_id: null,
+          route_key: null,
+          status: "reserved",
+        },
+        notes: [],
+      },
+      {
+        agent_key: "obsession",
+        display_name: "Obsession",
+        agent_role: "idea-tracking",
+        lifecycle_state: "reserved",
+        mvp_scope: "reserved",
+        queue: {
+          status: "reserved",
+          pending_items: null,
+          notes: [
+            "Queue metrics for non-intake agents remain placeholder-only until later monitoring stories.",
+          ],
+        },
+        monitoring: {
+          status: "reserved",
+          last_heartbeat_at: null,
+          notes: [],
+        },
+        session_affinity: {
+          source_of_truth: "gateway",
+          session_id: null,
+          route_key: null,
+          status: "reserved",
+        },
+        notes: [],
+      },
     ],
+    notes: [
+      "The runtime surface keeps Gateway routing metadata and Agentic-Workflow intake data on one backend-owned contract.",
+    ],
+  },
+};
+
+const runtimeFixtures = {
+  success: {
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(gatewayRuntimeFixture),
+  },
+  unavailable: {
+    status: 500,
+    contentType: "application/json",
+    body: JSON.stringify({
+      error: {
+        code: "gateway_runtime_unavailable",
+        message: "Gateway runtime lookup failed.",
+      },
+    }),
+  },
+  malformed: {
+    status: 200,
+    contentType: "application/json",
+    body: "{ invalid json",
   },
 };
 
@@ -204,7 +454,7 @@ const pages = [
   {
     path: "/overview",
     heading: "Overview",
-    body: /Placeholder for the operator overview\./,
+    body: /Pipeline Flow/,
   },
   {
     path: "/repositories",
@@ -254,8 +504,9 @@ before(async () => {
     }
 
     if (req.url === "/api/v1/gateway/runtime") {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(gatewayRuntimeFixture));
+      const fixture = runtimeFixtures[currentRuntimeScenario];
+      res.writeHead(fixture.status, { "content-type": fixture.contentType });
+      res.end(fixture.body);
       return;
     }
 
@@ -354,6 +605,64 @@ test("settings page shows ready state with reserved gateway placeholder and work
   assert.match(html, /Worker workspace root/);
   assert.match(html, /Worker Runtime/);
   assert.match(html, /Worker database URL/);
+});
+
+test("overview page renders backend-fed Firehose and Backfill intake status", async () => {
+  currentRuntimeScenario = "success";
+  const html = await fetchPage("/overview");
+
+  assert.match(html, /Pipeline Flow/);
+  assert.match(html, /Auto-refresh every 15 seconds/);
+  assert.match(html, /Firehose/);
+  assert.match(html, /Backfill/);
+  assert.match(html, /10(?:<!-- -->)? persisted repositories/);
+  assert.match(html, /5(?:<!-- -->)? persisted repositories/);
+  assert.match(html, /Mirror snapshot/);
+  assert.match(html, /Mar 7, 2026, 10:16 AM/);
+  assert.match(html, /Mar 7, 2026, 9:46 AM/);
+  assert.match(
+    html,
+    /Created before cursor<\/dt><dd class="mt-1 text-sm font-medium text-slate-800">Jan 15, 2025, 12:00 PM<\/dd>/,
+  );
+  assert.match(html, /Jan 15, 2025, 12:00 PM/);
+  assert.match(html, /Agent Matrix/);
+  assert.doesNotMatch(html, /Placeholder for the operator overview\./);
+});
+
+test("overview page renders a fallback when the runtime endpoint returns a 500", async () => {
+  currentRuntimeScenario = "unavailable";
+
+  try {
+    const html = await fetchPage("/overview");
+
+    assert.match(html, /Pipeline Flow/);
+    assert.match(html, /Gateway runtime lookup failed\./);
+    assert.match(html, /The initial runtime load failed\. The polling loop will keep retrying automatically\./);
+    assert.match(html, /Last updated <!-- -->Waiting for first successful sync/);
+    assert.match(html, /Waiting for first successful sync/);
+    assert.match(html, /Retry now/);
+    assert.doesNotMatch(html, /Runtime Unavailable/);
+  } finally {
+    currentRuntimeScenario = "success";
+  }
+});
+
+test("overview page renders a fallback when the runtime payload is malformed", async () => {
+  currentRuntimeScenario = "malformed";
+
+  try {
+    const html = await fetchPage("/overview");
+
+    assert.match(html, /Pipeline Flow/);
+    assert.match(html, /Unable to load backend-owned intake status\./);
+    assert.match(html, /The initial runtime load failed\. The polling loop will keep retrying automatically\./);
+    assert.match(html, /Last updated <!-- -->Waiting for first successful sync/);
+    assert.match(html, /Waiting for first successful sync/);
+    assert.match(html, /Retry now/);
+    assert.doesNotMatch(html, /Runtime Unavailable/);
+  } finally {
+    currentRuntimeScenario = "success";
+  }
 });
 
 test("settings page preserves warning-only readiness without blocking intake", async () => {

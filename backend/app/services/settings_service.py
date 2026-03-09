@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,8 @@ from app.services.openclaw.transport import (
 )
 
 CONTRACT_VERSION = "1.0.0"
+_FIREHOSE_MODE_COUNT = 2
+_DEFAULT_FIREHOSE_PAGES = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +44,7 @@ class WorkerSettingsProjection:
     github_provider_token_configured: bool
     github_requests_per_minute: int
     intake_pacing_seconds: int
+    firehose_pages: int
     backfill_interval_seconds: int
     backfill_per_page: int
     backfill_pages: int
@@ -196,6 +200,13 @@ class SettingsService:
             issues=issues,
             applied_override_keys=applied_override_keys,
         )
+        firehose_pages = self._int_override(
+            overrides,
+            "FIREHOSE_PAGES",
+            self._process_env_int("FIREHOSE_PAGES", default=_DEFAULT_FIREHOSE_PAGES),
+            issues=issues,
+            applied_override_keys=applied_override_keys,
+        )
         backfill_interval_seconds = self._int_override(
             overrides,
             "BACKFILL_INTERVAL_SECONDS",
@@ -240,6 +251,7 @@ class SettingsService:
             github_provider_token_configured=bool(github_token),
             github_requests_per_minute=requests_per_minute,
             intake_pacing_seconds=intake_pacing_seconds,
+            firehose_pages=firehose_pages,
             backfill_interval_seconds=backfill_interval_seconds,
             backfill_per_page=backfill_per_page,
             backfill_pages=backfill_pages,
@@ -395,29 +407,11 @@ class SettingsService:
         provider = self.app_settings.backend_provider
         reference = self.app_settings.openclaw_reference
 
-        def _calculate_effective_backfill_interval(
-            configured_interval: int,
-            pacing: int,
-            backfill_pages: int,
-        ) -> int:
-            # Replicate the shared budget calculation from the worker
-            try:
-                firehose_pages = self.app_settings.backend_provider.firehose_pages
-            except AttributeError:
-                try:
-                    firehose_pages = self.app_settings.FIREHOSE_PAGES
-                except AttributeError:
-                    firehose_pages = 3
-                    
-            firehose_modes_count = 2 # NEW and TRENDING
-            firehose_requests = firehose_modes_count * firehose_pages
-            
-            min_cycle = (firehose_requests + backfill_pages) * pacing
-            return max(configured_interval, min_cycle)
-
-        effective_backfill_interval = _calculate_effective_backfill_interval(
+        effective_backfill_interval = self._calculate_effective_backfill_interval(
             provider.backfill_interval_seconds,
+            provider.github_requests_per_minute,
             provider.intake_pacing_seconds,
+            self._process_env_int("FIREHOSE_PAGES", default=_DEFAULT_FIREHOSE_PAGES),
             provider.backfill_pages,
         )
 
@@ -559,33 +553,12 @@ class SettingsService:
         )
         workspace_value = str(worker.workspace_dir) if worker.workspace_dir else None
 
-        def _calculate_effective_backfill_interval(
-            configured_interval: int,
-            pacing: int,
-            backfill_pages: int,
-            firehose_pages: int,
-        ) -> int:
-            firehose_modes_count = 2 # NEW and TRENDING
-            firehose_requests = firehose_modes_count * firehose_pages
-            min_cycle = (firehose_requests + backfill_pages) * pacing
-            return max(configured_interval, min_cycle)
-            
-        # For the worker settings projection, we don't have firehose_pages directly in the projection,
-        # but we can try to get it from self.app_settings.FIREHOSE_PAGES or default to 3
-        try:
-            worker_firehose_pages = self.app_settings.FIREHOSE_PAGES
-        except AttributeError:
-            # Fallback to backend_provider if FIREHOSE_PAGES not directly on app_settings
-            try:
-                worker_firehose_pages = self.app_settings.backend_provider.firehose_pages
-            except AttributeError:
-                worker_firehose_pages = 3
-            
-        worker_effective_backfill_interval = _calculate_effective_backfill_interval(
+        worker_effective_backfill_interval = self._calculate_effective_backfill_interval(
             worker.backfill_interval_seconds,
+            worker.github_requests_per_minute,
             worker.intake_pacing_seconds,
+            worker.firehose_pages,
             worker.backfill_pages,
-            worker_firehose_pages,
         )
 
         return [
@@ -1045,11 +1018,49 @@ class SettingsService:
         return issues
 
     @staticmethod
+    def _calculate_effective_intake_pacing(
+        github_requests_per_minute: int,
+        intake_pacing_seconds: int,
+    ) -> int:
+        request_budget_floor = math.ceil(60 / github_requests_per_minute)
+        return max(intake_pacing_seconds, request_budget_floor)
+
+    @classmethod
+    def _calculate_effective_backfill_interval(
+        cls,
+        configured_interval: int,
+        github_requests_per_minute: int,
+        intake_pacing_seconds: int,
+        firehose_pages: int,
+        backfill_pages: int,
+    ) -> int:
+        if configured_interval <= 0:
+            raise ValueError("backfill_interval_seconds must be greater than zero")
+
+        effective_pacing = cls._calculate_effective_intake_pacing(
+            github_requests_per_minute,
+            intake_pacing_seconds,
+        )
+        firehose_requests = _FIREHOSE_MODE_COUNT * firehose_pages
+        min_cycle = (firehose_requests + backfill_pages) * effective_pacing
+        return max(configured_interval, min_cycle)
+
+    @staticmethod
     def _parse_env_file(path: Path) -> dict[str, str]:
         from dotenv import dotenv_values
 
         loaded = dotenv_values(path)
         return {k: v.strip() for k, v in loaded.items() if v is not None}
+
+    @staticmethod
+    def _process_env_int(key: str, *, default: int) -> int:
+        raw_value = os.getenv(key)
+        if raw_value is None:
+            return default
+        try:
+            return int(raw_value)
+        except ValueError:
+            return default
 
     @staticmethod
     def _env_override(

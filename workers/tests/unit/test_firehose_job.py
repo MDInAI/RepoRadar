@@ -1,28 +1,55 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone, timedelta
+import json
 from pathlib import Path
 
-from sqlmodel import Session, create_engine
+from sqlmodel import Session, create_engine, select
 
-from agentic_workers.jobs.firehose_job import (
+from agentic_workers.jobs.firehose_job import FirehoseRunResult, FirehoseRunStatus, run_firehose_job
+from agentic_workers.providers.github_provider import (
+    DiscoveredRepository,
     FirehoseMode,
-    FirehoseRunResult,
-    FirehoseRunStatus,
-    run_firehose_job,
+    GitHubRateLimitError,
 )
-from agentic_workers.providers.github_provider import DiscoveredRepository
+from agentic_workers.storage.backend_models import RepositoryIntake, SQLModel
+from agentic_workers.storage.firehose_progress import FirehoseCheckpointState
 from agentic_workers.storage.repository_intake import IntakePersistenceResult
 
 
 class StubProvider:
-    def __init__(self, responses: dict[FirehoseMode, list[DiscoveredRepository]]) -> None:
+    def __init__(
+        self,
+        responses: dict[tuple[FirehoseMode, int], list[DiscoveredRepository] | Exception],
+    ) -> None:
         self.responses = responses
-        self.calls: list[tuple[FirehoseMode, int, int]] = []
+        self.calls: list[tuple[FirehoseMode, date | None, int, int]] = []
 
-    def discover(self, *, mode: FirehoseMode, per_page: int = 25, page: int = 1) -> list[DiscoveredRepository]:
-        self.calls.append((mode, per_page, page))
-        return list(self.responses[mode])
+    def discover(
+        self,
+        *,
+        mode: FirehoseMode,
+        anchor_date: date | None = None,
+        per_page: int = 25,
+        page: int = 1,
+    ) -> list[DiscoveredRepository]:
+        self.calls.append((mode, anchor_date, per_page, page))
+        response = self.responses[(mode, page)]
+        if isinstance(response, Exception):
+            raise response
+        return list(response)
+
+
+class StubSession:
+    def __init__(self) -> None:
+        self.commits = 0
+        self.rollbacks = 0
+
+    def commit(self) -> None:
+        self.commits += 1
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
 
 
 def _repository(mode: FirehoseMode, repository_id: int) -> DiscoveredRepository:
@@ -36,264 +63,315 @@ def _repository(mode: FirehoseMode, repository_id: int) -> DiscoveredRepository:
     )
 
 
-def test_firehose_job_sleeps_between_modes_and_collects_success_results(tmp_path: Path) -> None:
+def _fresh_checkpoint() -> FirehoseCheckpointState:
+    return FirehoseCheckpointState(
+        source_provider="github",
+        active_mode=FirehoseMode.NEW,
+        next_page=1,
+        new_anchor_date=date(2026, 3, 7),
+        trending_anchor_date=date(2026, 3, 1),
+        run_started_at=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc),
+        resume_required=True,
+        last_checkpointed_at=None,
+    )
+
+
+def _persist_batch(
+    _session: object,
+    repositories: list[DiscoveredRepository],
+    *,
+    mode: FirehoseMode,
+) -> IntakePersistenceResult:
+    del mode
+    return IntakePersistenceResult(inserted_count=len(repositories), skipped_count=0)
+
+
+def _save_progress(_session: object, _checkpoint: FirehoseCheckpointState) -> None:
+    return None
+
+
+def test_firehose_job_paces_between_requests_and_records_page_outcomes(tmp_path: Path) -> None:
     provider = StubProvider(
         {
-            FirehoseMode.NEW: [_repository(FirehoseMode.NEW, 1)],
-            FirehoseMode.TRENDING: [_repository(FirehoseMode.TRENDING, 2)],
+            (FirehoseMode.NEW, 1): [_repository(FirehoseMode.NEW, 1)],
+            (FirehoseMode.TRENDING, 1): [_repository(FirehoseMode.TRENDING, 2)],
         }
     )
-    persisted_batches: list[tuple[FirehoseMode, list[DiscoveredRepository]]] = []
     sleep_calls: list[int] = []
 
-    def persist_batch(
-        _session: object,
-        repositories: list[DiscoveredRepository],
-        *,
-        mode: FirehoseMode,
-    ) -> IntakePersistenceResult:
-        persisted_batches.append((mode, repositories))
-        return IntakePersistenceResult(inserted_count=len(repositories), skipped_count=0)
-
     result = run_firehose_job(
-        session=object(),
+        session=StubSession(),  # type: ignore[arg-type]
         provider=provider,
         runtime_dir=tmp_path,
         pacing_seconds=7,
         modes=(FirehoseMode.NEW, FirehoseMode.TRENDING),
         sleep_fn=sleep_calls.append,
-        persist_batch=persist_batch,
+        per_page=5,
+        load_progress=lambda _session: None,
+        persist_batch=_persist_batch,
+        save_progress=_save_progress,
     )
 
     assert result.status is FirehoseRunStatus.SUCCESS
-    assert [outcome.mode for outcome in result.outcomes] == [FirehoseMode.NEW, FirehoseMode.TRENDING]
-    assert [outcome.inserted_count for outcome in result.outcomes] == [1, 1]
-    assert persisted_batches == [
-        (FirehoseMode.NEW, [_repository(FirehoseMode.NEW, 1)]),
-        (FirehoseMode.TRENDING, [_repository(FirehoseMode.TRENDING, 2)]),
+    assert [(outcome.mode, outcome.page) for outcome in result.outcomes] == [
+        (FirehoseMode.NEW, 1),
+        (FirehoseMode.TRENDING, 1),
     ]
-    # Single-page modes: only the inter-mode sleep fires (no intra-mode pacing needed)
+    assert [outcome.inserted_count for outcome in result.outcomes] == [1, 1]
+    assert provider.calls == [
+        (FirehoseMode.NEW, date.today() - timedelta(days=1), 5, 1),
+        (FirehoseMode.TRENDING, date.today() - timedelta(days=7), 5, 1),
+    ]
     assert sleep_calls == [7]
 
+    progress_snapshot = json.loads((tmp_path / "firehose" / "progress.json").read_text())
+    assert progress_snapshot["resume_required"] is False
+    assert progress_snapshot["active_mode"] is None
+    assert progress_snapshot["anchors"]["new"] is None
 
-def test_firehose_job_rolls_back_session_after_persistence_failure(tmp_path: Path) -> None:
-    provider = StubProvider(
+
+def test_firehose_job_clears_checkpoint_after_full_cycle_and_starts_fresh(tmp_path: Path) -> None:
+    checkpoint_state: dict[str, FirehoseCheckpointState | None] = {"value": None}
+    first_provider = StubProvider(
         {
-            FirehoseMode.NEW: [_repository(FirehoseMode.NEW, 1)],
-            FirehoseMode.TRENDING: [_repository(FirehoseMode.TRENDING, 2)],
+            (FirehoseMode.NEW, 1): [_repository(FirehoseMode.NEW, 1)],
+            (FirehoseMode.TRENDING, 1): [_repository(FirehoseMode.TRENDING, 2)],
         }
     )
-    engine = create_engine(f"sqlite:///{tmp_path / 'rollback.db'}")
-    session = Session(engine)
-    persisted_modes: list[FirehoseMode] = []
+    second_provider = StubProvider(
+        {
+            (FirehoseMode.NEW, 1): [_repository(FirehoseMode.NEW, 3)],
+        }
+    )
 
-    def persist_batch(
-        session: Session,
-        repositories: list[DiscoveredRepository],
-        *,
-        mode: FirehoseMode,
-    ) -> IntakePersistenceResult:
-        if mode is FirehoseMode.NEW:
-            session.begin()
-            raise RuntimeError("first batch write failed")
-        persisted_modes.append(mode)
-        return IntakePersistenceResult(inserted_count=len(repositories), skipped_count=0)
+    def load_progress(_session: object) -> FirehoseCheckpointState | None:
+        return checkpoint_state["value"]
 
-    try:
-        result = run_firehose_job(
-            session=session,
-            provider=provider,
-            runtime_dir=tmp_path,
-            pacing_seconds=1,
-            modes=(FirehoseMode.NEW, FirehoseMode.TRENDING),
-            sleep_fn=lambda _seconds: None,
-            persist_batch=persist_batch,
-        )
-    finally:
-        session.close()
+    def save_progress(_session: object, checkpoint: FirehoseCheckpointState) -> None:
+        checkpoint_state["value"] = checkpoint
 
-    assert result.status is FirehoseRunStatus.PARTIAL_FAILURE
-    assert persisted_modes == [FirehoseMode.TRENDING]
-    assert result.outcomes[0].error == "first batch write failed"
-    assert result.outcomes[1].inserted_count == 1
+    first_result = run_firehose_job(
+        session=StubSession(),  # type: ignore[arg-type]
+        provider=first_provider,
+        runtime_dir=tmp_path,
+        pacing_seconds=1,
+        modes=(FirehoseMode.NEW, FirehoseMode.TRENDING),
+        sleep_fn=lambda _seconds: None,
+        per_page=5,
+        load_progress=load_progress,
+        persist_batch=_persist_batch,
+        save_progress=save_progress,
+        today=date(2026, 3, 8),
+    )
+
+    assert first_result.status is FirehoseRunStatus.SUCCESS
+    assert checkpoint_state["value"] is not None
+    assert checkpoint_state["value"].resume_required is False
+    assert checkpoint_state["value"].active_mode is None
+    assert checkpoint_state["value"].new_anchor_date is None
+    assert checkpoint_state["value"].trending_anchor_date is None
+    assert first_provider.calls == [
+        (FirehoseMode.NEW, date(2026, 3, 7), 5, 1),
+        (FirehoseMode.TRENDING, date(2026, 3, 1), 5, 1),
+    ]
+
+    second_result = run_firehose_job(
+        session=StubSession(),  # type: ignore[arg-type]
+        provider=second_provider,
+        runtime_dir=None,
+        pacing_seconds=1,
+        modes=(FirehoseMode.NEW,),
+        sleep_fn=lambda _seconds: None,
+        per_page=5,
+        pages=1,
+        load_progress=load_progress,
+        persist_batch=_persist_batch,
+        save_progress=save_progress,
+        today=date(2026, 3, 10),
+    )
+
+    assert second_result.status is FirehoseRunStatus.SUCCESS
+    assert second_provider.calls == [(FirehoseMode.NEW, date(2026, 3, 9), 5, 1)]
 
 
-def test_firehose_job_stops_at_mode_boundary_when_shutdown_requested() -> None:
-    """After pacing sleep returns early (SIGINT), should_stop prevents the next mode from running."""
-    stop_flag = [False]
-    discover_modes: list[FirehoseMode] = []
-
-    class TrackingProvider:
-        def discover(
-            self,
-            *,
-            mode: FirehoseMode,
-            per_page: int = 100,
-            page: int = 1,
-        ) -> list[DiscoveredRepository]:
-            discover_modes.append(mode)
-            return [_repository(mode, 1)]
-
-    def interruptible_sleep(seconds: int) -> None:
-        stop_flag[0] = True  # simulates SIGINT waking up the pacing sleep early
+def test_firehose_job_stops_after_error_and_rolls_back(tmp_path: Path) -> None:
+    provider = StubProvider(
+        {
+            (FirehoseMode.NEW, 1): RuntimeError("first page write failed"),
+        }
+    )
+    session = StubSession()
 
     result = run_firehose_job(
-        session=object(),
-        provider=TrackingProvider(),
+        session=session,  # type: ignore[arg-type]
+        provider=provider,
+        runtime_dir=tmp_path,
+        pacing_seconds=1,
+        modes=(FirehoseMode.NEW, FirehoseMode.TRENDING),
+        sleep_fn=lambda _seconds: None,
+        per_page=5,
+        load_progress=lambda _session: _fresh_checkpoint(),
+    )
+
+    assert result.status is FirehoseRunStatus.FAILED
+    assert len(result.outcomes) == 1
+    assert result.outcomes[0].error == "first page write failed"
+    assert session.rollbacks == 1
+    assert session.commits == 0
+
+
+def test_firehose_job_sleeps_for_rate_limit_backoff_before_stopping(tmp_path: Path) -> None:
+    provider = StubProvider(
+        {
+            (FirehoseMode.NEW, 1): GitHubRateLimitError(status_code=429, retry_after_seconds=120),
+        }
+    )
+    session = StubSession()
+    sleep_calls: list[int] = []
+
+    result = run_firehose_job(
+        session=session,  # type: ignore[arg-type]
+        provider=provider,
+        runtime_dir=tmp_path,
+        pacing_seconds=5,
+        modes=(FirehoseMode.NEW, FirehoseMode.TRENDING),
+        sleep_fn=lambda seconds: sleep_calls.append(seconds),
+        per_page=5,
+        load_progress=lambda _session: _fresh_checkpoint(),
+    )
+
+    assert result.status is FirehoseRunStatus.FAILED
+    assert len(result.outcomes) == 1
+    assert result.outcomes[0].error == "GitHub rate limit exceeded with status 429; retry after 120s"
+    assert sleep_calls == [120]
+    assert session.rollbacks == 1
+    assert session.commits == 0
+
+
+def test_firehose_job_resumes_from_stored_mode_page_and_anchor(tmp_path: Path) -> None:
+    provider = StubProvider(
+        {
+            (FirehoseMode.TRENDING, 3): [_repository(FirehoseMode.TRENDING, 30)],
+        }
+    )
+    checkpoint = FirehoseCheckpointState(
+        source_provider="github",
+        active_mode=FirehoseMode.TRENDING,
+        next_page=3,
+        new_anchor_date=date(2026, 3, 5),
+        trending_anchor_date=date(2026, 2, 28),
+        run_started_at=datetime(2026, 3, 7, 10, 0, tzinfo=timezone.utc),
+        resume_required=True,
+        last_checkpointed_at=datetime(2026, 3, 7, 10, 5, tzinfo=timezone.utc),
+        pages_processed_in_run=2,
+    )
+
+    result = run_firehose_job(
+        session=StubSession(),  # type: ignore[arg-type]
+        provider=provider,
         runtime_dir=None,
         pacing_seconds=1,
         modes=(FirehoseMode.NEW, FirehoseMode.TRENDING),
-        sleep_fn=interruptible_sleep,
-        should_stop=lambda: stop_flag[0],
-        persist_batch=lambda _s, repos, mode: IntakePersistenceResult(
-            inserted_count=len(repos), skipped_count=0
-        ),
+        sleep_fn=lambda _seconds: None,
+        per_page=10,
+        pages=3,
+        load_progress=lambda _session: checkpoint,
+        persist_batch=_persist_batch,
+        save_progress=_save_progress,
     )
 
-    assert discover_modes == [FirehoseMode.NEW]  # TRENDING skipped after sleep set stop_flag
-    assert len(result.outcomes) == 1
-    assert result.outcomes[0].mode is FirehoseMode.NEW
     assert result.status is FirehoseRunStatus.SUCCESS
+    assert provider.calls == [(FirehoseMode.TRENDING, date(2026, 2, 28), 10, 3)]
+    assert result.outcomes[0].page == 3
+    assert result.outcomes[0].anchor_date == date(2026, 2, 28)
 
 
-def test_firehose_job_fetches_multiple_pages_per_mode_with_pacing(tmp_path: Path) -> None:
-    """When pages > 1, the job paces successive pages and issues discover() calls until a partial page."""
-    discover_calls: list[tuple[FirehoseMode, int]] = []
-    sleep_calls: list[int] = []
-
-    class MultiPageProvider:
-        def discover(
-            self,
-            *,
-            mode: FirehoseMode,
-            per_page: int = 100,
-            page: int = 1,
-        ) -> list[DiscoveredRepository]:
-            discover_calls.append((mode, page))
-            if page == 1:
-                return [_repository(mode, page * 100 + i) for i in range(per_page)]
-            return []  # page 2 is empty — signals end of results
+def test_firehose_job_clears_checkpoint_after_full_page_budget_for_last_mode(
+    tmp_path: Path,
+) -> None:
+    provider = StubProvider(
+        {
+            (FirehoseMode.NEW, 1): [_repository(FirehoseMode.NEW, 100 + idx) for idx in range(2)],
+        }
+    )
+    saved_checkpoints: list[FirehoseCheckpointState] = []
 
     result = run_firehose_job(
-        session=object(),
-        provider=MultiPageProvider(),
+        session=StubSession(),  # type: ignore[arg-type]
+        provider=provider,
         runtime_dir=None,
-        pacing_seconds=5,
+        pacing_seconds=1,
         modes=(FirehoseMode.NEW,),
-        pages=2,
-        sleep_fn=sleep_calls.append,
-        persist_batch=lambda _s, repos, mode: IntakePersistenceResult(
-            inserted_count=len(repos), skipped_count=0
-        ),
+        sleep_fn=lambda _seconds: None,
+        per_page=2,
+        pages=1,
+        load_progress=lambda _session: _fresh_checkpoint(),
+        save_progress=lambda _session, checkpoint: saved_checkpoints.append(checkpoint),
+        persist_batch=_persist_batch,
     )
 
-    assert discover_calls == [(FirehoseMode.NEW, 1), (FirehoseMode.NEW, 2)]
-    # fetched_count is the total across all pages (100 from page 1, 0 from page 2)
-    assert result.outcomes[0].fetched_count == 100
-    assert result.outcomes[0].inserted_count == 100
-    # Pacing delay must have been applied between page 1 and page 2
-    assert sleep_calls == [5]
+    assert result.status is FirehoseRunStatus.SUCCESS
+    assert saved_checkpoints[0].active_mode is None
+    assert saved_checkpoints[0].next_page == 1
+    assert saved_checkpoints[0].resume_required is False
+    assert saved_checkpoints[0].pages_processed_in_run == 0
 
 
 def test_firehose_job_stops_between_pages_when_shutdown_requested() -> None:
-    """SIGINT during intra-mode pacing must skip the next page request."""
     stop_flag = [False]
-    discover_calls: list[tuple[FirehoseMode, int]] = []
+    provider = StubProvider(
+        {
+            (FirehoseMode.NEW, 1): [_repository(FirehoseMode.NEW, 1)],
+            (FirehoseMode.NEW, 2): [_repository(FirehoseMode.NEW, 2)],
+        }
+    )
     sleep_calls: list[int] = []
-
-    class MultiPageProvider:
-        def discover(
-            self,
-            *,
-            mode: FirehoseMode,
-            per_page: int = 100,
-            page: int = 1,
-        ) -> list[DiscoveredRepository]:
-            discover_calls.append((mode, page))
-            return [_repository(mode, page * 100 + i) for i in range(per_page)]
 
     def interruptible_sleep(seconds: int) -> None:
         sleep_calls.append(seconds)
         stop_flag[0] = True
 
     result = run_firehose_job(
-        session=object(),
-        provider=MultiPageProvider(),
+        session=StubSession(),  # type: ignore[arg-type]
+        provider=provider,
         runtime_dir=None,
         pacing_seconds=5,
         modes=(FirehoseMode.NEW,),
+        per_page=1,
         pages=2,
         sleep_fn=interruptible_sleep,
         should_stop=lambda: stop_flag[0],
-        persist_batch=lambda _s, repos, mode: IntakePersistenceResult(
-            inserted_count=len(repos), skipped_count=0
-        ),
+        load_progress=lambda _session: _fresh_checkpoint(),
+        persist_batch=_persist_batch,
+        save_progress=_save_progress,
     )
 
-    assert discover_calls == [(FirehoseMode.NEW, 1)]
+    assert provider.calls == [(FirehoseMode.NEW, date(2026, 3, 7), 1, 1)]
     assert sleep_calls == [5]
     assert len(result.outcomes) == 1
-    assert result.outcomes[0].fetched_count == 100
-    assert result.outcomes[0].inserted_count == 100
-    assert result.status is FirehoseRunStatus.SUCCESS
+    assert result.outcomes[0].page == 1
 
 
-def test_firehose_job_stops_paging_on_partial_page(tmp_path: Path) -> None:
-    """A page with fewer results than per_page signals the end — no further requests are made."""
-    discover_calls: list[tuple[FirehoseMode, int]] = []
-
-    class ShortFirstPageProvider:
-        def discover(
-            self,
-            *,
-            mode: FirehoseMode,
-            per_page: int = 100,
-            page: int = 1,
-        ) -> list[DiscoveredRepository]:
-            discover_calls.append((mode, page))
-            return [_repository(mode, i) for i in range(5)]  # always fewer than per_page
-
-    run_firehose_job(
-        session=object(),
-        provider=ShortFirstPageProvider(),
-        runtime_dir=None,
-        pacing_seconds=0,
-        modes=(FirehoseMode.NEW,),
-        pages=3,  # would fetch 3 pages if not stopped early
-        sleep_fn=lambda _seconds: None,
-        persist_batch=lambda _s, repos, mode: IntakePersistenceResult(
-            inserted_count=len(repos), skipped_count=0
-        ),
+def test_firehose_job_returns_partial_failure_when_one_mode_succeeds_and_one_fails(
+    tmp_path: Path,
+) -> None:
+    provider = StubProvider(
+        {
+            (FirehoseMode.NEW, 1): [],
+            (FirehoseMode.TRENDING, 1): RuntimeError("boom"),
+        }
     )
 
-    assert discover_calls == [(FirehoseMode.NEW, 1)]  # stopped after partial page 1
-
-
-def test_firehose_job_classifies_empty_batch_alongside_error_as_partial_failure(tmp_path: Path) -> None:
-    """A zero-result batch (no error) alongside an errored batch must yield PARTIAL_FAILURE, not FAILED."""
-
-    class EmptyThenErrorProvider:
-        def discover(
-            self,
-            *,
-            mode: FirehoseMode,
-            per_page: int = 25,
-            page: int = 1,
-        ) -> list[DiscoveredRepository]:
-            if mode is FirehoseMode.NEW:
-                return []
-            raise RuntimeError("boom")
-
     result = run_firehose_job(
-        session=object(),
-        provider=EmptyThenErrorProvider(),
+        session=StubSession(),  # type: ignore[arg-type]
+        provider=provider,
         runtime_dir=tmp_path,
         pacing_seconds=0,
         modes=(FirehoseMode.NEW, FirehoseMode.TRENDING),
         sleep_fn=lambda _seconds: None,
-        persist_batch=lambda _session, repositories, mode: IntakePersistenceResult(
-            inserted_count=0, skipped_count=0
-        ),
+        load_progress=lambda _session: _fresh_checkpoint(),
+        persist_batch=_persist_batch,
+        save_progress=_save_progress,
     )
 
     assert result.status is FirehoseRunStatus.PARTIAL_FAILURE
@@ -302,58 +380,180 @@ def test_firehose_job_classifies_empty_batch_alongside_error_as_partial_failure(
     assert result.outcomes[1].error == "boom"
 
 
-def test_firehose_job_records_accurate_fetched_count_when_persistence_fails(tmp_path: Path) -> None:
-    """fetched_count must reflect actual discovered repos even when persist raises."""
-    discovered = [_repository(FirehoseMode.NEW, i) for i in range(5)]
-    provider = StubProvider({FirehoseMode.NEW: discovered})
-
-    def failing_persist(
-        _session: object,
-        repositories: list[DiscoveredRepository],
-        *,
-        mode: FirehoseMode,
-    ) -> IntakePersistenceResult:
-        raise RuntimeError("write failed after discover succeeded")
-
-    result = run_firehose_job(
-        session=object(),
-        provider=provider,
-        runtime_dir=tmp_path,
-        pacing_seconds=1,
-        modes=(FirehoseMode.NEW,),
-        sleep_fn=lambda _seconds: None,
-        persist_batch=failing_persist,
+def test_firehose_job_rolls_back_queue_rows_when_checkpoint_save_fails(tmp_path: Path) -> None:
+    provider = StubProvider(
+        {
+            (FirehoseMode.NEW, 1): [_repository(FirehoseMode.NEW, 1)],
+        }
     )
+    engine = create_engine(f"sqlite:///{tmp_path / 'checkpoint-failure.db'}")
+    SQLModel.metadata.create_all(engine)
+    session = Session(engine)
+
+    def failing_save_progress(_session: Session, _checkpoint: FirehoseCheckpointState) -> None:
+        raise RuntimeError("checkpoint write failed")
+
+    try:
+        result = run_firehose_job(
+            session=session,
+            provider=provider,
+            runtime_dir=tmp_path,
+            pacing_seconds=1,
+            modes=(FirehoseMode.NEW,),
+            sleep_fn=lambda _seconds: None,
+            load_progress=lambda _session: _fresh_checkpoint(),
+            save_progress=failing_save_progress,
+        )
+        persisted_rows = session.exec(select(RepositoryIntake)).all()
+    finally:
+        session.close()
 
     assert result.status is FirehoseRunStatus.FAILED
-    assert result.outcomes[0].fetched_count == 5
-    assert result.outcomes[0].inserted_count == 0
-    assert result.outcomes[0].error == "write failed after discover succeeded"
+    assert result.outcomes[0].fetched_count == 1
+    assert result.outcomes[0].error == "checkpoint write failed"
+    assert persisted_rows == []
+
+
+def test_firehose_job_advances_to_next_mode_after_hitting_page_budget(tmp_path: Path) -> None:
+    provider = StubProvider(
+        {
+            (FirehoseMode.NEW, 1): [_repository(FirehoseMode.NEW, 1)],
+            (FirehoseMode.NEW, 2): [_repository(FirehoseMode.NEW, 2)],
+            (FirehoseMode.TRENDING, 1): [],
+        }
+    )
+
+    result = run_firehose_job(
+        session=StubSession(),  # type: ignore[arg-type]
+        provider=provider,
+        runtime_dir=None,
+        pacing_seconds=0,
+        modes=(FirehoseMode.NEW, FirehoseMode.TRENDING),
+        per_page=1,
+        pages=2,
+        sleep_fn=lambda _seconds: None,
+        load_progress=lambda _session: _fresh_checkpoint(),
+        persist_batch=_persist_batch,
+        save_progress=_save_progress,
+    )
+
+    assert result.status is FirehoseRunStatus.SUCCESS
+    assert [(outcome.mode, outcome.page) for outcome in result.outcomes] == [
+        (FirehoseMode.NEW, 1),
+        (FirehoseMode.NEW, 2),
+        (FirehoseMode.TRENDING, 1),
+    ]
+    assert provider.calls == [
+        (FirehoseMode.NEW, date(2026, 3, 7), 1, 1),
+        (FirehoseMode.NEW, date(2026, 3, 7), 1, 2),
+        (FirehoseMode.TRENDING, date(2026, 3, 1), 1, 1),
+    ]
+
+
+def test_firehose_job_initializes_checkpoint_from_requested_trending_mode(
+    tmp_path: Path,
+) -> None:
+    provider = StubProvider(
+        {
+            (FirehoseMode.TRENDING, 1): [],
+        }
+    )
+
+    result = run_firehose_job(
+        session=StubSession(),  # type: ignore[arg-type]
+        provider=provider,
+        runtime_dir=tmp_path,
+        pacing_seconds=0,
+        modes=(FirehoseMode.TRENDING,),
+        per_page=5,
+        sleep_fn=lambda _seconds: None,
+        load_progress=lambda _session: None,
+        persist_batch=_persist_batch,
+        save_progress=_save_progress,
+        today=date(2026, 3, 8),
+    )
+
+    assert result.status is FirehoseRunStatus.SUCCESS
+    assert provider.calls == [(FirehoseMode.TRENDING, date(2026, 3, 1), 5, 1)]
+
+
+def test_firehose_job_respects_page_budget_on_resume(tmp_path: Path) -> None:
+    """A resumed Firehose run must not overshoot the per-mode page budget.
+
+    If pages=2 and the checkpoint says next_page=2 (page 1 was consumed before
+    interruption), the resumed invocation should only process 1 more page for that
+    mode — not a fresh budget of 2.
+    """
+    provider = StubProvider(
+        {
+            (FirehoseMode.NEW, 2): [_repository(FirehoseMode.NEW, 20)],
+            (FirehoseMode.NEW, 3): [_repository(FirehoseMode.NEW, 30)],
+            (FirehoseMode.TRENDING, 1): [],
+        }
+    )
+    resumed_checkpoint = FirehoseCheckpointState(
+        source_provider="github",
+        active_mode=FirehoseMode.NEW,
+        next_page=2,
+        new_anchor_date=date(2026, 3, 7),
+        trending_anchor_date=date(2026, 3, 1),
+        run_started_at=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc),
+        resume_required=True,
+        last_checkpointed_at=datetime(2026, 3, 8, 12, 5, tzinfo=timezone.utc),
+        pages_processed_in_run=1,
+    )
+
+    result = run_firehose_job(
+        session=StubSession(),  # type: ignore[arg-type]
+        provider=provider,
+        runtime_dir=None,
+        pacing_seconds=0,
+        modes=(FirehoseMode.NEW, FirehoseMode.TRENDING),
+        per_page=1,
+        pages=2,
+        sleep_fn=lambda _seconds: None,
+        load_progress=lambda _session: resumed_checkpoint,
+        persist_batch=_persist_batch,
+        save_progress=_save_progress,
+    )
+
+    assert result.status is FirehoseRunStatus.SUCCESS
+    # Should process page 2 of NEW (1 remaining in budget), then move to TRENDING.
+    # Should NOT process page 3 of NEW — that would overshoot the budget.
+    assert [(outcome.mode, outcome.page) for outcome in result.outcomes] == [
+        (FirehoseMode.NEW, 2),
+        (FirehoseMode.TRENDING, 1),
+    ]
+    assert provider.calls == [
+        (FirehoseMode.NEW, date(2026, 3, 7), 1, 2),
+        (FirehoseMode.TRENDING, date(2026, 3, 1), 1, 1),
+    ]
 
 
 def test_firehose_job_surfaces_artifact_write_failures_as_structured_results(tmp_path: Path) -> None:
-    provider = StubProvider({FirehoseMode.NEW: [_repository(FirehoseMode.NEW, 1)]})
+    provider = StubProvider({(FirehoseMode.NEW, 1): [_repository(FirehoseMode.NEW, 1)]})
 
     def write_artifact(
         *,
         runtime_dir: Path | None,
         status: FirehoseRunStatus,
         outcomes: list[object],
+        checkpoint: FirehoseCheckpointState,
     ) -> Path | None:
+        del runtime_dir, status, outcomes, checkpoint
         raise OSError("runtime directory is read-only")
 
     result = run_firehose_job(
-        session=object(),
+        session=StubSession(),  # type: ignore[arg-type]
         provider=provider,
         runtime_dir=tmp_path,
         pacing_seconds=1,
         modes=(FirehoseMode.NEW,),
         sleep_fn=lambda _seconds: None,
-        persist_batch=lambda _session, repositories, mode: IntakePersistenceResult(
-            inserted_count=len(repositories),
-            skipped_count=0,
-        ),
         write_artifact=write_artifact,
+        load_progress=lambda _session: _fresh_checkpoint(),
+        persist_batch=_persist_batch,
+        save_progress=_save_progress,
     )
 
     assert isinstance(result, FirehoseRunResult)

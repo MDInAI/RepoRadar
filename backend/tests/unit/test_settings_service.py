@@ -82,6 +82,75 @@ def test_settings_service_returns_masked_configuration_summary(tmp_path: Path) -
     assert all(item.source == "shared-project-env" for item in response.worker_settings)
 
 
+def test_settings_service_clamps_backfill_interval_with_effective_worker_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FIREHOSE_PAGES", "5")
+    config_path = _write_openclaw_config(
+        tmp_path / "openclaw.json",
+        {
+            "gateway": {
+                "url": "wss://gateway.local",
+                "auth": {"token": "gateway-token-value"},
+            },
+            "agents": {"defaults": {"model": "openai/gpt-5-mini"}},
+        },
+    )
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+    worker_env_dir = tmp_path / "workers"
+    worker_env_dir.mkdir()
+    (worker_env_dir / ".env").write_text(
+        "\n".join(
+            [
+                "GITHUB_REQUESTS_PER_MINUTE=20",
+                "INTAKE_PACING_SECONDS=1",
+                "FIREHOSE_PAGES=5",
+                "BACKFILL_INTERVAL_SECONDS=2",
+                "BACKFILL_PAGES=2",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    response = SettingsService(
+        app_settings=Settings(
+            OPENCLAW_CONFIG_PATH=config_path,
+            OPENCLAW_WORKSPACE_DIR=workspace_dir,
+            GITHUB_REQUESTS_PER_MINUTE=20,
+            INTAKE_PACING_SECONDS=1,
+            BACKFILL_INTERVAL_SECONDS=2,
+            BACKFILL_PAGES=2,
+        ),
+        project_root=tmp_path,
+    ).get_settings_summary()
+
+    project_backfill_interval = next(
+        item for item in response.project_settings if item.key == "BACKFILL_INTERVAL_SECONDS"
+    )
+    worker_backfill_interval = next(
+        item for item in response.worker_settings if item.key == "workers.BACKFILL_INTERVAL_SECONDS"
+    )
+
+    assert project_backfill_interval.value == "36"
+    assert worker_backfill_interval.value == "36"
+    assert "Configured: 2s, Effective (clamped by budget): 36s" in project_backfill_interval.notes
+    assert "Configured: 2s, Effective (clamped by budget): 36s" in worker_backfill_interval.notes
+
+
+def test_settings_service_rejects_non_positive_effective_backfill_interval_inputs() -> None:
+    with pytest.raises(ValueError, match="backfill_interval_seconds must be greater than zero"):
+        SettingsService._calculate_effective_backfill_interval(
+            configured_interval=0,
+            github_requests_per_minute=20,
+            intake_pacing_seconds=1,
+            firehose_pages=5,
+            backfill_pages=2,
+        )
+
+
 def test_settings_service_accepts_json5_style_openclaw_config(tmp_path: Path) -> None:
     config_path = _write_openclaw_config_text(
         tmp_path / "openclaw.json",

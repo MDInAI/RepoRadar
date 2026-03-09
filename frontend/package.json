@@ -2,13 +2,15 @@
   "name": "agentic-workflow-ui",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "npm run test:e2e",
-    "test:e2e": "node --test tests/e2e/scaffold-smoke.test.mjs"
+    "test": "node tests/run-tests.mjs",
+    "test:unit": "node tests/run-tests.mjs --scope=unit",
+    "test:e2e": "node tests/run-tests.mjs --scope=e2e"
   },
   "dependencies": {
     "next": "16.1.6",
