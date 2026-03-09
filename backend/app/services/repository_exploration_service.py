@@ -2,10 +2,16 @@ from __future__ import annotations
 
 from app.core.errors import AppError
 from app.models import RepositoryArtifactKind
-from app.repositories.repository_exploration_repository import RepositoryExplorationRepository
+from app.repositories.repository_exploration_repository import (
+    RepositoryCatalogListParams,
+    RepositoryExplorationRepository,
+)
 from app.schemas.repository_exploration import (
     RepositoryAnalysisSummaryResponse,
     RepositoryArtifactRefResponse,
+    RepositoryCatalogItemResponse,
+    RepositoryCatalogPageResponse,
+    RepositoryCatalogQueryParams,
     RepositoryExplorationResponse,
 )
 
@@ -66,4 +72,50 @@ class RepositoryExplorationService:
             artifacts=artifact_responses,
             has_readme_artifact=RepositoryArtifactKind.README_SNAPSHOT in artifact_kinds,
             has_analysis_artifact=RepositoryArtifactKind.ANALYSIS_RESULT in artifact_kinds,
+        )
+
+    def list_repository_catalog(
+        self,
+        params: RepositoryCatalogQueryParams,
+    ) -> RepositoryCatalogPageResponse:
+        page = self.repository.list_repository_catalog(
+            RepositoryCatalogListParams(
+                page=params.page,
+                page_size=params.page_size,
+                search=params.search,
+                discovery_source=params.discovery_source,
+                triage_status=params.triage_status,
+                analysis_status=params.analysis_status,
+                monetization_potential=params.monetization_potential,
+                min_stars=params.min_stars,
+                max_stars=params.max_stars,
+                sort_by=params.sort_by.value,
+                sort_order=params.sort_order.value,
+            )
+        )
+
+        return RepositoryCatalogPageResponse(
+            items=[
+                RepositoryCatalogItemResponse(
+                    github_repository_id=item.github_repository_id,
+                    full_name=item.full_name,
+                    owner_login=item.owner_login,
+                    repository_name=item.repository_name,
+                    repository_description=item.repository_description,
+                    stargazers_count=item.stargazers_count,
+                    forks_count=item.forks_count,
+                    pushed_at=item.pushed_at,
+                    discovery_source=item.discovery_source,
+                    triage_status=item.triage_status,
+                    analysis_status=item.analysis_status,
+                    monetization_potential=item.monetization_potential,
+                    has_readme_artifact=item.has_readme_artifact,
+                    has_analysis_artifact=item.has_analysis_artifact,
+                )
+                for item in page.items
+            ],
+            total=page.total,
+            page=page.page,
+            page_size=page.page_size,
+            total_pages=page.total_pages,
         )
