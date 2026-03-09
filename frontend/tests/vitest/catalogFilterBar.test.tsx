@@ -9,6 +9,7 @@ import type {
   RepositoryCatalogSortOrder,
   RepositoryDiscoverySource,
   RepositoryMonetizationPotential,
+  RepositoryQueueStatus,
   RepositoryTriageStatus,
 } from "@/api/repositories";
 import { CatalogFilterBar } from "@/components/repositories/CatalogFilterBar";
@@ -16,8 +17,10 @@ import { CatalogFilterBar } from "@/components/repositories/CatalogFilterBar";
 interface CatalogFilterBarProps {
   searchValue: string;
   source: RepositoryDiscoverySource | null;
+  queueStatus: RepositoryQueueStatus | null;
   triageStatus: RepositoryTriageStatus | null;
   analysisStatus: RepositoryAnalysisStatus | null;
+  hasFailures: boolean;
   monetization: RepositoryMonetizationPotential | null;
   minStars: number | null;
   maxStars: number | null;
@@ -31,8 +34,10 @@ interface CatalogFilterBarProps {
   validationMessage: string | null;
   onSearchChange: (value: string) => void;
   onSourceChange: (value: RepositoryDiscoverySource | null) => void;
+  onQueueStatusChange: (value: RepositoryQueueStatus | null) => void;
   onTriageStatusChange: (value: RepositoryTriageStatus | null) => void;
   onAnalysisStatusChange: (value: RepositoryAnalysisStatus | null) => void;
+  onHasFailuresChange: (value: boolean) => void;
   onMonetizationChange: (value: RepositoryMonetizationPotential | null) => void;
   onMinStarsChange: (value: number | null) => void;
   onMaxStarsChange: (value: number | null) => void;
@@ -47,8 +52,10 @@ function renderFilterBar(overrides: Partial<CatalogFilterBarProps> = {}) {
   const props: CatalogFilterBarProps = {
     searchValue: "",
     source: null,
+    queueStatus: null,
     triageStatus: null,
     analysisStatus: null,
+    hasFailures: false,
     monetization: null,
     minStars: null,
     maxStars: null,
@@ -62,8 +69,10 @@ function renderFilterBar(overrides: Partial<CatalogFilterBarProps> = {}) {
     validationMessage: null,
     onSearchChange: vi.fn(),
     onSourceChange: vi.fn(),
+    onQueueStatusChange: vi.fn(),
     onTriageStatusChange: vi.fn(),
     onAnalysisStatusChange: vi.fn(),
+    onHasFailuresChange: vi.fn(),
     onMonetizationChange: vi.fn(),
     onMinStarsChange: vi.fn(),
     onMaxStarsChange: vi.fn(),
@@ -96,10 +105,11 @@ describe("CatalogFilterBar", () => {
 
     expect(screen.getByRole("option", { name: "All Sources" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Backfill" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "All Queue States" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "All Triage" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Accepted" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "All Analysis" })).toBeTruthy();
-    expect(screen.getByRole("option", { name: "Completed" })).toBeTruthy();
+    expect(screen.getAllByRole("option", { name: "Completed" })).toHaveLength(2);
     expect(screen.getByRole("option", { name: "All Fit Scores" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Medium" })).toBeTruthy();
   });
@@ -123,6 +133,9 @@ describe("CatalogFilterBar", () => {
 
     await user.selectOptions(screen.getByLabelText("Discovery source"), "firehose");
     expect(props.onSourceChange).toHaveBeenCalledWith("firehose");
+
+    await user.selectOptions(screen.getByLabelText("Queue status"), "failed");
+    expect(props.onQueueStatusChange).toHaveBeenCalledWith("failed");
 
     await user.selectOptions(screen.getByLabelText("Triage status"), "accepted");
     expect(props.onTriageStatusChange).toHaveBeenCalledWith("accepted");
@@ -151,6 +164,9 @@ describe("CatalogFilterBar", () => {
 
     await user.click(screen.getByLabelText("Show starred only"));
     expect(props.onStarredOnlyChange).toHaveBeenCalledWith(true);
+
+    await user.click(screen.getByLabelText("Show failures only"));
+    expect(props.onHasFailuresChange).toHaveBeenCalledWith(true);
 
     await user.click(screen.getByLabelText("Remove Search: growth filter"));
     expect(props.onRemoveChip).toHaveBeenCalledWith("search");

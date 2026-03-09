@@ -7,13 +7,71 @@ import {
   formatCompactNumber,
   formatDiscoverySourceLabel,
   formatMonetizationLabel,
+  formatQueueStatusLabel,
   formatRelativeDate,
   getFitBadgeClassName,
+  getQueueStatusBadgeClassName,
   getSourceBadgeClassName,
   getStatusBadgeClassName,
 } from "./catalogPresentation";
 
 const columnHelper = createColumnHelper<RepositoryCatalogItem>();
+
+function truncateFailureMessage(value: string | null): string {
+  if (!value) {
+    return "No failure message recorded.";
+  }
+  return value.length > 72 ? `${value.slice(0, 69)}...` : value;
+}
+
+function formatFailureCode(value: string): string {
+  return value
+    .split("_")
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function formatFailureTimestamp(value: string | null): string {
+  if (!value) {
+    return "Timestamp unavailable";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "Unknown timestamp";
+  }
+
+  return `${parsed.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+function getFailureContext(item: RepositoryCatalogItem):
+  | {
+      stage: "analysis" | "queue";
+      code: string;
+      message: string;
+      failedAt: string | null;
+    }
+  | null {
+  if (item.analysis_status === "failed") {
+    return {
+      stage: "analysis",
+      code: item.analysis_failure_code ?? "analysis_failed",
+      message: item.analysis_failure_message ?? "Analysis failed. No failure message recorded.",
+      failedAt: item.last_failed_at,
+    };
+  }
+
+  if (item.queue_status === "failed") {
+    return {
+      stage: "queue",
+      code: "queue_failed",
+      message: "Repository intake failed before analysis completed.",
+      failedAt: item.last_failed_at,
+    };
+  }
+
+  return null;
+}
 
 function StarIcon({ filled }: { filled: boolean }) {
   return (
@@ -115,15 +173,70 @@ const columns = [
   }),
   columnHelper.accessor("analysis_status", {
     header: "Analysis Status",
+    cell: (info) => {
+      const item = info.row.original;
+      const tooltipMessage = item.analysis_failure_code
+        ? `${item.analysis_failure_code}: ${truncateFailureMessage(item.analysis_failure_message)}`
+        : null;
+
+      return (
+        <div className="flex min-w-[11rem] flex-col gap-2">
+          <span
+            className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClassName(
+              info.getValue(),
+            )}`}
+          >
+            {formatAnalysisStatusLabel(info.getValue())}
+          </span>
+          {item.analysis_failure_code ? (
+            <span
+              className="inline-flex w-fit rounded-full border border-rose-300 bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-900"
+              title={tooltipMessage ?? undefined}
+            >
+              Failure: {formatFailureCode(item.analysis_failure_code)}
+            </span>
+          ) : null}
+        </div>
+      );
+    },
+  }),
+  columnHelper.accessor("queue_status", {
+    header: "Queue Status",
     cell: (info) => (
       <span
-        className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClassName(
+        className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getQueueStatusBadgeClassName(
           info.getValue(),
         )}`}
       >
-        {formatAnalysisStatusLabel(info.getValue())}
+        {formatQueueStatusLabel(info.getValue())}
       </span>
     ),
+  }),
+  columnHelper.display({
+    id: "failure_details",
+    header: "Failure Details",
+    cell: (info) => {
+      const failure = getFailureContext(info.row.original);
+
+      if (!failure) {
+        return <span className="text-sm text-slate-400">No failures</span>;
+      }
+
+      return (
+        <div className="flex min-w-[18rem] flex-col gap-1.5">
+          <span className="inline-flex w-fit rounded-full border border-rose-300 bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-900">
+            {failure.stage === "analysis" ? "Analysis Failure" : "Queue Failure"}
+          </span>
+          <p className="text-sm font-semibold text-slate-900">{formatFailureCode(failure.code)}</p>
+          <p className="line-clamp-2 text-sm text-slate-600" title={failure.message}>
+            {failure.message}
+          </p>
+          <p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
+            Failed At {formatFailureTimestamp(failure.failedAt)}
+          </p>
+        </div>
+      );
+    },
   }),
   columnHelper.accessor("user_tags", {
     header: "User Tags",

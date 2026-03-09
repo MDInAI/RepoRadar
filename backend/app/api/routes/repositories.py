@@ -12,6 +12,7 @@ from app.models import (
     RepositoryAnalysisStatus,
     RepositoryDiscoverySource,
     RepositoryMonetizationPotential,
+    RepositoryQueueStatus,
     RepositoryTriageStatus,
 )
 from app.schemas.repository_curation import (
@@ -21,6 +22,7 @@ from app.schemas.repository_curation import (
     RepositoryUserTagResponse,
 )
 from app.schemas.repository_exploration import (
+    RepositoryBacklogSummaryResponse,
     RepositoryCatalogPageResponse,
     RepositoryCatalogQueryParams,
     RepositoryCatalogSortBy,
@@ -69,8 +71,10 @@ def get_repository_catalog_query_params(
     page_size: int = Query(default=30),
     search: str | None = Query(default=None),
     discovery_source: str | None = Query(default=None),
+    queue_status: str | None = Query(default=None),
     triage_status: str | None = Query(default=None),
     analysis_status: str | None = Query(default=None),
+    has_failures: bool = Query(default=False),
     monetization_potential: str | None = Query(default=None),
     min_stars: int | None = Query(default=None),
     max_stars: int | None = Query(default=None),
@@ -131,6 +135,11 @@ def get_repository_catalog_query_params(
             RepositoryDiscoverySource,
             "discovery_source",
         ),
+        queue_status=_parse_repository_catalog_enum(
+            queue_status,
+            RepositoryQueueStatus,
+            "queue_status",
+        ),
         triage_status=_parse_repository_catalog_enum(
             triage_status,
             RepositoryTriageStatus,
@@ -141,6 +150,7 @@ def get_repository_catalog_query_params(
             RepositoryAnalysisStatus,
             "analysis_status",
         ),
+        has_failures=has_failures,
         monetization_potential=_parse_repository_catalog_enum(
             monetization_potential,
             RepositoryMonetizationPotential,
@@ -183,6 +193,14 @@ def list_repository_catalog(
 ) -> RepositoryCatalogPageResponse:
     """Expose the paginated repository exploration catalog."""
     return service.list_repository_catalog(params)
+
+
+@router.get("/backlog/summary", response_model=RepositoryBacklogSummaryResponse)
+def read_repository_backlog_summary(
+    service: RepositoryExplorationService = ExplorationServiceDep,
+) -> RepositoryBacklogSummaryResponse:
+    """Expose aggregate queue, triage, and analysis counts for the repository backlog."""
+    return service.get_repository_backlog_summary()
 
 
 @router.get("/{github_repository_id}/triage", response_model=RepositoryTriageResponse)

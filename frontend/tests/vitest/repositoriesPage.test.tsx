@@ -29,8 +29,15 @@ const catalogResponse = {
       forks_count: 90,
       pushed_at: "2026-03-09T12:00:00Z",
       discovery_source: "firehose",
+      queue_status: "completed",
       triage_status: "accepted",
       analysis_status: "completed",
+      queue_created_at: "2026-03-09T12:00:00Z",
+      processing_started_at: "2026-03-09T12:05:00Z",
+      processing_completed_at: "2026-03-09T12:10:00Z",
+      last_failed_at: null,
+      analysis_failure_code: null,
+      analysis_failure_message: null,
       monetization_potential: "high",
       has_readme_artifact: true,
       has_analysis_artifact: true,
@@ -42,6 +49,12 @@ const catalogResponse = {
   page: 1,
   page_size: 30,
   total_pages: 1,
+};
+
+const backlogSummaryResponse = {
+  queue: { pending: 3, in_progress: 2, completed: 10, failed: 1 },
+  triage: { pending: 4, accepted: 8, rejected: 2 },
+  analysis: { pending: 5, in_progress: 1, completed: 7, failed: 2 },
 };
 
 function renderPage(responseOverride?: Partial<typeof catalogResponse>) {
@@ -58,14 +71,16 @@ function renderPage(responseOverride?: Partial<typeof catalogResponse>) {
     ...responseOverride,
   };
 
-  vi.spyOn(globalThis, "fetch").mockResolvedValue(
-    new Response(JSON.stringify(responseBody), {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const body = url.includes("/backlog/summary") ? backlogSummaryResponse : responseBody;
+    return new Response(JSON.stringify(body), {
       status: 200,
       headers: {
         "Content-Type": "application/json",
       },
-    }),
-  );
+    });
+  });
 
   return render(
     <QueryClientProvider client={queryClient}>
@@ -149,6 +164,14 @@ describe("RepositoriesPage", () => {
     });
 
     mockReplace.mockClear();
+    await user.selectOptions(screen.getByLabelText("Queue status"), "failed");
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenLastCalledWith("/repositories?queueStatus=failed", {
+        scroll: false,
+      });
+    });
+
+    mockReplace.mockClear();
     await user.selectOptions(screen.getByLabelText("Triage status"), "pending");
     await waitFor(() => {
       expect(mockReplace).toHaveBeenLastCalledWith("/repositories?triageStatus=pending", {
@@ -188,6 +211,14 @@ describe("RepositoriesPage", () => {
     });
     await waitFor(() => {
       expect(mockReplace).toHaveBeenLastCalledWith("/repositories?maxStars=500", {
+        scroll: false,
+      });
+    });
+
+    mockReplace.mockClear();
+    await user.click(screen.getByLabelText("Show failures only"));
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenLastCalledWith("/repositories?hasFailures=true", {
         scroll: false,
       });
     });
@@ -249,6 +280,10 @@ describe("RepositoriesPage", () => {
       ).toBeTruthy();
     });
 
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://api.test/api/v1/repositories/backlog/summary",
+      { cache: "no-store" },
+    );
   });
 });

@@ -5,6 +5,7 @@ import type {
   RepositoryCatalogSortOrder,
   RepositoryDiscoverySource,
   RepositoryMonetizationPotential,
+  RepositoryQueueStatus,
   RepositoryTriageStatus,
 } from "@/api/repositories";
 
@@ -25,6 +26,17 @@ const TRIAGE_OPTIONS: Array<{
   { label: "Accepted", value: "accepted" },
   { label: "Rejected", value: "rejected" },
   { label: "Pending", value: "pending" },
+];
+
+const QUEUE_OPTIONS: Array<{
+  label: string;
+  value: RepositoryQueueStatus | "";
+}> = [
+  { label: "All Queue States", value: "" },
+  { label: "Pending", value: "pending" },
+  { label: "In Progress", value: "in_progress" },
+  { label: "Completed", value: "completed" },
+  { label: "Failed", value: "failed" },
 ];
 
 const ANALYSIS_OPTIONS: Array<{
@@ -91,8 +103,10 @@ function ToolbarSelect({
 export function CatalogFilterBar({
   searchValue,
   source,
+  queueStatus,
   triageStatus,
   analysisStatus,
+  hasFailures,
   monetization,
   minStars,
   maxStars,
@@ -106,8 +120,10 @@ export function CatalogFilterBar({
   validationMessage,
   onSearchChange,
   onSourceChange,
+  onQueueStatusChange,
   onTriageStatusChange,
   onAnalysisStatusChange,
+  onHasFailuresChange,
   onMonetizationChange,
   onMinStarsChange,
   onMaxStarsChange,
@@ -119,8 +135,10 @@ export function CatalogFilterBar({
 }: {
   searchValue: string;
   source: RepositoryDiscoverySource | null;
+  queueStatus: RepositoryQueueStatus | null;
   triageStatus: RepositoryTriageStatus | null;
   analysisStatus: RepositoryAnalysisStatus | null;
+  hasFailures: boolean;
   monetization: RepositoryMonetizationPotential | null;
   minStars: number | null;
   maxStars: number | null;
@@ -134,8 +152,10 @@ export function CatalogFilterBar({
   validationMessage: string | null;
   onSearchChange: (value: string) => void;
   onSourceChange: (value: RepositoryDiscoverySource | null) => void;
+  onQueueStatusChange: (value: RepositoryQueueStatus | null) => void;
   onTriageStatusChange: (value: RepositoryTriageStatus | null) => void;
   onAnalysisStatusChange: (value: RepositoryAnalysisStatus | null) => void;
+  onHasFailuresChange: (value: boolean) => void;
   onMonetizationChange: (value: RepositoryMonetizationPotential | null) => void;
   onMinStarsChange: (value: number | null) => void;
   onMaxStarsChange: (value: number | null) => void;
@@ -191,7 +211,13 @@ export function CatalogFilterBar({
         </button>
       </div>
 
-      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <ToolbarSelect
+          ariaLabel="Queue status"
+          value={queueStatus ?? ""}
+          options={QUEUE_OPTIONS}
+          onChange={(value) => onQueueStatusChange((value || null) as RepositoryQueueStatus | null)}
+        />
         <ToolbarSelect
           ariaLabel="Triage status"
           value={triageStatus ?? ""}
@@ -235,6 +261,16 @@ export function CatalogFilterBar({
               onMaxStarsChange(nextValue === "" ? null : Number.parseInt(nextValue, 10));
             }}
           />
+        </label>
+        <label className="flex min-w-0 items-center gap-3 rounded-[1.5rem] border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 shadow-sm">
+          <input
+            aria-label="Show failures only"
+            checked={hasFailures}
+            className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+            type="checkbox"
+            onChange={(event) => onHasFailuresChange(event.target.checked)}
+          />
+          <span>Show failures only</span>
         </label>
         <label className="flex min-w-0 items-center gap-3 rounded-[1.5rem] border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 shadow-sm">
           <input

@@ -111,8 +111,10 @@ class RepositoryCatalogQueryParams(BaseModel):
     page_size: int = 30
     search: str | None = None
     discovery_source: RepositoryDiscoverySource | None = None
+    queue_status: RepositoryQueueStatus | None = None
     triage_status: RepositoryTriageStatus | None = None
     analysis_status: RepositoryAnalysisStatus | None = None
+    has_failures: bool = False
     monetization_potential: RepositoryMonetizationPotential | None = None
     min_stars: int | None = None
     max_stars: int | None = None
@@ -132,8 +134,15 @@ class RepositoryCatalogItemResponse(BaseModel):
     forks_count: int
     pushed_at: datetime | None = None
     discovery_source: RepositoryDiscoverySource
+    queue_status: RepositoryQueueStatus
     triage_status: RepositoryTriageStatus
     analysis_status: RepositoryAnalysisStatus
+    queue_created_at: datetime | None = None
+    processing_started_at: datetime | None = None
+    processing_completed_at: datetime | None = None
+    last_failed_at: datetime | None = None
+    analysis_failure_code: str | None = None
+    analysis_failure_message: str | None = None
     monetization_potential: RepositoryMonetizationPotential | None = None
     has_readme_artifact: bool = False
     has_analysis_artifact: bool = False
@@ -147,3 +156,29 @@ class RepositoryCatalogPageResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+class RepositoryProcessingQueueSummaryResponse(BaseModel):
+    pending: int = 0
+    in_progress: int = 0
+    completed: int = 0
+    failed: int = 0
+
+
+class RepositoryProcessingTriageSummaryResponse(BaseModel):
+    pending: int = 0
+    accepted: int = 0
+    rejected: int = 0
+
+
+class RepositoryProcessingAnalysisSummaryResponse(BaseModel):
+    pending: int = 0
+    in_progress: int = 0
+    completed: int = 0
+    failed: int = 0
+
+
+class RepositoryBacklogSummaryResponse(BaseModel):
+    queue: RepositoryProcessingQueueSummaryResponse
+    triage: RepositoryProcessingTriageSummaryResponse
+    analysis: RepositoryProcessingAnalysisSummaryResponse

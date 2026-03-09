@@ -23,13 +23,40 @@ export interface RepositoryCatalogItem {
   forks_count: number;
   pushed_at: string | null;
   discovery_source: RepositoryDiscoverySource;
+  queue_status: RepositoryQueueStatus;
   triage_status: RepositoryTriageStatus;
   analysis_status: RepositoryAnalysisStatus;
+  queue_created_at: string | null;
+  processing_started_at: string | null;
+  processing_completed_at: string | null;
+  last_failed_at: string | null;
+  analysis_failure_code: string | null;
+  analysis_failure_message: string | null;
   monetization_potential: RepositoryMonetizationPotential | null;
   has_readme_artifact: boolean;
   has_analysis_artifact: boolean;
   is_starred: boolean;
   user_tags: string[];
+}
+
+export interface RepositoryBacklogSummary {
+  queue: {
+    pending: number;
+    in_progress: number;
+    completed: number;
+    failed: number;
+  };
+  triage: {
+    pending: number;
+    accepted: number;
+    rejected: number;
+  };
+  analysis: {
+    pending: number;
+    in_progress: number;
+    completed: number;
+    failed: number;
+  };
 }
 
 export interface RepositoryCatalogPageResponse {
@@ -144,8 +171,10 @@ export interface RepositoryCatalogViewState {
   order: RepositoryCatalogSortOrder;
   search: string | null;
   source: RepositoryDiscoverySource | null;
+  queueStatus: RepositoryQueueStatus | null;
   triageStatus: RepositoryTriageStatus | null;
   analysisStatus: RepositoryAnalysisStatus | null;
+  hasFailures: boolean;
   monetization: RepositoryMonetizationPotential | null;
   minStars: number | null;
   maxStars: number | null;
@@ -155,8 +184,10 @@ export interface RepositoryCatalogViewState {
 export type RepositoryCatalogFilterKey =
   | "search"
   | "source"
+  | "queueStatus"
   | "triageStatus"
   | "analysisStatus"
+  | "hasFailures"
   | "monetization"
   | "minStars"
   | "maxStars"
@@ -178,8 +209,10 @@ const DEFAULT_VIEW_STATE: RepositoryCatalogViewState = {
   order: "desc",
   search: null,
   source: null,
+  queueStatus: null,
   triageStatus: null,
   analysisStatus: null,
+  hasFailures: false,
   monetization: null,
   minStars: null,
   maxStars: null,
@@ -187,6 +220,7 @@ const DEFAULT_VIEW_STATE: RepositoryCatalogViewState = {
 };
 
 const SOURCE_VALUES: RepositoryDiscoverySource[] = ["unknown", "firehose", "backfill"];
+const QUEUE_VALUES: RepositoryQueueStatus[] = ["pending", "in_progress", "completed", "failed"];
 const TRIAGE_VALUES: RepositoryTriageStatus[] = ["pending", "accepted", "rejected"];
 const ANALYSIS_VALUES: RepositoryAnalysisStatus[] = [
   "pending",
@@ -310,8 +344,10 @@ export function parseRepositoryCatalogSearchParams(
       parseEnumValue(searchParams.get("order"), ORDER_VALUES) ?? DEFAULT_VIEW_STATE.order,
     search: search.length > 0 ? search : null,
     source: parseEnumValue(searchParams.get("source"), SOURCE_VALUES),
+    queueStatus: parseEnumValue(searchParams.get("queueStatus"), QUEUE_VALUES),
     triageStatus: parseEnumValue(searchParams.get("triageStatus"), TRIAGE_VALUES),
     analysisStatus: parseEnumValue(searchParams.get("analysisStatus"), ANALYSIS_VALUES),
+    hasFailures: parseBooleanParam(searchParams.get("hasFailures")),
     monetization: parseEnumValue(searchParams.get("monetization"), MONETIZATION_VALUES),
     minStars: parseNonNegativeInt(searchParams.get("minStars")),
     maxStars: parseNonNegativeInt(searchParams.get("maxStars")),
@@ -342,11 +378,17 @@ export function buildRepositoryCatalogSearchParams(
   if (state.source) {
     params.set("source", state.source);
   }
+  if (state.queueStatus) {
+    params.set("queueStatus", state.queueStatus);
+  }
   if (state.triageStatus) {
     params.set("triageStatus", state.triageStatus);
   }
   if (state.analysisStatus) {
     params.set("analysisStatus", state.analysisStatus);
+  }
+  if (state.hasFailures) {
+    params.set("hasFailures", "true");
   }
   if (state.monetization) {
     params.set("monetization", state.monetization);
@@ -374,8 +416,10 @@ export function getRepositoryCatalogQueryKey(state: RepositoryCatalogViewState) 
     state.order,
     state.search,
     state.source,
+    state.queueStatus,
     state.triageStatus,
     state.analysisStatus,
+    state.hasFailures,
     state.monetization,
     state.minStars,
     state.maxStars,
@@ -415,11 +459,17 @@ function buildRepositoryCatalogApiParams(
   if (state.source) {
     params.set("discovery_source", state.source);
   }
+  if (state.queueStatus) {
+    params.set("queue_status", state.queueStatus);
+  }
   if (state.triageStatus) {
     params.set("triage_status", state.triageStatus);
   }
   if (state.analysisStatus) {
     params.set("analysis_status", state.analysisStatus);
+  }
+  if (state.hasFailures) {
+    params.set("has_failures", "true");
   }
   if (state.monetization) {
     params.set("monetization_potential", state.monetization);
@@ -460,6 +510,40 @@ export async function fetchRepositoryCatalog(
   throw new RepositoryCatalogRequestError(
     payload?.error?.message ??
       `Failed to fetch repository catalog: ${response.status} ${response.statusText}`.trim(),
+    {
+      status: response.status,
+      code: payload?.error?.code,
+      details: payload?.error?.details,
+    },
+  );
+}
+
+export function getRepositoryBacklogSummaryQueryKey() {
+  return ["repositories", "backlog-summary"] as const;
+}
+
+export async function fetchRepositoryBacklogSummary(): Promise<RepositoryBacklogSummary> {
+  const response = await fetch(
+    `${getRequiredApiBaseUrl()}/api/v1/repositories/backlog/summary`,
+    {
+      cache: "no-store",
+    },
+  );
+
+  if (response.ok) {
+    return (await response.json()) as RepositoryBacklogSummary;
+  }
+
+  let payload: RepositoryCatalogErrorEnvelope | null = null;
+  try {
+    payload = (await response.json()) as RepositoryCatalogErrorEnvelope;
+  } catch {
+    payload = null;
+  }
+
+  throw new RepositoryCatalogRequestError(
+    payload?.error?.message ??
+      `Failed to fetch repository backlog summary: ${response.status} ${response.statusText}`.trim(),
     {
       status: response.status,
       code: payload?.error?.code,
@@ -628,6 +712,12 @@ export function describeRepositoryCatalogFilters(
       label: `Source: ${titleCaseWords(state.source)}`,
     });
   }
+  if (state.queueStatus) {
+    chips.push({
+      key: "queueStatus",
+      label: `Queue: ${titleCaseWords(state.queueStatus)}`,
+    });
+  }
   if (state.triageStatus) {
     chips.push({
       key: "triageStatus",
@@ -638,6 +728,12 @@ export function describeRepositoryCatalogFilters(
     chips.push({
       key: "analysisStatus",
       label: `Analysis: ${titleCaseWords(state.analysisStatus)}`,
+    });
+  }
+  if (state.hasFailures) {
+    chips.push({
+      key: "hasFailures",
+      label: "Failures only",
     });
   }
   if (state.monetization) {
@@ -683,11 +779,17 @@ export function clearRepositoryCatalogFilter(
   if (key === "source") {
     nextState.source = null;
   }
+  if (key === "queueStatus") {
+    nextState.queueStatus = null;
+  }
   if (key === "triageStatus") {
     nextState.triageStatus = null;
   }
   if (key === "analysisStatus") {
     nextState.analysisStatus = null;
+  }
+  if (key === "hasFailures") {
+    nextState.hasFailures = false;
   }
   if (key === "monetization") {
     nextState.monetization = null;
@@ -713,8 +815,10 @@ export function clearAllRepositoryCatalogFilters(
     page: 1,
     search: null,
     source: null,
+    queueStatus: null,
     triageStatus: null,
     analysisStatus: null,
+    hasFailures: false,
     monetization: null,
     minStars: null,
     maxStars: null,

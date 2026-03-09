@@ -5,7 +5,7 @@ from datetime import datetime
 from math import ceil
 from collections import defaultdict
 
-from sqlalchemy import exists, func, or_
+from sqlalchemy import case, exists, func, or_
 from sqlmodel import Session, select
 
 from app.models import (
@@ -94,8 +94,10 @@ class RepositoryCatalogListParams:
     page_size: int
     search: str | None
     discovery_source: RepositoryDiscoverySource | None
+    queue_status: RepositoryQueueStatus | None
     triage_status: RepositoryTriageStatus | None
     analysis_status: RepositoryAnalysisStatus | None
+    has_failures: bool
     monetization_potential: RepositoryMonetizationPotential | None
     min_stars: int | None
     max_stars: int | None
@@ -116,8 +118,15 @@ class RepositoryCatalogItemRecord:
     forks_count: int
     pushed_at: datetime | None
     discovery_source: RepositoryDiscoverySource
+    queue_status: RepositoryQueueStatus
     triage_status: RepositoryTriageStatus
     analysis_status: RepositoryAnalysisStatus
+    queue_created_at: datetime | None
+    processing_started_at: datetime | None
+    processing_completed_at: datetime | None
+    last_failed_at: datetime | None
+    analysis_failure_code: str | None
+    analysis_failure_message: str | None
     monetization_potential: RepositoryMonetizationPotential | None
     has_readme_artifact: bool
     has_analysis_artifact: bool
@@ -132,6 +141,13 @@ class RepositoryCatalogPageRecord:
     page: int
     page_size: int
     total_pages: int
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryBacklogSummaryRecord:
+    queue: dict[str, int]
+    triage: dict[str, int]
+    analysis: dict[str, int]
 
 
 class RepositoryExplorationRepository:
@@ -233,11 +249,25 @@ class RepositoryExplorationRepository:
         filters: list[object] = []
         if params.discovery_source is not None:
             filters.append(RepositoryIntake.discovery_source == params.discovery_source)
+        if params.queue_status is not None:
+            filters.append(RepositoryIntake.queue_status == params.queue_status)
         if params.triage_status is not None:
             filters.append(RepositoryIntake.triage_status == params.triage_status)
         if params.analysis_status is not None:
             filters.append(RepositoryIntake.analysis_status == params.analysis_status)
-        if params.triage_status is None and params.analysis_status is None:
+        if params.has_failures:
+            filters.append(
+                or_(
+                    RepositoryIntake.queue_status == RepositoryQueueStatus.FAILED,
+                    RepositoryIntake.analysis_status == RepositoryAnalysisStatus.FAILED,
+                )
+            )
+        if (
+            params.queue_status is None
+            and params.triage_status is None
+            and params.analysis_status is None
+            and not params.has_failures
+        ):
             filters.append(RepositoryIntake.triage_status == RepositoryTriageStatus.ACCEPTED)
             filters.append(RepositoryIntake.analysis_status == RepositoryAnalysisStatus.COMPLETED)
         if params.monetization_potential is not None:
@@ -327,8 +357,24 @@ class RepositoryExplorationRepository:
                 RepositoryIntake.forks_count,
                 RepositoryIntake.pushed_at,
                 RepositoryIntake.discovery_source,
+                RepositoryIntake.queue_status,
                 RepositoryIntake.triage_status,
                 RepositoryIntake.analysis_status,
+                RepositoryIntake.queue_created_at,
+                func.coalesce(
+                    RepositoryIntake.analysis_started_at,
+                    RepositoryIntake.processing_started_at,
+                ).label("processing_started_at"),
+                func.coalesce(
+                    RepositoryIntake.analysis_completed_at,
+                    RepositoryIntake.processing_completed_at,
+                ).label("processing_completed_at"),
+                func.coalesce(
+                    RepositoryIntake.analysis_last_failed_at,
+                    RepositoryIntake.last_failed_at,
+                ).label("last_failed_at"),
+                RepositoryIntake.analysis_failure_code,
+                RepositoryIntake.analysis_failure_message,
                 RepositoryAnalysisResult.monetization_potential,
                 readme_exists.label("has_readme_artifact"),
                 analysis_exists.label("has_analysis_artifact"),
@@ -370,8 +416,19 @@ class RepositoryExplorationRepository:
                 forks_count=row.forks_count,
                 pushed_at=row.pushed_at,
                 discovery_source=row.discovery_source,
+                queue_status=row.queue_status,
                 triage_status=row.triage_status,
                 analysis_status=row.analysis_status,
+                queue_created_at=row.queue_created_at,
+                processing_started_at=row.processing_started_at,
+                processing_completed_at=row.processing_completed_at,
+                last_failed_at=row.last_failed_at,
+                analysis_failure_code=(
+                    row.analysis_failure_code.value
+                    if row.analysis_failure_code is not None
+                    else None
+                ),
+                analysis_failure_message=row.analysis_failure_message,
                 monetization_potential=row.monetization_potential,
                 has_readme_artifact=bool(row.has_readme_artifact),
                 has_analysis_artifact=bool(row.has_analysis_artifact),
@@ -388,3 +445,61 @@ class RepositoryExplorationRepository:
             page_size=params.page_size,
             total_pages=ceil(total / params.page_size) if total else 0,
         )
+
+    def get_repository_backlog_summary(self) -> RepositoryBacklogSummaryRecord:
+        queue_statuses = (
+            RepositoryQueueStatus.PENDING,
+            RepositoryQueueStatus.IN_PROGRESS,
+            RepositoryQueueStatus.COMPLETED,
+            RepositoryQueueStatus.FAILED,
+        )
+        triage_statuses = (
+            RepositoryTriageStatus.PENDING,
+            RepositoryTriageStatus.ACCEPTED,
+            RepositoryTriageStatus.REJECTED,
+        )
+        analysis_statuses = (
+            RepositoryAnalysisStatus.PENDING,
+            RepositoryAnalysisStatus.IN_PROGRESS,
+            RepositoryAnalysisStatus.COMPLETED,
+            RepositoryAnalysisStatus.FAILED,
+        )
+        summary_columns = [
+            *self._build_summary_columns("queue", RepositoryIntake.queue_status, queue_statuses),
+            *self._build_summary_columns(
+                "triage", RepositoryIntake.triage_status, triage_statuses
+            ),
+            *self._build_summary_columns(
+                "analysis", RepositoryIntake.analysis_status, analysis_statuses
+            ),
+        ]
+        summary_row = self.session.exec(select(*summary_columns).select_from(RepositoryIntake)).one()
+
+        return RepositoryBacklogSummaryRecord(
+            queue=self._read_summary_counts(summary_row, "queue", queue_statuses),
+            triage=self._read_summary_counts(summary_row, "triage", triage_statuses),
+            analysis=self._read_summary_counts(summary_row, "analysis", analysis_statuses),
+        )
+
+    def _build_summary_columns(
+        self, prefix: str, column: object, statuses: tuple[object, ...]
+    ) -> list[object]:
+        return [
+            func.coalesce(
+                func.sum(case((column == status, 1), else_=0)),
+                0,
+            ).label(f"{prefix}_{status.value}")
+            for status in statuses
+            if hasattr(status, "value")
+        ]
+
+    def _read_summary_counts(
+        self, row: object, prefix: str, statuses: tuple[object, ...]
+    ) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for status in statuses:
+            if not hasattr(status, "value"):
+                continue
+            label = f"{prefix}_{status.value}"
+            counts[status.value] = int(getattr(row, label))
+        return counts

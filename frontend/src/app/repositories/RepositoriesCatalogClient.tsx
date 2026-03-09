@@ -21,8 +21,10 @@ import {
   type RepositoryCatalogSortOrder,
   type RepositoryDiscoverySource,
   type RepositoryMonetizationPotential,
+  type RepositoryQueueStatus,
   type RepositoryTriageStatus,
 } from "@/api/repositories";
+import { BacklogSummaryBar } from "@/components/repositories/BacklogSummaryBar";
 import { CatalogFilterBar } from "@/components/repositories/CatalogFilterBar";
 import { CatalogPagination } from "@/components/repositories/CatalogPagination";
 import { RepositoryCatalogTable } from "@/components/repositories/RepositoryCatalogTable";
@@ -149,12 +151,20 @@ export function RepositoriesCatalogClient() {
     updateViewState({ source });
   };
 
+  const handleQueueStatusChange = (queueStatus: RepositoryQueueStatus | null) => {
+    updateViewState({ queueStatus });
+  };
+
   const handleTriageStatusChange = (triageStatus: RepositoryTriageStatus | null) => {
     updateViewState({ triageStatus });
   };
 
   const handleAnalysisStatusChange = (analysisStatus: RepositoryAnalysisStatus | null) => {
     updateViewState({ analysisStatus });
+  };
+
+  const handleHasFailuresChange = (hasFailures: boolean) => {
+    updateViewState({ hasFailures });
   };
 
   const handleMonetizationChange = (
@@ -247,8 +257,10 @@ export function RepositoriesCatalogClient() {
         <CatalogFilterBar
           searchValue={viewState.search ?? ""}
           source={viewState.source}
+          queueStatus={viewState.queueStatus}
           triageStatus={viewState.triageStatus}
           analysisStatus={viewState.analysisStatus}
+          hasFailures={viewState.hasFailures}
           monetization={viewState.monetization}
           minStars={viewState.minStars}
           maxStars={viewState.maxStars}
@@ -262,8 +274,10 @@ export function RepositoriesCatalogClient() {
           validationMessage={validationMessage}
           onSearchChange={handleSearchChange}
           onSourceChange={handleSourceChange}
+          onQueueStatusChange={handleQueueStatusChange}
           onTriageStatusChange={handleTriageStatusChange}
           onAnalysisStatusChange={handleAnalysisStatusChange}
+          onHasFailuresChange={handleHasFailuresChange}
           onMonetizationChange={handleMonetizationChange}
           onMinStarsChange={handleMinStarsChange}
           onMaxStarsChange={handleMaxStarsChange}
@@ -272,6 +286,18 @@ export function RepositoriesCatalogClient() {
           onOrderChange={handleOrderChange}
           onRemoveChip={handleRemoveChip}
           onClearAll={handleClearAll}
+        />
+
+        <BacklogSummaryBar
+          onSelectFilters={(patch) => {
+            updateViewState({
+              queueStatus: null,
+              triageStatus: null,
+              analysisStatus: null,
+              hasFailures: false,
+              ...patch,
+            });
+          }}
         />
 
         {validationMessage === null && catalogQuery.isLoading && !data ? (
