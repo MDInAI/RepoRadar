@@ -21,8 +21,15 @@ const BASE_ITEM: RepositoryCatalogItem = {
   forks_count: 90,
   pushed_at: "2026-03-09T12:00:00Z",
   discovery_source: "firehose",
+  queue_status: "completed",
   triage_status: "accepted",
   analysis_status: "completed",
+  queue_created_at: "2026-03-09T12:00:00Z",
+  processing_started_at: "2026-03-09T12:05:00Z",
+  processing_completed_at: "2026-03-09T12:10:00Z",
+  last_failed_at: null,
+  analysis_failure_code: null,
+  analysis_failure_message: null,
   monetization_potential: "high",
   has_readme_artifact: true,
   has_analysis_artifact: true,
@@ -103,8 +110,10 @@ describe("repository curation UI", () => {
       <CatalogFilterBar
         searchValue=""
         source={null}
+        queueStatus={null}
         triageStatus={null}
         analysisStatus={null}
+        hasFailures={false}
         monetization={null}
         minStars={null}
         maxStars={null}
@@ -118,8 +127,10 @@ describe("repository curation UI", () => {
         validationMessage={null}
         onSearchChange={vi.fn()}
         onSourceChange={vi.fn()}
+        onQueueStatusChange={vi.fn()}
         onTriageStatusChange={vi.fn()}
         onAnalysisStatusChange={vi.fn()}
+        onHasFailuresChange={vi.fn()}
         onMonetizationChange={vi.fn()}
         onMinStarsChange={vi.fn()}
         onMaxStarsChange={vi.fn()}
@@ -141,8 +152,10 @@ describe("repository curation UI", () => {
       order: "desc",
       search: null,
       source: null,
+      queueStatus: null,
       triageStatus: null,
       analysisStatus: null,
+      hasFailures: false,
       monetization: null,
       minStars: null,
       maxStars: null,

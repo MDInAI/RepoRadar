@@ -2,6 +2,8 @@ import type {
   RepositoryAnalysisStatus,
   RepositoryDiscoverySource,
   RepositoryMonetizationPotential,
+  RepositoryQueueStatus,
+  RepositoryTriageStatus,
 } from "@/api/repositories";
 
 const RELATIVE_DATE_FORMATTER = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
@@ -57,6 +59,14 @@ export function formatAnalysisStatusLabel(value: RepositoryAnalysisStatus): stri
   return titleCaseWords(value);
 }
 
+export function formatQueueStatusLabel(value: RepositoryQueueStatus): string {
+  return titleCaseWords(value);
+}
+
+export function formatTriageStatusLabel(value: RepositoryTriageStatus): string {
+  return titleCaseWords(value);
+}
+
 export function formatMonetizationLabel(
   value: RepositoryMonetizationPotential | null,
 ): string {
@@ -84,6 +94,29 @@ export function getStatusBadgeClassName(value: RepositoryAnalysisStatus): string
     return "border-rose-300 bg-rose-100 text-rose-900";
   }
   return "border-slate-300 bg-slate-100 text-slate-800";
+}
+
+export function getQueueStatusBadgeClassName(value: RepositoryQueueStatus): string {
+  if (value === "completed") {
+    return "border-emerald-300 bg-emerald-100 text-emerald-900";
+  }
+  if (value === "in_progress" || value === "pending") {
+    return "border-amber-300 bg-amber-100 text-amber-900";
+  }
+  if (value === "failed") {
+    return "border-rose-300 bg-rose-100 text-rose-900";
+  }
+  return "border-slate-300 bg-slate-100 text-slate-800";
+}
+
+export function getTriageStatusBadgeClassName(value: RepositoryTriageStatus): string {
+  if (value === "accepted") {
+    return "border-emerald-300 bg-emerald-100 text-emerald-900";
+  }
+  if (value === "rejected") {
+    return "border-rose-300 bg-rose-100 text-rose-900";
+  }
+  return "border-amber-300 bg-amber-100 text-amber-900";
 }
 
 export function getFitBadgeClassName(

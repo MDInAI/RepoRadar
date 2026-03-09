@@ -13,9 +13,13 @@ from app.schemas.repository_exploration import (
     RepositoryAnalysisArtifactResponse,
     RepositoryAnalysisSummaryResponse,
     RepositoryArtifactRefResponse,
+    RepositoryBacklogSummaryResponse,
     RepositoryCatalogItemResponse,
     RepositoryCatalogPageResponse,
     RepositoryCatalogQueryParams,
+    RepositoryProcessingAnalysisSummaryResponse,
+    RepositoryProcessingQueueSummaryResponse,
+    RepositoryProcessingTriageSummaryResponse,
     RepositoryExplorationResponse,
     RepositoryReadmeSnapshotResponse,
     RepositoryTriageContextResponse,
@@ -172,8 +176,10 @@ class RepositoryExplorationService:
                 page_size=params.page_size,
                 search=params.search,
                 discovery_source=params.discovery_source,
+                queue_status=params.queue_status,
                 triage_status=params.triage_status,
                 analysis_status=params.analysis_status,
+                has_failures=params.has_failures,
                 monetization_potential=params.monetization_potential,
                 min_stars=params.min_stars,
                 max_stars=params.max_stars,
@@ -196,8 +202,15 @@ class RepositoryExplorationService:
                     forks_count=item.forks_count,
                     pushed_at=item.pushed_at,
                     discovery_source=item.discovery_source,
+                    queue_status=item.queue_status,
                     triage_status=item.triage_status,
                     analysis_status=item.analysis_status,
+                    queue_created_at=item.queue_created_at,
+                    processing_started_at=item.processing_started_at,
+                    processing_completed_at=item.processing_completed_at,
+                    last_failed_at=item.last_failed_at,
+                    analysis_failure_code=item.analysis_failure_code,
+                    analysis_failure_message=item.analysis_failure_message,
                     monetization_potential=item.monetization_potential,
                     has_readme_artifact=item.has_readme_artifact,
                     has_analysis_artifact=item.has_analysis_artifact,
@@ -210,6 +223,14 @@ class RepositoryExplorationService:
             page=page.page,
             page_size=page.page_size,
             total_pages=page.total_pages,
+        )
+
+    def get_repository_backlog_summary(self) -> RepositoryBacklogSummaryResponse:
+        summary = self.repository.get_repository_backlog_summary()
+        return RepositoryBacklogSummaryResponse(
+            queue=RepositoryProcessingQueueSummaryResponse(**summary.queue),
+            triage=RepositoryProcessingTriageSummaryResponse(**summary.triage),
+            analysis=RepositoryProcessingAnalysisSummaryResponse(**summary.analysis),
         )
 
     def _resolve_artifact_path(self, runtime_relative_path: str) -> Path | None:
