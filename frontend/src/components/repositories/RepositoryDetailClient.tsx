@@ -18,9 +18,13 @@ import {
   formatCompactNumber,
   formatDiscoverySourceLabel,
   formatMonetizationLabel,
+  formatQueueStatusLabel,
   formatRelativeDate,
+  formatTriageStatusLabel,
   getFitBadgeClassName,
+  getQueueStatusBadgeClassName,
   getStatusBadgeClassName,
+  getTriageStatusBadgeClassName,
 } from "./catalogPresentation";
 
 type RepositoryActionKey = "family-assignment" | "combiner-draft" | "similar-project-scan";
@@ -109,6 +113,19 @@ function renderAnalysisPayload(analysisArtifact: RepositoryAnalysisArtifact | nu
       {JSON.stringify(payload, null, 2)}
     </pre>
   );
+}
+
+function formatTimestamp(value: string | null | undefined): string {
+  if (!value) {
+    return "Unavailable";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "Unknown";
+  }
+
+  return `${parsed.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
 export function RepositoryDetailClient({ repositoryId }: { repositoryId: number }) {
@@ -276,6 +293,8 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
   const triageExplanation = detail.triage.explanation;
   const agentTags = collectAgentTags(detail);
   const categorySignals = collectCategorySignals(detail);
+  const intakeStatus = detail.intake_status;
+  const failureContext = detail.processing.failure;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff8f1_0%,#f8fafc_40%,#dbeafe_100%)] px-6 py-10 text-slate-900">
@@ -294,8 +313,19 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
               </p>
 
               <div className="mt-5 flex flex-wrap gap-3">
-                <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-800">
-                  Queue: {formatStatusLabel(detail.queue_status)}
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${getQueueStatusBadgeClassName(
+                    intakeStatus,
+                  )}`}
+                >
+                  Intake: {formatQueueStatusLabel(intakeStatus)}
+                </span>
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${getTriageStatusBadgeClassName(
+                    detail.triage_status,
+                  )}`}
+                >
+                  Triage: {formatTriageStatusLabel(detail.triage_status)}
                 </span>
                 <span
                   className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusBadgeClassName(
@@ -477,6 +507,96 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                     </p>
                   )}
                 </div>
+              </div>
+            </section>
+
+            <section className="rounded-[2rem] border border-black/10 bg-white/90 px-6 py-6 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.45)]">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Processing Monitor
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                    Intake, triage, and analysis status at a glance
+                  </h2>
+                </div>
+
+                {failureContext ? (
+                  <div className="rounded-[1.4rem] border border-rose-200 bg-rose-50 px-4 py-4 text-sm text-rose-950">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-rose-700">
+                      Active failure context
+                    </p>
+                    <p className="mt-2 font-semibold">
+                      {formatStatusLabel(failureContext.stage)} failure at{" "}
+                      {formatStatusLabel(failureContext.step)}
+                    </p>
+                    <p className="mt-1">
+                      Source: {formatDiscoverySourceLabel(detail.discovery_source)}
+                    </p>
+                    <p className="mt-1">
+                      Error: {failureContext.error_message ?? "No failure message recorded."}
+                    </p>
+                    <p className="mt-1">Recorded at: {formatTimestamp(failureContext.failed_at)}</p>
+                  </div>
+                ) : (
+                  <div className="rounded-[1.4rem] border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-950">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">
+                      Operational state
+                    </p>
+                    <p className="mt-2 font-semibold">
+                      No repository processing failure is currently recorded.
+                    </p>
+                    <p className="mt-1">
+                      Operators can use this panel to confirm which stage is pending, complete, or
+                      blocked before escalating.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-5 grid gap-4 lg:grid-cols-3">
+                <article className="rounded-[1.6rem] border border-slate-200 bg-slate-50/80 px-5 py-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Intake
+                  </p>
+                  <p className="mt-3 text-sm font-semibold text-slate-950">
+                    Status: {formatQueueStatusLabel(intakeStatus)}
+                  </p>
+                  <div className="mt-3 space-y-2 text-sm text-slate-700">
+                    <p>Queued at: {formatTimestamp(detail.processing?.intake_created_at ?? detail.discovered_at)}</p>
+                    <p>Started at: {formatTimestamp(detail.processing?.intake_started_at)}</p>
+                    <p>Completed at: {formatTimestamp(detail.processing?.intake_completed_at)}</p>
+                    <p>Failed at: {formatTimestamp(detail.processing?.intake_failed_at)}</p>
+                  </div>
+                </article>
+
+                <article className="rounded-[1.6rem] border border-slate-200 bg-slate-50/80 px-5 py-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Triage
+                  </p>
+                  <p className="mt-3 text-sm font-semibold text-slate-950">
+                    Status: {formatTriageStatusLabel(detail.triage_status)}
+                  </p>
+                  <div className="mt-3 space-y-2 text-sm text-slate-700">
+                    <p>Triaged at: {formatTimestamp(detail.processing?.triaged_at ?? detail.triage.triaged_at)}</p>
+                    <p>Explanation kind: {triageExplanation ? formatTriageExplanationKind(triageExplanation.kind) : "Unavailable"}</p>
+                  </div>
+                </article>
+
+                <article className="rounded-[1.6rem] border border-slate-200 bg-slate-50/80 px-5 py-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Analysis
+                  </p>
+                  <p className="mt-3 text-sm font-semibold text-slate-950">
+                    Status: {formatAnalysisStatusLabel(detail.analysis_status)}
+                  </p>
+                  <div className="mt-3 space-y-2 text-sm text-slate-700">
+                    <p>Started at: {formatTimestamp(detail.processing?.analysis_started_at)}</p>
+                    <p>Last attempted: {formatTimestamp(detail.processing?.analysis_last_attempted_at)}</p>
+                    <p>Completed at: {formatTimestamp(detail.processing?.analysis_completed_at ?? detail.analysis_summary?.analyzed_at)}</p>
+                    <p>Failed at: {formatTimestamp(detail.processing?.analysis_failed_at)}</p>
+                  </div>
+                </article>
               </div>
             </section>
 

@@ -1,9 +1,23 @@
 from sqlmodel import SQLModel
 
+from app.models.agent_event import (
+    AGENT_NAMES,
+    AgentPauseState,
+    AgentRun,
+    AgentRunStatus,
+    EventSeverity,
+    FailureClassification,
+    FailureSeverity,
+    ResumedBy,
+    SystemEvent,
+)
 from app.models.artifact import RepositoryArtifact, RepositoryArtifactKind
 from app.models.repository import (
+    AgentMemorySegment,
     BackfillProgress,
     FirehoseProgress,
+    IdeaFamily,
+    IdeaFamilyMembership,
     RepositoryAnalysisFailureCode,
     RepositoryAnalysisResult,
     RepositoryAnalysisStatus,
@@ -17,15 +31,29 @@ from app.models.repository import (
     RepositoryTriageExplanation,
     RepositoryTriageExplanationKind,
     RepositoryTriageStatus,
+    SynthesisRun,
+    SynthesisRunStatus,
     exhausted_backfill_boundary,
 )
 
 __all__ = [
     "SQLModel",
+    "AGENT_NAMES",
+    "AgentMemorySegment",
+    "AgentPauseState",
+    "AgentRun",
+    "AgentRunStatus",
+    "EventSeverity",
+    "FailureClassification",
+    "FailureSeverity",
+    "ResumedBy",
+    "SystemEvent",
     "RepositoryArtifact",
     "RepositoryArtifactKind",
     "BackfillProgress",
     "FirehoseProgress",
+    "IdeaFamily",
+    "IdeaFamilyMembership",
     "RepositoryAnalysisFailureCode",
     "RepositoryAnalysisResult",
     "RepositoryAnalysisStatus",
@@ -39,5 +67,7 @@ __all__ = [
     "RepositoryTriageExplanation",
     "RepositoryTriageExplanationKind",
     "RepositoryTriageStatus",
+    "SynthesisRun",
+    "SynthesisRunStatus",
     "exhausted_backfill_boundary",
 ]

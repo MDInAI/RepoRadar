@@ -96,18 +96,45 @@ class JSONStringDictType(TypeDecorator):
         self,
         value: dict[str, object] | None,
         dialect: Dialect,
-    ) -> str:
-        payload = {} if value is None else value
+    ) -> str | None:
+        if value is None:
+            return None
+        payload = value
         if not isinstance(payload, dict) or any(not isinstance(key, str) for key in payload):
             raise ValueError("JSONStringDictType accepts only dict[str, object]")
         return json.dumps(payload, sort_keys=True)
 
-    def process_result_value(self, value: str | None, dialect: Dialect) -> dict[str, object]:
+    def process_result_value(self, value: str | None, dialect: Dialect) -> dict[str, object] | None:
         if value is None:
-            return {}
+            return None
         decoded = json.loads(value)
         if not isinstance(decoded, dict) or any(not isinstance(key, str) for key in decoded):
             raise ValueError("JSONStringDictType stored value must decode to dict[str, object]")
+        return decoded
+
+
+class JSONIntListType(TypeDecorator):
+    """Persist integer lists as JSON-encoded text across SQLite and Postgres."""
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(
+        self,
+        value: list[int] | tuple[int, ...] | None,
+        dialect: Dialect,
+    ) -> str:
+        items = [] if value is None else list(value)
+        if any(not isinstance(item, int) for item in items):
+            raise ValueError("JSONIntListType accepts only integer items")
+        return json.dumps(items)
+
+    def process_result_value(self, value: str | None, dialect: Dialect) -> list[int]:
+        if value is None:
+            return []
+        decoded = json.loads(value)
+        if not isinstance(decoded, list) or any(not isinstance(item, int) for item in decoded):
+            raise ValueError("JSONIntListType stored value must decode to list[int]")
         return decoded
 
 
@@ -438,6 +465,361 @@ class RepositoryUserTag(SQLModel, table=True):
     )
     tag_label: str = Field(
         sa_column=Column(String(100), nullable=False),
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(
+            UTCDateTimeType(),
+            nullable=False,
+            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
+        ),
+    )
+
+
+class IdeaFamily(SQLModel, table=True):
+    __tablename__ = "idea_family"
+    __table_args__ = (
+        CheckConstraint("title != ''", name="ck_idea_family_title_not_blank"),
+    )
+
+    id: int | None = Field(
+        default=None,
+        sa_column=Column(Integer, primary_key=True, autoincrement=True, nullable=False),
+    )
+    title: str = Field(
+        sa_column=Column(String(200), nullable=False),
+    )
+    description: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(
+            UTCDateTimeType(),
+            nullable=False,
+            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
+        ),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(
+            UTCDateTimeType(),
+            nullable=False,
+            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
+        ),
+    )
+
+
+class IdeaFamilyMembership(SQLModel, table=True):
+    __tablename__ = "idea_family_membership"
+    __table_args__ = (
+        Index("ix_idea_family_membership_idea_family_id", "idea_family_id"),
+        Index("ix_idea_family_membership_github_repository_id", "github_repository_id"),
+        UniqueConstraint(
+            "idea_family_id",
+            "github_repository_id",
+            name="uq_idea_family_membership_idea_family_id_github_repository_id",
+        ),
+    )
+
+    id: int | None = Field(
+        default=None,
+        sa_column=Column(Integer, primary_key=True, autoincrement=True, nullable=False),
+    )
+    idea_family_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("idea_family.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+    )
+    github_repository_id: int = Field(
+        sa_column=Column(
+            BigInteger,
+            ForeignKey("repository_intake.github_repository_id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+    )
+    added_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(
+            UTCDateTimeType(),
+            nullable=False,
+            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
+        ),
+    )
+
+
+class ObsessionRefreshPolicy(StrEnum):
+    MANUAL = "manual"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+
+
+class ObsessionContextStatus(StrEnum):
+    ACTIVE = "active"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+
+
+class ObsessionContext(SQLModel, table=True):
+    __tablename__ = "obsession_context"
+    __table_args__ = (
+        CheckConstraint("title != ''", name="ck_obsession_context_title_not_blank"),
+        CheckConstraint(
+            "(idea_family_id IS NOT NULL AND synthesis_run_id IS NULL) OR "
+            "(idea_family_id IS NULL AND synthesis_run_id IS NOT NULL)",
+            name="ck_obsession_context_exactly_one_target",
+        ),
+        Index("ix_obsession_context_idea_family_id", "idea_family_id"),
+        Index("ix_obsession_context_synthesis_run_id", "synthesis_run_id"),
+        Index("ix_obsession_context_status", "status"),
+    )
+
+    id: int | None = Field(
+        default=None,
+        sa_column=Column(Integer, primary_key=True, autoincrement=True, nullable=False),
+    )
+    idea_family_id: int | None = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("idea_family.id", ondelete="CASCADE"),
+            nullable=True,
+        ),
+    )
+    synthesis_run_id: int | None = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("synthesis_run.id", ondelete="CASCADE"),
+            nullable=True,
+        ),
+    )
+    title: str = Field(
+        sa_column=Column(String(200), nullable=False),
+    )
+    description: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    status: ObsessionContextStatus = Field(
+        default=ObsessionContextStatus.ACTIVE,
+        sa_column=Column(
+            SQLEnum(
+                ObsessionContextStatus,
+                values_callable=_enum_values,
+                name="obsession_context_status",
+                native_enum=False,
+                create_constraint=True,
+            ),
+            nullable=False,
+            server_default=text("'active'"),
+        ),
+    )
+    refresh_policy: ObsessionRefreshPolicy = Field(
+        default=ObsessionRefreshPolicy.MANUAL,
+        sa_column=Column(
+            SQLEnum(
+                ObsessionRefreshPolicy,
+                values_callable=_enum_values,
+                name="obsession_refresh_policy",
+                native_enum=False,
+                create_constraint=True,
+            ),
+            nullable=False,
+            server_default=text("'manual'"),
+        ),
+    )
+    last_refresh_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(UTCDateTimeType(), nullable=True),
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(
+            UTCDateTimeType(),
+            nullable=False,
+            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
+        ),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(
+            UTCDateTimeType(),
+            nullable=False,
+            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
+        ),
+    )
+
+
+class AgentMemorySegment(SQLModel, table=True):
+    __tablename__ = "agent_memory_segments"
+    __table_args__ = (
+        CheckConstraint("segment_key != ''", name="ck_agent_memory_segment_key_not_blank"),
+        CheckConstraint("content != ''", name="ck_agent_memory_content_not_blank"),
+        CheckConstraint("content_type IN ('markdown', 'json')", name="ck_agent_memory_content_type_enum"),
+        CheckConstraint("length(content) <= 51200", name="ck_agent_memory_content_size"),
+        UniqueConstraint(
+            "obsession_context_id",
+            "segment_key",
+            name="uq_agent_memory_segments_obsession_context_id_segment_key",
+        ),
+        Index("ix_agent_memory_segments_obsession_context_id", "obsession_context_id"),
+    )
+
+    id: int | None = Field(
+        default=None,
+        sa_column=Column(Integer, primary_key=True, autoincrement=True, nullable=False),
+    )
+    obsession_context_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("obsession_context.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+    )
+    segment_key: str = Field(
+        sa_column=Column(String(100), nullable=False),
+    )
+    content: str = Field(
+        sa_column=Column(Text, nullable=False),
+    )
+    content_type: str = Field(
+        default="markdown",
+        sa_column=Column(
+            String(32),
+            nullable=False,
+            server_default=text("'markdown'"),
+        ),
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(
+            UTCDateTimeType(),
+            nullable=False,
+            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
+        ),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(
+            UTCDateTimeType(),
+            nullable=False,
+            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
+        ),
+    )
+
+
+class SynthesisRunType(StrEnum):
+    COMBINER = "combiner"
+    OBSESSION = "obsession"
+
+
+class SynthesisRunStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class SynthesisRun(SQLModel, table=True):
+    __tablename__ = "synthesis_run"
+    __table_args__ = (
+        CheckConstraint(
+            "run_type IN ('combiner', 'obsession')",
+            name="ck_synthesis_run_type_valid",
+        ),
+        Index("ix_synthesis_run_idea_family_id", "idea_family_id"),
+        Index("ix_synthesis_run_status", "status"),
+        Index("ix_synthesis_run_obsession_context_id", "obsession_context_id"),
+    )
+
+    id: int | None = Field(
+        default=None,
+        sa_column=Column(Integer, primary_key=True, autoincrement=True, nullable=False),
+    )
+    idea_family_id: int | None = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("idea_family.id", ondelete="CASCADE"),
+            nullable=True,
+        ),
+    )
+    obsession_context_id: int | None = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("obsession_context.id", ondelete="CASCADE"),
+            nullable=True,
+        ),
+    )
+    run_type: SynthesisRunType = Field(
+        sa_column=Column(
+            SQLEnum(
+                SynthesisRunType,
+                values_callable=_enum_values,
+                name="synthesis_run_type",
+                native_enum=False,
+                create_constraint=True,
+            ),
+            nullable=False,
+        ),
+    )
+    status: SynthesisRunStatus = Field(
+        default=SynthesisRunStatus.PENDING,
+        sa_column=Column(
+            SQLEnum(
+                SynthesisRunStatus,
+                values_callable=_enum_values,
+                name="synthesis_run_status",
+                native_enum=False,
+                create_constraint=True,
+            ),
+            nullable=False,
+            server_default=text("'pending'"),
+        ),
+    )
+    input_repository_ids: list[int] = Field(
+        default_factory=list,
+        sa_column=Column(
+            MutableList.as_mutable(JSONIntListType()),
+            nullable=False,
+            server_default=text("'[]'"),
+        ),
+    )
+    output_text: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    title: str | None = Field(
+        default=None,
+        sa_column=Column(String(500), nullable=True),
+    )
+    summary: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    key_insights: list[str] | None = Field(
+        default=None,
+        sa_column=Column(
+            MutableList.as_mutable(JSONStringListType()),
+            nullable=True,
+        ),
+    )
+    error_message: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    started_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(UTCDateTimeType(), nullable=True),
+    )
+    completed_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(UTCDateTimeType(), nullable=True),
     )
     created_at: datetime = Field(
         default_factory=_utcnow,

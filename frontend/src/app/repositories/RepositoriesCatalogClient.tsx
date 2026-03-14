@@ -2,7 +2,7 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { startTransition } from "react";
+import { startTransition, useState } from "react";
 
 import {
   type RepositoryCatalogPageResponse,
@@ -28,6 +28,8 @@ import { BacklogSummaryBar } from "@/components/repositories/BacklogSummaryBar";
 import { CatalogFilterBar } from "@/components/repositories/CatalogFilterBar";
 import { CatalogPagination } from "@/components/repositories/CatalogPagination";
 import { RepositoryCatalogTable } from "@/components/repositories/RepositoryCatalogTable";
+import { FamilyFormDialog } from "@/components/ideas/FamilyFormDialog";
+import { useCreateIdeaFamily, useAddRepositoryToFamily } from "@/hooks/useIdeaFamilies";
 
 function buildRepositoriesUrl(search: string): string {
   return search.length > 0 ? `/repositories?${search}` : "/repositories";
@@ -40,6 +42,10 @@ export function RepositoriesCatalogClient() {
   const viewState = parseRepositoryCatalogSearchParams(searchParams);
   const activeFilterChips = describeRepositoryCatalogFilters(viewState);
   const validationMessage = getRepositoryCatalogValidationMessage(viewState);
+  const [selectedRepoIds, setSelectedRepoIds] = useState<Set<number>>(new Set());
+  const [isFamilyDialogOpen, setIsFamilyDialogOpen] = useState(false);
+  const createFamilyMutation = useCreateIdeaFamily();
+  const addRepoMutation = useAddRepositoryToFamily();
 
   const catalogQuery = useQuery({
     queryKey: getRepositoryCatalogQueryKey(viewState),
@@ -218,6 +224,32 @@ export function RepositoriesCatalogClient() {
     });
   };
 
+  const handleCreateFamilyFromSelected = async (title: string, description: string | null) => {
+    try {
+      const family = await createFamilyMutation.mutateAsync({ title, description });
+      const failures: number[] = [];
+
+      for (const repoId of selectedRepoIds) {
+        try {
+          await addRepoMutation.mutateAsync({ familyId: family.id, repoId });
+        } catch (error) {
+          failures.push(repoId);
+        }
+      }
+
+      setSelectedRepoIds(new Set());
+      setIsFamilyDialogOpen(false);
+
+      if (failures.length > 0) {
+        alert(`Family created, but failed to add ${failures.length} of ${selectedRepoIds.size} repositories. Please add them manually from the Ideas page.`);
+      }
+
+      router.push(`/ideas?family=${family.id}`);
+    } catch (error) {
+      alert(`Failed to create family: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   const data = validationMessage === null ? catalogQuery.data : undefined;
   const errorMessage =
     catalogQuery.error instanceof Error
@@ -351,8 +383,39 @@ export function RepositoriesCatalogClient() {
 
         {validationMessage === null && data && data.items.length > 0 ? (
           <>
+            {selectedRepoIds.size > 0 && (
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 flex items-center justify-between">
+                <span className="text-sm text-indigo-900">
+                  {selectedRepoIds.size} {selectedRepoIds.size === 1 ? "repository" : "repositories"} selected
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSelectedRepoIds(new Set())}
+                    className="px-3 py-1 text-sm text-indigo-700 hover:bg-indigo-100 rounded transition-colors"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    onClick={() => setIsFamilyDialogOpen(true)}
+                    className="px-3 py-1 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded transition-colors"
+                  >
+                    Create Family from Selected
+                  </button>
+                </div>
+              </div>
+            )}
             <RepositoryCatalogTable
               items={data.items}
+              selectedIds={selectedRepoIds}
+              onToggleSelection={(repoId) => {
+                const newSelected = new Set(selectedRepoIds);
+                if (newSelected.has(repoId)) {
+                  newSelected.delete(repoId);
+                } else {
+                  newSelected.add(repoId);
+                }
+                setSelectedRepoIds(newSelected);
+              }}
               onToggleStar={(repositoryId, starred) => {
                 starMutation.mutate({ repositoryId, starred });
               }}
@@ -374,6 +437,13 @@ export function RepositoriesCatalogClient() {
           </>
         ) : null}
       </div>
+
+      <FamilyFormDialog
+        isOpen={isFamilyDialogOpen}
+        onClose={() => setIsFamilyDialogOpen(false)}
+        family={null}
+        onSubmit={handleCreateFamilyFromSelected}
+      />
     </main>
   );
 }

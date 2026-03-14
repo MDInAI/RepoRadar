@@ -1,0 +1,535 @@
+import { getRequiredApiBaseUrl } from "./base-url";
+
+export type AgentName =
+  | "overlord"
+  | "firehose"
+  | "backfill"
+  | "bouncer"
+  | "analyst"
+  | "combiner"
+  | "obsession";
+
+export type AgentRunStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "skipped_paused";
+export type EventSeverity = "info" | "warning" | "error" | "critical";
+
+export interface AgentRunEvent {
+  id: number;
+  agent_name: AgentName;
+  status: AgentRunStatus;
+  started_at: string;
+  completed_at: string | null;
+  duration_seconds: number | null;
+  items_processed: number | null;
+  items_succeeded: number | null;
+  items_failed: number | null;
+  error_summary: string | null;
+}
+
+export interface AgentRunDetailResponse extends AgentRunEvent {
+  error_context: string | null;
+  events: SystemEventPayload[];
+}
+
+export interface SystemEventPayload {
+  id: number;
+  event_type: string;
+  agent_name: AgentName;
+  severity: EventSeverity;
+  message: string;
+  context_json: string | null;
+  agent_run_id: number | null;
+  created_at: string;
+}
+
+export interface AgentStatusEntry {
+  agent_name: AgentName;
+  has_run: boolean;
+  latest_run: AgentRunEvent | null;
+}
+
+export interface AgentLatestRunsResponse {
+  agents: AgentStatusEntry[];
+}
+
+export interface AgentRunListParams {
+  agent_name?: AgentName | null;
+  status?: AgentRunStatus | null;
+  since?: string | null;
+  until?: string | null;
+  limit?: number;
+}
+
+export interface SystemEventListParams {
+  agent_name?: AgentName | null;
+  event_type?: string | null;
+  severity?: EventSeverity | null;
+  since?: string | null;
+  until?: string | null;
+  limit?: number;
+}
+
+export interface AgentPauseState {
+  agent_name: AgentName;
+  is_paused: boolean;
+  paused_at: string | null;
+  pause_reason: string | null;
+  resume_condition: string | null;
+  triggered_by_event_id: number | null;
+  resumed_at: string | null;
+  resumed_by: string | null;
+}
+
+interface AgentErrorEnvelope {
+  error?: {
+    code?: string;
+    message?: string;
+    details?: Record<string, unknown>;
+  };
+}
+
+const FETCH_TIMEOUT_MS = 10_000;
+const DEFAULT_RUN_LIMIT = 50;
+const DEFAULT_EVENT_LIMIT = 40;
+const MAX_LIST_LIMIT = 200;
+
+export const AGENT_DISPLAY_ORDER: AgentName[] = [
+  "overlord",
+  "firehose",
+  "backfill",
+  "bouncer",
+  "analyst",
+  "combiner",
+  "obsession",
+] as const;
+
+const RUN_STATUSES: AgentRunStatus[] = [
+  "running",
+  "completed",
+  "failed",
+  "skipped",
+  "skipped_paused",
+];
+const EVENT_SEVERITIES: EventSeverity[] = ["info", "warning", "error", "critical"];
+
+export class AgentRequestError extends Error {
+  status: number;
+  code: string | null;
+  details: Record<string, unknown>;
+
+  constructor(
+    message: string,
+    options: {
+      status: number;
+      code?: string | null;
+      details?: Record<string, unknown>;
+    },
+  ) {
+    super(message);
+    this.name = "AgentRequestError";
+    this.status = options.status;
+    this.code = options.code ?? null;
+    this.details = options.details ?? {};
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isAgentErrorEnvelope(payload: unknown): payload is AgentErrorEnvelope {
+  return isRecord(payload) && (!("error" in payload) || isRecord(payload.error));
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return typeof value === "string" || value === null;
+}
+
+function isNullableNumber(value: unknown): value is number | null {
+  return typeof value === "number" || value === null;
+}
+
+function isAgentName(value: unknown): value is AgentName {
+  return typeof value === "string" && AGENT_DISPLAY_ORDER.includes(value as AgentName);
+}
+
+function isAgentRunStatus(value: unknown): value is AgentRunStatus {
+  return typeof value === "string" && RUN_STATUSES.includes(value as AgentRunStatus);
+}
+
+function isEventSeverity(value: unknown): value is EventSeverity {
+  return typeof value === "string" && EVENT_SEVERITIES.includes(value as EventSeverity);
+}
+
+function isAgentPauseState(value: unknown): value is AgentPauseState {
+  return (
+    isRecord(value) &&
+    isAgentName(value.agent_name) &&
+    typeof value.is_paused === "boolean" &&
+    isNullableString(value.paused_at) &&
+    isNullableString(value.pause_reason) &&
+    isNullableString(value.resume_condition) &&
+    (typeof value.triggered_by_event_id === "number" || value.triggered_by_event_id === null) &&
+    isNullableString(value.resumed_at) &&
+    isNullableString(value.resumed_by)
+  );
+}
+
+export function isAgentRunEvent(value: unknown): value is AgentRunEvent {
+  return (
+    isRecord(value) &&
+    typeof value.id === "number" &&
+    isAgentName(value.agent_name) &&
+    isAgentRunStatus(value.status) &&
+    typeof value.started_at === "string" &&
+    isNullableString(value.completed_at) &&
+    isNullableNumber(value.duration_seconds) &&
+    isNullableNumber(value.items_processed) &&
+    isNullableNumber(value.items_succeeded) &&
+    isNullableNumber(value.items_failed) &&
+    isNullableString(value.error_summary)
+  );
+}
+
+export function isSystemEventPayload(value: unknown): value is SystemEventPayload {
+  return (
+    isRecord(value) &&
+    typeof value.id === "number" &&
+    typeof value.event_type === "string" &&
+    isAgentName(value.agent_name) &&
+    isEventSeverity(value.severity) &&
+    typeof value.message === "string" &&
+    isNullableString(value.context_json) &&
+    isNullableNumber(value.agent_run_id) &&
+    typeof value.created_at === "string"
+  );
+}
+
+function isAgentRunDetailResponse(value: unknown): value is AgentRunDetailResponse {
+  return (
+    isAgentRunEvent(value) &&
+    isRecord(value) &&
+    isNullableString(value.error_context) &&
+    Array.isArray(value.events) &&
+    value.events.every(isSystemEventPayload)
+  );
+}
+
+function isAgentStatusEntry(value: unknown): value is AgentStatusEntry {
+  return (
+    isRecord(value) &&
+    isAgentName(value.agent_name) &&
+    typeof value.has_run === "boolean" &&
+    (value.latest_run === null || isAgentRunEvent(value.latest_run))
+  );
+}
+
+function isAgentLatestRunsResponse(value: unknown): value is AgentLatestRunsResponse {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.agents) &&
+    value.agents.every(isAgentStatusEntry)
+  );
+}
+
+function parseExpectedResponse<T>(
+  value: unknown,
+  guard: (payload: unknown) => payload is T,
+  message: string,
+  code: string,
+): T {
+  if (!guard(value)) {
+    throw new AgentRequestError(message, {
+      status: 0,
+      code,
+    });
+  }
+  return value;
+}
+
+function buildSearchParams(
+  params: Record<string, string | number | null | undefined>,
+): URLSearchParams {
+  const searchParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === null || value === undefined || value === "") {
+      continue;
+    }
+    searchParams.set(key, String(value));
+  }
+  return searchParams;
+}
+
+function validateListLimit(
+  limit: number | undefined,
+  fallback: number,
+  code: string,
+): number {
+  const resolved = limit ?? fallback;
+  if (!Number.isInteger(resolved) || resolved < 1 || resolved > MAX_LIST_LIMIT) {
+    throw new AgentRequestError(`Limit must be an integer between 1 and ${MAX_LIST_LIMIT}.`, {
+      status: 0,
+      code,
+      details: {
+        limit: resolved,
+        max_limit: MAX_LIST_LIMIT,
+      },
+    });
+  }
+  return resolved;
+}
+
+async function requestJson<T>(
+  path: string,
+  params?: URLSearchParams,
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  try {
+    const search = params && [...params.keys()].length > 0 ? `?${params.toString()}` : "";
+    const response = await fetch(`${getRequiredApiBaseUrl()}${path}${search}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    if (response.ok) {
+      return response.json() as Promise<T>;
+    }
+
+    let payload: AgentErrorEnvelope | null = null;
+    try {
+      const raw: unknown = await response.json();
+      payload = isAgentErrorEnvelope(raw) ? raw : null;
+    } catch {
+      payload = null;
+    }
+
+    throw new AgentRequestError(
+      payload?.error?.message ||
+        `Failed to fetch agent data: ${response.status} ${response.statusText}`.trim(),
+      {
+        status: response.status,
+        code: payload?.error?.code ?? null,
+        details: payload?.error?.details ?? {},
+      },
+    );
+  } catch (error) {
+    if (error instanceof AgentRequestError) {
+      throw error;
+    }
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new AgentRequestError("Request timed out fetching agent data.", {
+        status: 0,
+        code: "request_timeout",
+      });
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
+async function mutateJson<T>(path: string, method: "POST" | "PUT" | "DELETE", body?: unknown): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${getRequiredApiBaseUrl()}${path}`, {
+      method,
+      cache: "no-store",
+      signal: controller.signal,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (response.ok) {
+      return response.json() as Promise<T>;
+    }
+
+    let payload: AgentErrorEnvelope | null = null;
+    try {
+      const raw: unknown = await response.json();
+      payload = isAgentErrorEnvelope(raw) ? raw : null;
+    } catch {
+      payload = null;
+    }
+
+    throw new AgentRequestError(
+      payload?.error?.message ||
+        `Failed to mutate agent data: ${response.status} ${response.statusText}`.trim(),
+      {
+        status: response.status,
+        code: payload?.error?.code ?? null,
+        details: payload?.error?.details ?? {},
+      },
+    );
+  } catch (error) {
+    if (error instanceof AgentRequestError) {
+      throw error;
+    }
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new AgentRequestError("Request timed out mutating agent data.", {
+        status: 0,
+        code: "request_timeout",
+      });
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
+export function getEventStreamUrl(): string {
+  return `${getRequiredApiBaseUrl()}/api/v1/events/stream`;
+}
+
+export function getLatestAgentRunsQueryKey() {
+  return ["agents", "latest-runs"] as const;
+}
+
+export function getAgentRunsQueryKey(params: AgentRunListParams) {
+  return [
+    "agents",
+    "runs",
+    params.agent_name ?? "all",
+    params.status ?? "all",
+    params.since ?? "all",
+    params.until ?? "all",
+    params.limit ?? DEFAULT_RUN_LIMIT,
+  ] as const;
+}
+
+export function getAgentRunDetailQueryKey(runId: number) {
+  return ["agents", "runs", "detail", runId] as const;
+}
+
+export function getSystemEventsQueryKey(params: SystemEventListParams) {
+  return [
+    "agents",
+    "events",
+    params.agent_name ?? "all",
+    params.event_type ?? "all",
+    params.severity ?? "all",
+    params.since ?? "all",
+    params.until ?? "all",
+    params.limit ?? DEFAULT_EVENT_LIMIT,
+  ] as const;
+}
+
+export function getAgentPauseStatesQueryKey() {
+  return ["agents", "pause-states"] as const;
+}
+
+export function sortAgentStatusEntries(entries: AgentStatusEntry[]): AgentStatusEntry[] {
+  return [...entries].sort(
+    (left, right) =>
+      AGENT_DISPLAY_ORDER.indexOf(left.agent_name) - AGENT_DISPLAY_ORDER.indexOf(right.agent_name),
+  );
+}
+
+export async function fetchLatestAgentRuns(): Promise<AgentLatestRunsResponse> {
+  const response = parseExpectedResponse(
+    await requestJson<unknown>("/api/v1/agents/runs/latest"),
+    isAgentLatestRunsResponse,
+    "Latest agent runs response has unexpected shape",
+    "latest_runs_shape_invalid",
+  );
+  return { agents: sortAgentStatusEntries(response.agents) };
+}
+
+export async function fetchAgentRuns(
+  params: AgentRunListParams = {},
+): Promise<AgentRunEvent[]> {
+  const limit = validateListLimit(params.limit, DEFAULT_RUN_LIMIT, "agent_runs_limit_invalid");
+  return parseExpectedResponse(
+    await requestJson<unknown>(
+      "/api/v1/agents/runs",
+      buildSearchParams({
+        agent_name: params.agent_name,
+        status: params.status,
+        since: params.since,
+        until: params.until,
+        limit,
+      }),
+    ),
+    (value): value is AgentRunEvent[] => Array.isArray(value) && value.every(isAgentRunEvent),
+    "Agent runs response has unexpected shape",
+    "agent_runs_shape_invalid",
+  );
+}
+
+export async function fetchAgentRunDetail(runId: number): Promise<AgentRunDetailResponse> {
+  return parseExpectedResponse(
+    await requestJson<unknown>(`/api/v1/agents/runs/${runId}`),
+    isAgentRunDetailResponse,
+    "Agent run detail response has unexpected shape",
+    "agent_run_detail_shape_invalid",
+  );
+}
+
+export async function fetchSystemEvents(
+  params: SystemEventListParams = {},
+): Promise<SystemEventPayload[]> {
+  const limit = validateListLimit(
+    params.limit,
+    DEFAULT_EVENT_LIMIT,
+    "system_events_limit_invalid",
+  );
+  return parseExpectedResponse(
+    await requestJson<unknown>(
+      "/api/v1/events",
+      buildSearchParams({
+        agent_name: params.agent_name,
+        event_type: params.event_type,
+        severity: params.severity,
+        since: params.since,
+        until: params.until,
+        limit,
+      }),
+    ),
+    (value): value is SystemEventPayload[] =>
+      Array.isArray(value) && value.every(isSystemEventPayload),
+    "System events response has unexpected shape",
+    "system_events_shape_invalid",
+  );
+}
+
+export async function fetchAgentPauseStates(): Promise<AgentPauseState[]> {
+  return parseExpectedResponse(
+    await requestJson<unknown>("/api/v1/agents/pause-state"),
+    (value): value is AgentPauseState[] =>
+      Array.isArray(value) && value.every(isAgentPauseState),
+    "Agent pause states response has unexpected shape",
+    "agent_pause_states_shape_invalid",
+  );
+}
+
+export async function pauseAgent(
+  agentName: AgentName,
+  pauseReason: string,
+  resumeCondition: string
+): Promise<AgentPauseState> {
+  return parseExpectedResponse(
+    await mutateJson<unknown>(`/api/v1/agents/${agentName}/pause`, "POST", {
+      pause_reason: pauseReason,
+      resume_condition: resumeCondition,
+    }),
+    isAgentPauseState,
+    "Pause agent response has unexpected shape",
+    "pause_agent_shape_invalid",
+  );
+}
+
+export async function resumeAgent(agentName: AgentName): Promise<AgentPauseState> {
+  return parseExpectedResponse(
+    await mutateJson<unknown>(`/api/v1/agents/${agentName}/resume`, "POST"),
+    isAgentPauseState,
+    "Resume agent response has unexpected shape",
+    "resume_agent_shape_invalid",
+  );
+}

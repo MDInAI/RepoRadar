@@ -13,7 +13,7 @@ const detailResponse = {
   full_name: "alpha/growth-engine",
   repository_description: "Growth workflows for operators",
   discovery_source: "firehose",
-  queue_status: "completed",
+  intake_status: "completed",
   triage_status: "accepted",
   analysis_status: "completed",
   stargazers_count: 900,
@@ -126,6 +126,18 @@ const detailResponse = {
       generated_at: "2026-03-09T12:00:00Z",
     },
   ],
+  processing: {
+    intake_created_at: "2026-03-09T12:00:00Z",
+    intake_started_at: "2026-03-09T12:01:00Z",
+    intake_completed_at: "2026-03-09T12:02:00Z",
+    intake_failed_at: null,
+    triaged_at: "2026-03-09T12:00:00Z",
+    analysis_started_at: "2026-03-09T12:03:00Z",
+    analysis_completed_at: "2026-03-09T12:05:00Z",
+    analysis_last_attempted_at: "2026-03-09T12:05:00Z",
+    analysis_failed_at: null,
+    failure: null,
+  },
   has_readme_artifact: true,
   has_analysis_artifact: true,
   is_starred: false,
@@ -182,11 +194,103 @@ describe("Repository detail page", () => {
     expect(screen.getByText("Generated Analysis Output")).toBeTruthy();
     expect(screen.getByText("Analysis Provenance")).toBeTruthy();
     expect(screen.getByText("Triage Context")).toBeTruthy();
+    expect(screen.getByText("Processing Monitor")).toBeTruthy();
+    expect(screen.getByText("Intake, triage, and analysis status at a glance")).toBeTruthy();
+    expect(screen.getByText("No repository processing failure is currently recorded.")).toBeTruthy();
     expect(screen.getByText("Family Assignment")).toBeTruthy();
     expect(screen.getByText("Create Combiner Brief")).toBeTruthy();
     expect(screen.getByText("Similar-Project Scan")).toBeTruthy();
     expect(screen.getByText("User Tags")).toBeTruthy();
     expect(screen.getAllByText("workflow").length).toBeGreaterThan(0);
+  });
+
+  test("renders granular failure context when repository processing fails", async () => {
+    const failedDetail = {
+      ...detailResponse,
+      intake_status: "completed",
+      analysis_status: "failed",
+      processing: {
+        ...detailResponse.processing,
+        analysis_failed_at: "2026-03-09T12:07:00Z",
+        failure: {
+          stage: "analysis",
+          step: "analysis",
+          upstream_source: "firehose",
+          error_code: "rate_limited",
+          error_message: "Gateway rate limit while analyzing repository.",
+          failed_at: "2026-03-09T12:07:00Z",
+        },
+      },
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(failedDetail), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }),
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    const page = await RepositoriesDetailPage({
+      params: Promise.resolve({ repositoryId: "701" }),
+    });
+
+    render(<QueryClientProvider client={queryClient}>{page}</QueryClientProvider>);
+
+    expect(await screen.findByText("Active failure context")).toBeTruthy();
+    expect(screen.getByText("Analysis failure at Analysis")).toBeTruthy();
+    expect(screen.getByText("Error: Gateway rate limit while analyzing repository.")).toBeTruthy();
+    expect(screen.getByText("Recorded at: 2026-03-09 12:07 UTC")).toBeTruthy();
+  });
+
+  test("does not invent failure context when the backend omits it", async () => {
+    const failedDetail = {
+      ...detailResponse,
+      intake_status: "failed",
+      analysis_status: "pending",
+      processing: {
+        ...detailResponse.processing,
+        intake_failed_at: "2026-03-09T12:07:00Z",
+        failure: null,
+      },
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(failedDetail), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }),
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    const page = await RepositoriesDetailPage({
+      params: Promise.resolve({ repositoryId: "701" }),
+    });
+
+    render(<QueryClientProvider client={queryClient}>{page}</QueryClientProvider>);
+
+    expect(
+      await screen.findByText("No repository processing failure is currently recorded."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Active failure context")).toBeNull();
   });
 
   test("surfaces explicit action context for scaffolded actions", async () => {

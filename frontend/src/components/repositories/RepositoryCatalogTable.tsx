@@ -8,11 +8,13 @@ import {
   formatDiscoverySourceLabel,
   formatMonetizationLabel,
   formatQueueStatusLabel,
+  formatTriageStatusLabel,
   formatRelativeDate,
   getFitBadgeClassName,
   getQueueStatusBadgeClassName,
   getSourceBadgeClassName,
   getStatusBadgeClassName,
+  getTriageStatusBadgeClassName,
 } from "./catalogPresentation";
 
 const columnHelper = createColumnHelper<RepositoryCatalogItem>();
@@ -44,33 +46,8 @@ function formatFailureTimestamp(value: string | null): string {
   return `${parsed.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
-function getFailureContext(item: RepositoryCatalogItem):
-  | {
-      stage: "analysis" | "queue";
-      code: string;
-      message: string;
-      failedAt: string | null;
-    }
-  | null {
-  if (item.analysis_status === "failed") {
-    return {
-      stage: "analysis",
-      code: item.analysis_failure_code ?? "analysis_failed",
-      message: item.analysis_failure_message ?? "Analysis failed. No failure message recorded.",
-      failedAt: item.last_failed_at,
-    };
-  }
-
-  if (item.queue_status === "failed") {
-    return {
-      stage: "queue",
-      code: "queue_failed",
-      message: "Repository intake failed before analysis completed.",
-      failedAt: item.last_failed_at,
-    };
-  }
-
-  return null;
+function getFailureContext(item: RepositoryCatalogItem) {
+  return item.failure;
 }
 
 function StarIcon({ filled }: { filled: boolean }) {
@@ -93,6 +70,43 @@ function StarIcon({ filled }: { filled: boolean }) {
 }
 
 const columns = [
+  columnHelper.display({
+    id: "select",
+    header: ({ table }) => {
+      const meta = table.options.meta as { selectedIds?: Set<number>; onToggleSelection?: (id: number) => void } | undefined;
+      if (!meta?.selectedIds || !meta?.onToggleSelection) return null;
+      return (
+        <input
+          type="checkbox"
+          checked={table.getRowModel().rows.every((row) => meta.selectedIds?.has(row.original.github_repository_id))}
+          onChange={(e) => {
+            table.getRowModel().rows.forEach((row) => {
+              const id = row.original.github_repository_id;
+              const isSelected = meta.selectedIds?.has(id);
+              if (e.target.checked && !isSelected) {
+                meta.onToggleSelection?.(id);
+              } else if (!e.target.checked && isSelected) {
+                meta.onToggleSelection?.(id);
+              }
+            });
+          }}
+        />
+      );
+    },
+    cell: (info) => {
+      const meta = info.table.options.meta as { selectedIds?: Set<number>; onToggleSelection?: (id: number) => void } | undefined;
+      if (!meta?.selectedIds || !meta?.onToggleSelection) return null;
+      const id = info.row.original.github_repository_id;
+      return (
+        <input
+          type="checkbox"
+          checked={meta.selectedIds.has(id)}
+          onChange={() => meta.onToggleSelection?.(id)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      );
+    },
+  }),
   columnHelper.display({
     id: "starred",
     header: "Starred",
@@ -171,13 +185,39 @@ const columns = [
       </span>
     ),
   }),
+  columnHelper.display({
+    id: "intake_status",
+    header: "Intake Status",
+    cell: (info) => (
+      <span
+        className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getQueueStatusBadgeClassName(
+          info.row.original.intake_status,
+        )}`}
+      >
+        {formatQueueStatusLabel(info.row.original.intake_status)}
+      </span>
+    ),
+  }),
+  columnHelper.accessor("triage_status", {
+    header: "Triage Status",
+    cell: (info) => (
+      <span
+        className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getTriageStatusBadgeClassName(
+          info.getValue(),
+        )}`}
+      >
+        {formatTriageStatusLabel(info.getValue())}
+      </span>
+    ),
+  }),
   columnHelper.accessor("analysis_status", {
     header: "Analysis Status",
     cell: (info) => {
-      const item = info.row.original;
-      const tooltipMessage = item.analysis_failure_code
-        ? `${item.analysis_failure_code}: ${truncateFailureMessage(item.analysis_failure_message)}`
-        : null;
+      const failure = info.row.original.failure;
+      const tooltipMessage =
+        failure?.stage === "analysis" && failure.error_code
+          ? `${failure.error_code}: ${truncateFailureMessage(failure.error_message)}`
+          : null;
 
       return (
         <div className="flex min-w-[11rem] flex-col gap-2">
@@ -188,28 +228,27 @@ const columns = [
           >
             {formatAnalysisStatusLabel(info.getValue())}
           </span>
-          {item.analysis_failure_code ? (
+          {failure?.stage === "analysis" && failure.error_code ? (
             <span
               className="inline-flex w-fit rounded-full border border-rose-300 bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-900"
               title={tooltipMessage ?? undefined}
             >
-              Failure: {formatFailureCode(item.analysis_failure_code)}
+              Failure: {formatFailureCode(failure.error_code)}
             </span>
           ) : null}
         </div>
       );
     },
   }),
-  columnHelper.accessor("queue_status", {
-    header: "Queue Status",
+  columnHelper.display({
+    id: "processing_window",
+    header: "Processing Window",
     cell: (info) => (
-      <span
-        className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getQueueStatusBadgeClassName(
-          info.getValue(),
-        )}`}
-      >
-        {formatQueueStatusLabel(info.getValue())}
-      </span>
+      <div className="min-w-[12rem] space-y-1 text-sm text-slate-600">
+        <p>Queued {formatRelativeDate(info.row.original.queue_created_at)}</p>
+        <p>Started {formatRelativeDate(info.row.original.processing_started_at)}</p>
+        <p>Completed {formatRelativeDate(info.row.original.processing_completed_at)}</p>
+      </div>
     ),
   }),
   columnHelper.display({
@@ -225,14 +264,19 @@ const columns = [
       return (
         <div className="flex min-w-[18rem] flex-col gap-1.5">
           <span className="inline-flex w-fit rounded-full border border-rose-300 bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-900">
-            {failure.stage === "analysis" ? "Analysis Failure" : "Queue Failure"}
+            {failure.stage === "analysis" ? "Analysis Failure" : "Intake Failure"}
           </span>
-          <p className="text-sm font-semibold text-slate-900">{formatFailureCode(failure.code)}</p>
-          <p className="line-clamp-2 text-sm text-slate-600" title={failure.message}>
-            {failure.message}
+          <p className="text-sm font-semibold text-slate-900">
+            {formatFailureCode(failure.error_code ?? `${failure.stage}_failed`)}
+          </p>
+          <p
+            className="line-clamp-2 text-sm text-slate-600"
+            title={failure.error_message ?? undefined}
+          >
+            {failure.error_message ?? "No failure message recorded."}
           </p>
           <p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
-            Failed At {formatFailureTimestamp(failure.failedAt)}
+            Failed At {formatFailureTimestamp(failure.failed_at)}
           </p>
         </div>
       );
@@ -268,11 +312,15 @@ const columns = [
 
 export function RepositoryCatalogTable({
   items,
+  selectedIds,
+  onToggleSelection,
   onToggleStar,
   togglingRepositoryId,
   onRowClick,
 }: {
   items: RepositoryCatalogItem[];
+  selectedIds?: Set<number>;
+  onToggleSelection?: (repositoryId: number) => void;
   onToggleStar: (repositoryId: number, starred: boolean) => void;
   togglingRepositoryId: number | null;
   onRowClick: (repositoryId: number) => void;
@@ -284,6 +332,8 @@ export function RepositoryCatalogTable({
     columns,
     getCoreRowModel: getCoreRowModel(),
     meta: {
+      selectedIds,
+      onToggleSelection,
       toggleStar: onToggleStar,
       togglingRepositoryId,
     },

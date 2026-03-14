@@ -1,19 +1,33 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import signal
 import sys
 import threading
 import time
+import traceback
+from dataclasses import asdict, dataclass, is_dataclass
+from datetime import date, datetime
+from enum import Enum
+from pathlib import Path
 from typing import Callable
+from typing import TypeVar
 
 from sqlalchemy import func
 from sqlmodel import Session, select
 
 from agentic_workers.core.db import engine
 from agentic_workers.core.config import settings
+from agentic_workers.core.events import (
+    complete_agent_run as finalize_agent_run,
+    fail_agent_run as record_failed_agent_run,
+    mark_agent_run_skipped,
+    start_agent_run,
+)
+from agentic_workers.core.recovery import validate_startup_recovery
 from agentic_workers.jobs.backfill_job import (
     BackfillRunResult,
     BackfillRunStatus,
@@ -29,15 +43,23 @@ from agentic_workers.jobs.bouncer_job import (
     BouncerRunStatus,
     run_bouncer_job,
 )
+from agentic_workers.jobs.combiner_job import (
+    CombinerRunResult,
+    CombinerRunStatus,
+    run_combiner_job,
+)
 from agentic_workers.jobs.firehose_job import FirehoseRunResult, FirehoseRunStatus, run_firehose_job
 from agentic_workers.providers.github_provider import FirehoseMode, GitHubFirehoseProvider
 from agentic_workers.providers.readme_analyst import HeuristicReadmeAnalysisProvider
 from agentic_workers.storage.backfill_progress import load_backfill_progress
 from agentic_workers.storage.backend_models import (
+    AgentRunStatus,
     RepositoryAnalysisStatus,
     RepositoryIntake,
     RepositoryQueueStatus,
     RepositoryTriageStatus,
+    SynthesisRun,
+    SynthesisRunStatus,
 )
 from agentic_workers.storage.firehose_progress import load_firehose_progress
 
@@ -50,6 +72,16 @@ logger = logging.getLogger(__name__)
 
 
 _FIREHOSE_MODES = (FirehoseMode.NEW, FirehoseMode.TRENDING)
+ResultT = TypeVar("ResultT")
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRunMetrics:
+    items_processed: int
+    items_succeeded: int
+    items_failed: int
+    error_summary: str | None = None
+    error_context: str | None = None
 
 
 def calculate_intake_pacing_seconds() -> int:
@@ -109,16 +141,30 @@ def run_configured_firehose_job(
 ) -> FirehoseRunResult:
     provider = GitHubFirehoseProvider(github_token=settings.github_provider_token_value)
     with Session(engine) as session:
-        return run_firehose_job(
+        return _run_tracked_job(
             session=session,
-            provider=provider,
-            runtime_dir=settings.runtime.runtime_dir,
-            pacing_seconds=calculate_firehose_pacing_seconds(),
-            modes=_FIREHOSE_MODES,
-            per_page=settings.provider.firehose_per_page,
-            pages=settings.provider.firehose_pages,
-            sleep_fn=sleep_fn,
-            should_stop=should_stop,
+            agent_name="firehose",
+            execute_job=lambda run_id: run_firehose_job(
+                session=session,
+                provider=provider,
+                runtime_dir=settings.runtime.runtime_dir,
+                pacing_seconds=calculate_firehose_pacing_seconds(),
+                modes=_FIREHOSE_MODES,
+                per_page=settings.provider.firehose_per_page,
+                pages=settings.provider.firehose_pages,
+                sleep_fn=sleep_fn,
+                should_stop=should_stop,
+                agent_run_id=run_id,
+            ),
+            summarize_run=_summarize_firehose_run,
+            is_success=lambda result: result.status is FirehoseRunStatus.SUCCESS,
+            is_skipped=lambda result: result.status
+            in (
+                FirehoseRunStatus.SKIPPED,
+                FirehoseRunStatus.SKIPPED_PAUSED,
+            ),
+            is_paused_skip=lambda result: result.status is FirehoseRunStatus.SKIPPED_PAUSED,
+            skipped_reason="firehose run skipped because shutdown was requested.",
         )
 
 
@@ -129,17 +175,31 @@ def run_configured_backfill_job(
 ) -> BackfillRunResult:
     provider = GitHubFirehoseProvider(github_token=settings.github_provider_token_value)
     with Session(engine) as session:
-        return run_backfill_job(
+        return _run_tracked_job(
             session=session,
-            provider=provider,
-            runtime_dir=settings.runtime.runtime_dir,
-            pacing_seconds=calculate_backfill_pacing_seconds(),
-            per_page=settings.provider.backfill_per_page,
-            pages=settings.provider.backfill_pages,
-            window_days=settings.provider.backfill_window_days,
-            min_created_date=settings.provider.backfill_min_created_date,
-            sleep_fn=sleep_fn,
-            should_stop=should_stop,
+            agent_name="backfill",
+            execute_job=lambda run_id: run_backfill_job(
+                session=session,
+                provider=provider,
+                runtime_dir=settings.runtime.runtime_dir,
+                pacing_seconds=calculate_backfill_pacing_seconds(),
+                per_page=settings.provider.backfill_per_page,
+                pages=settings.provider.backfill_pages,
+                window_days=settings.provider.backfill_window_days,
+                min_created_date=settings.provider.backfill_min_created_date,
+                sleep_fn=sleep_fn,
+                should_stop=should_stop,
+                agent_run_id=run_id,
+            ),
+            summarize_run=_summarize_backfill_run,
+            is_success=lambda result: result.status is BackfillRunStatus.SUCCESS,
+            is_skipped=lambda result: result.status
+            in (
+                BackfillRunStatus.SKIPPED,
+                BackfillRunStatus.SKIPPED_PAUSED,
+            ),
+            is_paused_skip=lambda result: result.status is BackfillRunStatus.SKIPPED_PAUSED,
+            skipped_reason="backfill run skipped because shutdown was requested.",
         )
 
 
@@ -148,12 +208,26 @@ def run_configured_bouncer_job(
     should_stop: Callable[[], bool] | None = None,
 ) -> BouncerRunResult:
     with Session(engine) as session:
-        return run_bouncer_job(
+        return _run_tracked_job(
             session=session,
-            runtime_dir=settings.runtime.runtime_dir,
-            include_rules=settings.provider.bouncer_include_rules,
-            exclude_rules=settings.provider.bouncer_exclude_rules,
-            should_stop=should_stop,
+            agent_name="bouncer",
+            execute_job=lambda run_id: run_bouncer_job(
+                session=session,
+                runtime_dir=settings.runtime.runtime_dir,
+                include_rules=settings.provider.bouncer_include_rules,
+                exclude_rules=settings.provider.bouncer_exclude_rules,
+                should_stop=should_stop,
+                agent_run_id=run_id,
+            ),
+            summarize_run=_summarize_bouncer_run,
+            is_success=lambda result: result.status is BouncerRunStatus.SUCCESS,
+            is_skipped=lambda result: result.status
+            in (
+                BouncerRunStatus.SKIPPED,
+                BouncerRunStatus.SKIPPED_PAUSED,
+            ),
+            is_paused_skip=lambda result: result.status is BouncerRunStatus.SKIPPED_PAUSED,
+            skipped_reason="bouncer run skipped because shutdown was requested.",
         )
 
 
@@ -164,12 +238,26 @@ def run_configured_analyst_job(
     provider = GitHubFirehoseProvider(github_token=settings.github_provider_token_value)
     analysis_provider = HeuristicReadmeAnalysisProvider()
     with Session(engine) as session:
-        return run_analyst_job(
+        return _run_tracked_job(
             session=session,
-            provider=provider,
-            runtime_dir=settings.runtime.runtime_dir,
-            analysis_provider=analysis_provider,
-            should_stop=should_stop,
+            agent_name="analyst",
+            execute_job=lambda run_id: run_analyst_job(
+                session=session,
+                provider=provider,
+                runtime_dir=settings.runtime.runtime_dir,
+                analysis_provider=analysis_provider,
+                should_stop=should_stop,
+                agent_run_id=run_id,
+            ),
+            summarize_run=_summarize_analyst_run,
+            is_success=lambda result: result.status is AnalystRunStatus.SUCCESS,
+            is_skipped=lambda result: result.status
+            in (
+                AnalystRunStatus.SKIPPED,
+                AnalystRunStatus.SKIPPED_PAUSED,
+            ),
+            is_paused_skip=lambda result: result.status is AnalystRunStatus.SKIPPED_PAUSED,
+            skipped_reason="analyst run skipped because shutdown was requested.",
         )
 
 
@@ -193,6 +281,16 @@ def has_pending_analyst_work() -> bool:
             select(func.count(RepositoryIntake.github_repository_id))
             .where(RepositoryIntake.triage_status == RepositoryTriageStatus.ACCEPTED)
             .where(RepositoryIntake.analysis_status != RepositoryAnalysisStatus.COMPLETED)
+        ).one()
+    return int(pending_count or 0) > 0
+
+
+def has_pending_combiner_work() -> bool:
+    with Session(engine) as session:
+        pending_count = session.exec(
+            select(func.count(SynthesisRun.id))
+            .where(SynthesisRun.status == SynthesisRunStatus.PENDING)
+            .where(SynthesisRun.run_type == "combiner")
         ).one()
     return int(pending_count or 0) > 0
 
@@ -284,6 +382,296 @@ def _log_analyst_result(result: AnalystRunResult) -> None:
         logger.warning("Analyst run completed with non-success status: %s", result.status)
 
 
+def _record_run_outcome(
+    session: Session,
+    run_id: int,
+    succeeded: bool,
+    metrics: AgentRunMetrics,
+) -> None:
+    if succeeded:
+        finalize_agent_run(
+            session,
+            run_id,
+            items_processed=metrics.items_processed,
+            items_succeeded=metrics.items_succeeded,
+            items_failed=metrics.items_failed,
+        )
+        return
+
+    record_failed_agent_run(
+        session,
+        run_id,
+        error_summary=metrics.error_summary or "agent run failed",
+        error_context=metrics.error_context,
+        items_processed=metrics.items_processed,
+        items_succeeded=metrics.items_succeeded,
+        items_failed=metrics.items_failed,
+    )
+
+
+def _run_tracked_job(
+    *,
+    session: Session,
+    agent_name: str,
+    execute_job: Callable[[int], ResultT],
+    summarize_run: Callable[[ResultT], AgentRunMetrics],
+    is_success: Callable[[ResultT], bool],
+    is_skipped: Callable[[ResultT], bool],
+    is_paused_skip: Callable[[ResultT], bool],
+    skipped_reason: str,
+) -> ResultT:
+    run_id: int | None = None
+    metrics: AgentRunMetrics | None = None
+    failure_phase = "run execution"
+    try:
+        run_id = start_agent_run(session, agent_name)
+        result = execute_job(run_id)
+        metrics = summarize_run(result)
+        failure_phase = "persisting terminal state"
+        if is_skipped(result):
+            paused_skip = is_paused_skip(result)
+            mark_agent_run_skipped(
+                session,
+                run_id,
+                reason=f"{agent_name} paused by policy." if paused_skip else skipped_reason,
+                status=(
+                    AgentRunStatus.SKIPPED_PAUSED
+                    if paused_skip
+                    else AgentRunStatus.SKIPPED
+                ),
+                items_processed=metrics.items_processed,
+                items_succeeded=metrics.items_succeeded,
+                items_failed=metrics.items_failed,
+            )
+        else:
+            _record_run_outcome(session, run_id, is_success(result), metrics)
+        return result
+    except Exception as exc:
+        session.rollback()
+        if run_id is not None:
+            _record_unexpected_run_failure(
+                session,
+                run_id,
+                agent_name=agent_name,
+                exc=exc,
+                metrics=metrics,
+                phase=failure_phase,
+            )
+        raise
+
+
+def _record_unexpected_run_failure(
+    session: Session,
+    run_id: int,
+    *,
+    agent_name: str,
+    exc: Exception,
+    metrics: AgentRunMetrics | None,
+    phase: str,
+) -> None:
+    if phase == "persisting terminal state":
+        error_summary = f"{agent_name} run crashed while persisting terminal state: {exc}"
+    else:
+        error_summary = f"{agent_name} run crashed: {exc}"
+
+    payload = _unexpected_exception_payload(exc)
+    payload["phase"] = phase
+    if metrics is not None:
+        payload["metrics"] = metrics
+
+    record_failed_agent_run(
+        session,
+        run_id,
+        error_summary=error_summary,
+        error_context=_serialize_json(payload),
+        items_processed=metrics.items_processed if metrics is not None else None,
+        items_succeeded=metrics.items_succeeded if metrics is not None else None,
+        items_failed=metrics.items_failed if metrics is not None else None,
+    )
+
+
+def _summarize_firehose_run(result: FirehoseRunResult) -> AgentRunMetrics:
+    items_processed = sum(outcome.fetched_count for outcome in result.outcomes)
+    items_succeeded = sum(outcome.inserted_count + outcome.skipped_count for outcome in result.outcomes)
+    items_failed = max(items_processed - items_succeeded, 0)
+    if items_failed == 0 and result.status is not FirehoseRunStatus.SUCCESS:
+        items_failed = sum(1 for outcome in result.outcomes if outcome.error)
+
+    failure_entries = [
+        {
+            "mode": outcome.mode,
+            "page": outcome.page,
+            "anchor_date": outcome.anchor_date,
+            "error": outcome.error,
+        }
+        for outcome in result.outcomes
+        if outcome.error
+    ]
+    error_summary = None
+    error_context = None
+    if result.status is not FirehoseRunStatus.SUCCESS:
+        error_summary = failure_entries[0]["error"] if failure_entries else result.artifact_error
+        error_summary = error_summary or f"firehose run ended with status {result.status.value}"
+        error_context = _serialize_json(
+            {
+                "status": result.status,
+                "artifact_error": result.artifact_error,
+                "failures": failure_entries,
+            }
+        )
+
+    return AgentRunMetrics(
+        items_processed=items_processed,
+        items_succeeded=items_succeeded,
+        items_failed=items_failed,
+        error_summary=error_summary,
+        error_context=error_context,
+    )
+
+
+def _summarize_backfill_run(result: BackfillRunResult) -> AgentRunMetrics:
+    items_processed = sum(outcome.fetched_count for outcome in result.outcomes)
+    items_succeeded = sum(outcome.inserted_count + outcome.skipped_count for outcome in result.outcomes)
+    items_failed = max(items_processed - items_succeeded, 0)
+    if items_failed == 0 and result.status is not BackfillRunStatus.SUCCESS:
+        items_failed = sum(1 for outcome in result.outcomes if outcome.error)
+
+    failure_entries = [
+        {
+            "page": outcome.page,
+            "window_start_date": outcome.window_start_date,
+            "created_before_boundary": outcome.created_before_boundary,
+            "error": outcome.error,
+            "rate_limit_backoff_seconds": outcome.rate_limit_backoff_seconds,
+        }
+        for outcome in result.outcomes
+        if outcome.error
+    ]
+    error_summary = None
+    error_context = None
+    if result.status is not BackfillRunStatus.SUCCESS:
+        error_summary = failure_entries[0]["error"] if failure_entries else result.artifact_error
+        error_summary = error_summary or f"backfill run ended with status {result.status.value}"
+        error_context = _serialize_json(
+            {
+                "status": result.status,
+                "artifact_error": result.artifact_error,
+                "checkpoint": result.checkpoint,
+                "failures": failure_entries,
+            }
+        )
+
+    return AgentRunMetrics(
+        items_processed=items_processed,
+        items_succeeded=items_succeeded,
+        items_failed=items_failed,
+        error_summary=error_summary,
+        error_context=error_context,
+    )
+
+
+def _summarize_bouncer_run(result: BouncerRunResult) -> AgentRunMetrics:
+    items_processed = len(result.outcomes)
+    # Both ACCEPTED and REJECTED are correct triage decisions — only outcomes with
+    # an actual error (unexpected processing failure) count as failed items.
+    items_succeeded = sum(1 for outcome in result.outcomes if outcome.error is None)
+    items_failed = sum(1 for outcome in result.outcomes if outcome.error is not None)
+
+    failure_entries = [
+        {
+            "github_repository_id": outcome.github_repository_id,
+            "full_name": outcome.full_name,
+            "error": outcome.error,
+            "triage_status": outcome.triage_status,
+        }
+        for outcome in result.outcomes
+        if outcome.error
+    ]
+    error_summary = None
+    error_context = None
+    if result.status is not BouncerRunStatus.SUCCESS:
+        error_summary = failure_entries[0]["error"] if failure_entries else result.artifact_error
+        error_summary = error_summary or f"bouncer run ended with status {result.status.value}"
+        error_context = _serialize_json(
+            {
+                "status": result.status,
+                "artifact_error": result.artifact_error,
+                "failures": failure_entries,
+            }
+        )
+
+    return AgentRunMetrics(
+        items_processed=items_processed,
+        items_succeeded=items_succeeded,
+        items_failed=items_failed,
+        error_summary=error_summary,
+        error_context=error_context,
+    )
+
+
+def _summarize_analyst_run(result: AnalystRunResult) -> AgentRunMetrics:
+    items_processed = len(result.outcomes)
+    items_succeeded = sum(
+        1 for outcome in result.outcomes if outcome.analysis_status is RepositoryAnalysisStatus.COMPLETED
+    )
+    items_failed = items_processed - items_succeeded
+
+    failure_entries = [
+        {
+            "github_repository_id": outcome.github_repository_id,
+            "full_name": outcome.full_name,
+            "failure_code": outcome.failure_code,
+            "failure_message": outcome.failure_message,
+        }
+        for outcome in result.outcomes
+        if outcome.analysis_status is not RepositoryAnalysisStatus.COMPLETED
+    ]
+    error_summary = None
+    error_context = None
+    if result.status is not AnalystRunStatus.SUCCESS:
+        error_summary = failure_entries[0]["failure_message"] if failure_entries else result.artifact_error
+        error_summary = error_summary or f"analyst run ended with status {result.status.value}"
+        error_context = _serialize_json(
+            {
+                "status": result.status,
+                "artifact_error": result.artifact_error,
+                "failures": failure_entries,
+            }
+        )
+
+    return AgentRunMetrics(
+        items_processed=items_processed,
+        items_succeeded=items_succeeded,
+        items_failed=items_failed,
+        error_summary=error_summary,
+        error_context=error_context,
+    )
+
+
+def _unexpected_exception_payload(exc: Exception) -> dict[str, object]:
+    return {
+        "exception_type": type(exc).__name__,
+        "message": str(exc),
+        "traceback": traceback.format_exc(),
+    }
+
+
+def _serialize_json(payload: object) -> str:
+    return json.dumps(payload, default=_json_default, sort_keys=True)
+
+
+def _json_default(value: object) -> object:
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
+    if is_dataclass(value):
+        return asdict(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 def _log_firehose_interval_gate(next_firehose_delay: float) -> None:
     configured_interval = float(calculate_firehose_interval_seconds())
     if next_firehose_delay >= configured_interval > 0:
@@ -339,8 +727,33 @@ async def _run_analyst_if_pending(
     return True
 
 
+async def _run_combiner_if_pending(
+    *,
+    stop_event: asyncio.Event,
+    thread_stop: threading.Event,
+) -> bool:
+    if stop_event.is_set():
+        return False
+
+    try:
+        if not has_pending_combiner_work():
+            return False
+    except Exception:
+        logger.exception("Unable to inspect pending Combiner work. Skipping this pass.")
+        return False
+
+    with Session(engine) as session:
+        result = run_combiner_job(session=session, runtime_dir=settings.runtime.runtime_dir)
+    logger.info(f"Combiner run completed with status: {result.status}")
+    return True
+
+
 async def main():
     logger.info("Starting Agentic-Workflow worker processes...")
+
+    # Validate recovery state before starting work
+    with Session(engine) as session:
+        validate_startup_recovery(session)
 
     stop_event = asyncio.Event()
     # Mirrors stop_event for threads: allows in-progress pacing sleeps to be
@@ -396,6 +809,8 @@ async def main():
             await _run_bouncer_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
         if not stop_event.is_set():
             await _run_analyst_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
+        if not stop_event.is_set():
+            await _run_combiner_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
     except Exception:
         logger.exception("Startup ingestion pass failed. Exiting.")
         sys.exit(1)
@@ -415,8 +830,11 @@ async def main():
 
     # Continuous interval loop — individual run failures are logged but do not
     # stop the worker; only an unhandled startup failure is fatal.
+    combiner_check_interval = 10.0  # Check for new Combiner runs every 10 seconds
+    next_combiner_check_at = time.monotonic() + combiner_check_interval
+
     while not stop_event.is_set():
-        next_due_at = min(next_firehose_run_at, next_backfill_run_at)
+        next_due_at = min(next_firehose_run_at, next_backfill_run_at, next_combiner_check_at)
         timeout = max(0.0, next_due_at - time.monotonic())
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=timeout)
@@ -469,6 +887,11 @@ async def main():
             await _run_bouncer_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
         if due_jobs and not stop_event.is_set():
             await _run_analyst_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
+
+        # Check Combiner on its own schedule (every 10s) or after producer jobs
+        if (now >= next_combiner_check_at or due_jobs) and not stop_event.is_set():
+            await _run_combiner_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
+            next_combiner_check_at = time.monotonic() + combiner_check_interval
 
     logger.info("Worker shutdown complete.")
 

@@ -67,6 +67,28 @@ class RepositoryAnalysisArtifactResponse(BaseModel):
     payload: dict[str, object] | None = None
 
 
+class RepositoryFailureContextResponse(BaseModel):
+    stage: str
+    step: str
+    upstream_source: str
+    error_code: str | None = None
+    error_message: str | None = None
+    failed_at: datetime | None = None
+
+
+class RepositoryProcessingContextResponse(BaseModel):
+    intake_created_at: datetime | None = None
+    intake_started_at: datetime | None = None
+    intake_completed_at: datetime | None = None
+    intake_failed_at: datetime | None = None
+    triaged_at: datetime | None = None
+    analysis_started_at: datetime | None = None
+    analysis_completed_at: datetime | None = None
+    analysis_last_attempted_at: datetime | None = None
+    analysis_failed_at: datetime | None = None
+    failure: RepositoryFailureContextResponse | None = None
+
+
 class RepositoryExplorationResponse(BaseModel):
     github_repository_id: int
     source_provider: str
@@ -75,7 +97,7 @@ class RepositoryExplorationResponse(BaseModel):
     full_name: str
     repository_description: str | None = None
     discovery_source: RepositoryDiscoverySource
-    queue_status: RepositoryQueueStatus
+    intake_status: RepositoryQueueStatus
     triage_status: RepositoryTriageStatus
     analysis_status: RepositoryAnalysisStatus
     stargazers_count: int
@@ -88,10 +110,12 @@ class RepositoryExplorationResponse(BaseModel):
     readme_snapshot: RepositoryReadmeSnapshotResponse | None = None
     analysis_artifact: RepositoryAnalysisArtifactResponse | None = None
     artifacts: list[RepositoryArtifactRefResponse] = Field(default_factory=list)
+    processing: RepositoryProcessingContextResponse
     has_readme_artifact: bool = False
     has_analysis_artifact: bool = False
     is_starred: bool = False
     user_tags: list[str] = Field(default_factory=list)
+    idea_family_ids: list[int] = Field(default_factory=list)
 
 
 class RepositoryCatalogSortBy(StrEnum):
@@ -120,6 +144,7 @@ class RepositoryCatalogQueryParams(BaseModel):
     max_stars: int | None = None
     starred_only: bool = False
     user_tag: str | None = None
+    idea_family_id: int | None = None
     sort_by: RepositoryCatalogSortBy = RepositoryCatalogSortBy.STARS
     sort_order: RepositoryCatalogSortOrder = RepositoryCatalogSortOrder.DESC
 
@@ -134,20 +159,21 @@ class RepositoryCatalogItemResponse(BaseModel):
     forks_count: int
     pushed_at: datetime | None = None
     discovery_source: RepositoryDiscoverySource
-    queue_status: RepositoryQueueStatus
+    intake_status: RepositoryQueueStatus
     triage_status: RepositoryTriageStatus
     analysis_status: RepositoryAnalysisStatus
     queue_created_at: datetime | None = None
     processing_started_at: datetime | None = None
     processing_completed_at: datetime | None = None
-    last_failed_at: datetime | None = None
-    analysis_failure_code: str | None = None
-    analysis_failure_message: str | None = None
+    intake_failed_at: datetime | None = None
+    analysis_failed_at: datetime | None = None
+    failure: RepositoryFailureContextResponse | None = None
     monetization_potential: RepositoryMonetizationPotential | None = None
     has_readme_artifact: bool = False
     has_analysis_artifact: bool = False
     is_starred: bool = False
     user_tags: list[str] = Field(default_factory=list)
+    idea_family_ids: list[int] = Field(default_factory=list)
 
 
 class RepositoryCatalogPageResponse(BaseModel):

@@ -6,12 +6,33 @@ from pathlib import Path
 
 import pytest
 
-from agentic_workers.jobs.analyst_job import AnalystRunResult, AnalystRunStatus
-from agentic_workers.jobs.backfill_job import BackfillRunResult, BackfillRunStatus
-from agentic_workers.jobs.bouncer_job import BouncerRunResult, BouncerRunStatus
-from agentic_workers.jobs.firehose_job import FirehoseRunResult, FirehoseRunStatus
+from agentic_workers.jobs.analyst_job import (
+    AnalystRepositoryOutcome,
+    AnalystRunResult,
+    AnalystRunStatus,
+)
+from agentic_workers.jobs.backfill_job import (
+    BackfillPageOutcome,
+    BackfillRunResult,
+    BackfillRunStatus,
+)
+from agentic_workers.jobs.bouncer_job import (
+    BouncerRepositoryOutcome,
+    BouncerRunResult,
+    BouncerRunStatus,
+)
+from agentic_workers.jobs.firehose_job import (
+    FirehosePageOutcome,
+    FirehoseRunResult,
+    FirehoseRunStatus,
+)
 from agentic_workers.providers.github_provider import FirehoseMode
 from agentic_workers.storage.backfill_progress import BackfillCheckpointState
+from agentic_workers.storage.backend_models import (
+    RepositoryAnalysisStatus,
+    RepositoryQueueStatus,
+    RepositoryTriageStatus,
+)
 from agentic_workers.storage.firehose_progress import FirehoseCheckpointState
 from agentic_workers import main
 
@@ -29,6 +50,9 @@ class DummySession:
         return self
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
+    def rollback(self) -> None:
         return None
 
 
@@ -66,6 +90,17 @@ def test_configured_firehose_job_uses_settings_and_runtime_paths(monkeypatch, tm
     monkeypatch.setattr(main, "Session", DummySession)
     monkeypatch.setattr(main, "engine", object())
     monkeypatch.setattr(main, "run_firehose_job", fake_run_firehose_job)
+    monkeypatch.setattr(main, "start_agent_run", lambda session, agent_name: 11)
+    monkeypatch.setattr(
+        main,
+        "finalize_agent_run",
+        lambda session, run_id, items_processed, items_succeeded, items_failed: None,
+    )
+    monkeypatch.setattr(
+        main,
+        "record_failed_agent_run",
+        lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed: None,
+    )
 
     result = main.run_configured_firehose_job()
 
@@ -75,6 +110,7 @@ def test_configured_firehose_job_uses_settings_and_runtime_paths(monkeypatch, tm
     assert captured["runtime_dir"] == tmp_path
     assert captured["pacing_seconds"] == 3
     assert captured["modes"] == (FirehoseMode.NEW, FirehoseMode.TRENDING)
+    assert captured["agent_run_id"] == 11
 
 
 def test_configured_backfill_job_uses_settings_and_runtime_paths(monkeypatch, tmp_path: Path) -> None:
@@ -112,6 +148,17 @@ def test_configured_backfill_job_uses_settings_and_runtime_paths(monkeypatch, tm
     monkeypatch.setattr(main, "Session", DummySession)
     monkeypatch.setattr(main, "engine", object())
     monkeypatch.setattr(main, "run_backfill_job", fake_run_backfill_job)
+    monkeypatch.setattr(main, "start_agent_run", lambda session, agent_name: 22)
+    monkeypatch.setattr(
+        main,
+        "finalize_agent_run",
+        lambda session, run_id, items_processed, items_succeeded, items_failed: None,
+    )
+    monkeypatch.setattr(
+        main,
+        "record_failed_agent_run",
+        lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed: None,
+    )
 
     result = main.run_configured_backfill_job()
 
@@ -124,6 +171,7 @@ def test_configured_backfill_job_uses_settings_and_runtime_paths(monkeypatch, tm
     assert captured["pages"] == 2
     assert captured["window_days"] == 14
     assert captured["min_created_date"] == "2015-01-01"
+    assert captured["agent_run_id"] == 22
 
 
 def test_configured_bouncer_job_uses_settings_and_runtime_paths(monkeypatch, tmp_path: Path) -> None:
@@ -150,6 +198,17 @@ def test_configured_bouncer_job_uses_settings_and_runtime_paths(monkeypatch, tmp
     monkeypatch.setattr(main, "Session", DummySession)
     monkeypatch.setattr(main, "engine", object())
     monkeypatch.setattr(main, "run_bouncer_job", fake_run_bouncer_job)
+    monkeypatch.setattr(main, "start_agent_run", lambda session, agent_name: 33)
+    monkeypatch.setattr(
+        main,
+        "finalize_agent_run",
+        lambda session, run_id, items_processed, items_succeeded, items_failed: None,
+    )
+    monkeypatch.setattr(
+        main,
+        "record_failed_agent_run",
+        lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed: None,
+    )
 
     result = main.run_configured_bouncer_job()
 
@@ -157,6 +216,7 @@ def test_configured_bouncer_job_uses_settings_and_runtime_paths(monkeypatch, tmp
     assert captured["runtime_dir"] == tmp_path
     assert captured["include_rules"] == ("saas", "developer tools")
     assert captured["exclude_rules"] == ("gaming", "tutorial")
+    assert captured["agent_run_id"] == 33
 
 
 def test_configured_analyst_job_uses_settings_and_runtime_paths(monkeypatch, tmp_path: Path) -> None:
@@ -183,6 +243,17 @@ def test_configured_analyst_job_uses_settings_and_runtime_paths(monkeypatch, tmp
     monkeypatch.setattr(main, "Session", DummySession)
     monkeypatch.setattr(main, "engine", object())
     monkeypatch.setattr(main, "run_analyst_job", fake_run_analyst_job)
+    monkeypatch.setattr(main, "start_agent_run", lambda session, agent_name: 44)
+    monkeypatch.setattr(
+        main,
+        "finalize_agent_run",
+        lambda session, run_id, items_processed, items_succeeded, items_failed: None,
+    )
+    monkeypatch.setattr(
+        main,
+        "record_failed_agent_run",
+        lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed: None,
+    )
 
     result = main.run_configured_analyst_job()
 
@@ -191,6 +262,168 @@ def test_configured_analyst_job_uses_settings_and_runtime_paths(monkeypatch, tmp
     assert captured["provider"].github_token == "worker-token"
     assert captured["runtime_dir"] == tmp_path
     assert captured["analysis_provider"] == "heuristic-provider"
+    assert captured["agent_run_id"] == 44
+
+
+def test_configured_firehose_job_records_terminal_write_failures_as_failed_runs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    recorded_failure: dict[str, object | None] = {}
+
+    class StubSettings:
+        github_provider_token_value = "worker-token"
+
+        class runtime:
+            runtime_dir = tmp_path
+
+        class provider:
+            github_requests_per_minute = 120
+            intake_pacing_seconds = 3
+            firehose_per_page = 100
+            firehose_pages = 1
+            backfill_per_page = 50
+            backfill_pages = 2
+            backfill_window_days = 30
+            backfill_min_created_date = "2008-01-01"
+            backfill_interval_seconds = 3600
+
+    def fake_run_firehose_job(**_: object) -> FirehoseRunResult:
+        return FirehoseRunResult(
+            status=FirehoseRunStatus.SUCCESS,
+            outcomes=[],
+            artifact_path=None,
+            artifact_error=None,
+        )
+
+    def failing_finalize(
+        session: object,
+        run_id: int,
+        items_processed: int,
+        items_succeeded: int,
+        items_failed: int,
+    ) -> None:
+        del session, run_id, items_processed, items_succeeded, items_failed
+        raise RuntimeError("cannot persist terminal state")
+
+    def capture_failed_run(
+        session: object,
+        run_id: int,
+        error_summary: str,
+        error_context: str | None,
+        items_processed: int | None,
+        items_succeeded: int | None,
+        items_failed: int | None,
+    ) -> None:
+        del session
+        recorded_failure.update(
+            {
+                "run_id": run_id,
+                "error_summary": error_summary,
+                "error_context": error_context,
+                "items_processed": items_processed,
+                "items_succeeded": items_succeeded,
+                "items_failed": items_failed,
+            }
+        )
+
+    monkeypatch.setattr(main, "settings", StubSettings())
+    monkeypatch.setattr(main, "GitHubFirehoseProvider", DummyProvider)
+    monkeypatch.setattr(main, "Session", DummySession)
+    monkeypatch.setattr(main, "engine", object())
+    monkeypatch.setattr(main, "run_firehose_job", fake_run_firehose_job)
+    monkeypatch.setattr(main, "start_agent_run", lambda session, agent_name: 51)
+    monkeypatch.setattr(main, "finalize_agent_run", failing_finalize)
+    monkeypatch.setattr(main, "record_failed_agent_run", capture_failed_run)
+
+    with pytest.raises(RuntimeError, match="cannot persist terminal state"):
+        main.run_configured_firehose_job()
+
+    assert recorded_failure["run_id"] == 51
+    assert recorded_failure["items_processed"] == 0
+    assert recorded_failure["items_succeeded"] == 0
+    assert recorded_failure["items_failed"] == 0
+    assert recorded_failure["error_summary"] == (
+        "firehose run crashed while persisting terminal state: cannot persist terminal state"
+    )
+
+
+def test_interrupted_empty_job_runs_are_marked_skipped() -> None:
+    from agentic_workers.jobs import analyst_job, backfill_job, bouncer_job, firehose_job
+
+    assert firehose_job._determine_status([], interrupted=True) is FirehoseRunStatus.SKIPPED
+    assert backfill_job._determine_status([], interrupted=True) is BackfillRunStatus.SKIPPED
+    assert bouncer_job._determine_status([], interrupted=True) is BouncerRunStatus.SKIPPED
+    assert analyst_job._determine_status([], interrupted=True) is AnalystRunStatus.SKIPPED
+
+
+def test_interrupted_runs_with_progress_are_marked_skipped() -> None:
+    from agentic_workers.jobs import analyst_job, backfill_job, bouncer_job, firehose_job
+
+    firehose_outcomes = [
+        FirehosePageOutcome(
+            mode=FirehoseMode.NEW,
+            page=1,
+            anchor_date=date(2026, 3, 10),
+            fetched_count=1,
+            inserted_count=1,
+            skipped_count=0,
+        )
+    ]
+    backfill_outcomes = [
+        BackfillPageOutcome(
+            window_start_date=date(2026, 3, 1),
+            created_before_boundary=date(2026, 3, 10),
+            created_before_cursor=None,
+            page=1,
+            fetched_count=1,
+            inserted_count=1,
+            skipped_count=0,
+            exhausted_after=False,
+        )
+    ]
+    bouncer_outcomes = [
+        BouncerRepositoryOutcome(
+            github_repository_id=1,
+            full_name="octocat/repo",
+            triage_status=RepositoryTriageStatus.ACCEPTED,
+            queue_status=RepositoryQueueStatus.COMPLETED,
+            explanation_kind=None,
+            explanation_summary=None,
+            explained_at=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
+            matched_include_rules=(),
+            matched_exclude_rules=(),
+        )
+    ]
+    analyst_outcomes = [
+        AnalystRepositoryOutcome(
+            github_repository_id=1,
+            full_name="octocat/repo",
+            analysis_status=RepositoryAnalysisStatus.COMPLETED,
+            failure_code=None,
+            failure_message=None,
+            monetization_potential="medium",
+            runtime_readme_artifact_path="runtime/readme.md",
+            runtime_analysis_artifact_path="runtime/analysis.json",
+        )
+    ]
+
+    assert (
+        firehose_job._determine_status(firehose_outcomes, interrupted=True)
+        is FirehoseRunStatus.SKIPPED
+    )
+    assert (
+        backfill_job._determine_status(backfill_outcomes, interrupted=True)
+        is BackfillRunStatus.SKIPPED
+    )
+    assert (
+        bouncer_job._determine_status(bouncer_outcomes, interrupted=True)
+        is BouncerRunStatus.SKIPPED
+    )
+    assert (
+        analyst_job._determine_status(analyst_outcomes, interrupted=True)
+        is AnalystRunStatus.SKIPPED
+    )
 
 
 def test_firehose_pacing_respects_request_budget_floor(monkeypatch) -> None:
@@ -809,6 +1042,7 @@ def test_main_runs_firehose_on_interval_then_stops_on_signal(monkeypatch) -> Non
     monkeypatch.setattr(main, "should_run_firehose_startup", lambda **kwargs: True)
     monkeypatch.setattr(main, "should_run_backfill_startup", lambda **kwargs: True)
     monkeypatch.setattr(main, "has_pending_bouncer_work", lambda: False)
+    monkeypatch.setattr(main, "has_pending_analyst_work", lambda: False)
     monkeypatch.setattr(main, "seconds_until_next_firehose_run", lambda now=None: 0.0)
     monkeypatch.setattr(main, "seconds_until_next_backfill_run", lambda now=None: 0.0)
     monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)

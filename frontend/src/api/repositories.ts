@@ -2,6 +2,7 @@ import { getRequiredApiBaseUrl } from "./base-url";
 
 export type RepositoryDiscoverySource = "unknown" | "firehose" | "backfill";
 export type RepositoryQueueStatus = "pending" | "in_progress" | "completed" | "failed";
+export type RepositoryIntakeStatus = RepositoryQueueStatus;
 export type RepositoryTriageStatus = "pending" | "accepted" | "rejected";
 export type RepositoryAnalysisStatus = "pending" | "in_progress" | "completed" | "failed";
 export type RepositoryMonetizationPotential = "low" | "medium" | "high";
@@ -23,15 +24,15 @@ export interface RepositoryCatalogItem {
   forks_count: number;
   pushed_at: string | null;
   discovery_source: RepositoryDiscoverySource;
-  queue_status: RepositoryQueueStatus;
+  intake_status: RepositoryIntakeStatus;
   triage_status: RepositoryTriageStatus;
   analysis_status: RepositoryAnalysisStatus;
   queue_created_at: string | null;
   processing_started_at: string | null;
   processing_completed_at: string | null;
-  last_failed_at: string | null;
-  analysis_failure_code: string | null;
-  analysis_failure_message: string | null;
+  intake_failed_at: string | null;
+  analysis_failed_at: string | null;
+  failure: RepositoryFailureContext | null;
   monetization_potential: RepositoryMonetizationPotential | null;
   has_readme_artifact: boolean;
   has_analysis_artifact: boolean;
@@ -118,6 +119,28 @@ export interface RepositoryAnalysisArtifact {
   payload: Record<string, unknown> | null;
 }
 
+export interface RepositoryFailureContext {
+  stage: string;
+  step: string;
+  upstream_source: string;
+  error_code: string | null;
+  error_message: string | null;
+  failed_at: string | null;
+}
+
+export interface RepositoryProcessingContext {
+  intake_created_at: string | null;
+  intake_started_at: string | null;
+  intake_completed_at: string | null;
+  intake_failed_at: string | null;
+  triaged_at: string | null;
+  analysis_started_at: string | null;
+  analysis_completed_at: string | null;
+  analysis_last_attempted_at: string | null;
+  analysis_failed_at: string | null;
+  failure: RepositoryFailureContext | null;
+}
+
 export interface RepositoryDetailResponse {
   github_repository_id: number;
   source_provider: string;
@@ -126,7 +149,7 @@ export interface RepositoryDetailResponse {
   full_name: string;
   repository_description: string | null;
   discovery_source: RepositoryDiscoverySource;
-  queue_status: RepositoryQueueStatus;
+  intake_status: RepositoryIntakeStatus;
   triage_status: RepositoryTriageStatus;
   analysis_status: RepositoryAnalysisStatus;
   stargazers_count: number;
@@ -139,6 +162,7 @@ export interface RepositoryDetailResponse {
   readme_snapshot: RepositoryReadmeSnapshot | null;
   analysis_artifact: RepositoryAnalysisArtifact | null;
   artifacts: RepositoryArtifactRef[];
+  processing: RepositoryProcessingContext;
   has_readme_artifact: boolean;
   has_analysis_artifact: boolean;
   is_starred: boolean;
@@ -179,6 +203,7 @@ export interface RepositoryCatalogViewState {
   minStars: number | null;
   maxStars: number | null;
   starredOnly: boolean;
+  ideaFamilyId: number | null;
 }
 
 export type RepositoryCatalogFilterKey =
@@ -217,6 +242,7 @@ const DEFAULT_VIEW_STATE: RepositoryCatalogViewState = {
   minStars: null,
   maxStars: null,
   starredOnly: false,
+  ideaFamilyId: null,
 };
 
 const SOURCE_VALUES: RepositoryDiscoverySource[] = ["unknown", "firehose", "backfill"];
@@ -352,6 +378,7 @@ export function parseRepositoryCatalogSearchParams(
     minStars: parseNonNegativeInt(searchParams.get("minStars")),
     maxStars: parseNonNegativeInt(searchParams.get("maxStars")),
     starredOnly: parseBooleanParam(searchParams.get("starredOnly")),
+    ideaFamilyId: parseNonNegativeInt(searchParams.get("ideaFamilyId")),
   };
 }
 
@@ -482,6 +509,9 @@ function buildRepositoryCatalogApiParams(
   }
   if (state.starredOnly) {
     params.set("starred_only", "true");
+  }
+  if (state.ideaFamilyId !== null) {
+    params.set("idea_family_id", String(state.ideaFamilyId));
   }
   return params;
 }

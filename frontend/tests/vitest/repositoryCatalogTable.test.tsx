@@ -16,15 +16,15 @@ const ITEM: RepositoryCatalogItem = {
   forks_count: 90,
   pushed_at: "2026-03-09T12:00:00Z",
   discovery_source: "firehose",
-  queue_status: "completed",
+  intake_status: "completed",
   triage_status: "accepted",
   analysis_status: "completed",
   queue_created_at: "2026-03-09T12:00:00Z",
   processing_started_at: "2026-03-09T12:05:00Z",
   processing_completed_at: "2026-03-09T12:10:00Z",
-  last_failed_at: null,
-  analysis_failure_code: null,
-  analysis_failure_message: null,
+  intake_failed_at: null,
+  analysis_failed_at: null,
+  failure: null,
   monetization_potential: "high",
   has_readme_artifact: true,
   has_analysis_artifact: true,
@@ -70,9 +70,13 @@ describe("RepositoryCatalogTable", () => {
     expect(screen.getByText("Monetization Fit")).toBeTruthy();
     expect(screen.getByText("High")).toBeTruthy();
     expect(screen.getByText("Firehose")).toBeTruthy();
-    expect(screen.getByText("Queue Status")).toBeTruthy();
+    expect(screen.getByText("Intake Status")).toBeTruthy();
+    expect(screen.getByText("Triage Status")).toBeTruthy();
+    expect(screen.getByText("Analysis Status")).toBeTruthy();
+    expect(screen.getByText("Processing Window")).toBeTruthy();
     expect(screen.getByText("Failure Details")).toBeTruthy();
     expect(screen.getAllByText("Completed")).toHaveLength(2);
+    expect(screen.getByText("Accepted")).toBeTruthy();
     expect(screen.getByText("No failures")).toBeTruthy();
     expect(screen.getByText("workflow")).toBeTruthy();
   });
@@ -91,9 +95,16 @@ describe("RepositoryCatalogTable", () => {
     const failedItem: RepositoryCatalogItem = {
       ...ITEM,
       analysis_status: "failed",
-      analysis_failure_code: "rate_limited",
-      analysis_failure_message: "Gateway rate limit while analyzing repository.",
-      last_failed_at: "2026-03-09T12:15:00Z",
+      intake_failed_at: "2026-03-09T12:14:00Z",
+      analysis_failed_at: "2026-03-09T12:15:00Z",
+      failure: {
+        stage: "analysis",
+        step: "analysis",
+        upstream_source: "firehose",
+        error_code: "rate_limited",
+        error_message: "Gateway rate limit while analyzing repository.",
+        failed_at: "2026-03-09T12:15:00Z",
+      },
     };
 
     renderTable(vi.fn(), vi.fn(), [failedItem]);
@@ -105,21 +116,28 @@ describe("RepositoryCatalogTable", () => {
     expect(screen.getByText("Failed At 2026-03-09 12:15 UTC")).toBeTruthy();
   });
 
-  test("shows queue failure fallback details when analysis metadata is missing", () => {
+  test("shows intake failure details from backend data", () => {
     const failedItem: RepositoryCatalogItem = {
       ...ITEM,
-      queue_status: "failed",
+      intake_status: "failed",
       analysis_status: "pending",
-      analysis_failure_code: null,
-      analysis_failure_message: null,
-      last_failed_at: "2026-03-09T12:20:00Z",
+      intake_failed_at: "2026-03-09T12:20:00Z",
+      analysis_failed_at: null,
+      failure: {
+        stage: "intake",
+        step: "repository_intake",
+        upstream_source: "firehose",
+        error_code: null,
+        error_message: "GitHub backfill request failed before triage started.",
+        failed_at: "2026-03-09T12:20:00Z",
+      },
     };
 
     renderTable(vi.fn(), vi.fn(), [failedItem]);
 
-    expect(screen.getByText("Queue Failure")).toBeTruthy();
-    expect(screen.getByText("Queue Failed")).toBeTruthy();
-    expect(screen.getByText("Repository intake failed before analysis completed.")).toBeTruthy();
+    expect(screen.getByText("Intake Failure")).toBeTruthy();
+    expect(screen.getByText("Intake Failed")).toBeTruthy();
+    expect(screen.getByText("GitHub backfill request failed before triage started.")).toBeTruthy();
     expect(screen.getByText("Failed At 2026-03-09 12:20 UTC")).toBeTruthy();
   });
 });

@@ -230,7 +230,7 @@ def test_repository_catalog_supports_queue_status_filter_for_backlog_views(
 
     assert page.total == 1
     assert [item.github_repository_id for item in page.items] == [101]
-    assert page.items[0].queue_status is RepositoryQueueStatus.PENDING
+    assert page.items[0].intake_status is RepositoryQueueStatus.PENDING
 
 
 def test_repository_catalog_supports_has_failures_filter_for_queue_or_analysis_failures(
@@ -265,13 +265,16 @@ def test_repository_catalog_maps_failure_context_fields_for_failed_repositories(
     assert page.total == 1
     item = page.items[0]
     assert item.github_repository_id == 505
-    assert item.queue_status.value == "completed"
+    assert item.intake_status.value == "completed"
     assert item.queue_created_at == now
     assert item.processing_started_at == now
     assert item.processing_completed_at == now
-    assert item.last_failed_at == now
-    assert item.analysis_failure_code == "rate_limited"
-    assert item.analysis_failure_message == "Upstream provider throttled the request repeatedly."
+    assert item.intake_failed_at == now.replace(hour=11, minute=58)
+    assert item.analysis_failed_at == now
+    assert item.failure is not None
+    assert item.failure.stage == "analysis"
+    assert item.failure.error_code == "rate_limited"
+    assert item.failure.error_message == "Upstream provider throttled the request repeatedly."
 
 
 def test_repository_catalog_uses_analysis_timestamps_with_queue_failure_fallback(
@@ -289,12 +292,16 @@ def test_repository_catalog_uses_analysis_timestamps_with_queue_failure_fallback
     analysis_failed = page.items[0]
     assert analysis_failed.processing_started_at == now
     assert analysis_failed.processing_completed_at == now
-    assert analysis_failed.last_failed_at == now
+    assert analysis_failed.intake_failed_at == now.replace(hour=11, minute=58)
+    assert analysis_failed.analysis_failed_at == now
 
     queue_failed = page.items[1]
     assert queue_failed.processing_started_at is None
     assert queue_failed.processing_completed_at is None
-    assert queue_failed.last_failed_at == now
+    assert queue_failed.intake_failed_at == now
+    assert queue_failed.analysis_failed_at is None
+    assert queue_failed.failure is not None
+    assert queue_failed.failure.stage == "intake"
 
 
 def test_repository_backlog_summary_executes_in_a_single_query(tmp_path: Path) -> None:

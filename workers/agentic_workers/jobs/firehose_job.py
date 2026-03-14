@@ -4,14 +4,20 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from enum import StrEnum
 import json
+import logging
 from pathlib import Path
 from typing import Callable, Protocol
 
 from sqlmodel import Session
 
+from agentic_workers.core.events import emit_failure_event, pause_event_run_id
+from agentic_workers.core.failure_detector import classify_github_error, determine_severity
+from agentic_workers.core.pause_manager import execute_pause, is_agent_paused
+from agentic_workers.core.pause_policy import evaluate_pause_policy
 from agentic_workers.providers.github_provider import (
     DiscoveredRepository,
     FirehoseMode,
+    GitHubProviderError,
     GitHubRateLimitError,
 )
 from agentic_workers.storage.firehose_progress import (
@@ -26,16 +32,21 @@ from agentic_workers.storage.firehose_progress import (
 from agentic_workers.storage.intake_progress_snapshots import (
     write_firehose_progress_snapshot,
 )
+from agentic_workers.storage.backend_models import FailureClassification
 from agentic_workers.storage.repository_intake import (
     IntakePersistenceResult,
     persist_firehose_batch,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class FirehoseRunStatus(StrEnum):
     SUCCESS = "success"
     PARTIAL_FAILURE = "partial_failure"
     FAILED = "failed"
+    SKIPPED = "skipped"
+    SKIPPED_PAUSED = "skipped_paused"
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,9 +109,19 @@ def run_firehose_job(
     save_progress: SaveCheckpointFn | None = None,
     write_artifact: ArtifactWriter | None = None,
     today: date | None = None,
+    agent_run_id: int | None = None,
 ) -> FirehoseRunResult:
     if not modes:
         raise ValueError("At least one Firehose mode must be configured")
+
+    # Check if agent is paused
+    if is_agent_paused(session, "firehose"):
+        logger.info("Firehose is paused, skipping run")
+        return FirehoseRunResult(
+            status=FirehoseRunStatus.SKIPPED_PAUSED,
+            outcomes=[],
+            artifact_path=None,
+        )
 
     persistence = persist_batch or _persist_batch
     checkpoint_loader = load_progress or _load_checkpoint
@@ -112,8 +133,10 @@ def run_firehose_job(
         checkpoint = initialize_firehose_progress(today=active_today, active_mode=modes[0])
 
     outcomes: list[FirehosePageOutcome] = []
+    interrupted = False
     sleep_between_requests = False
     snapshot_errors: list[str] = []
+    consecutive_failures = 0
 
     while checkpoint.resume_required and checkpoint.active_mode is not None:
         mode = checkpoint.active_mode
@@ -136,10 +159,12 @@ def run_firehose_job(
                 snapshot_errors.append(f"snapshot write failed: {exc}")
             continue
         if should_stop is not None and should_stop():
+            interrupted = True
             break
         if sleep_between_requests:
             sleep_fn(pacing_seconds)
             if should_stop is not None and should_stop():
+                interrupted = True
                 break
 
         repositories: list[DiscoveredRepository] = []
@@ -188,16 +213,16 @@ def run_firehose_job(
                     skipped_count=persisted.skipped_count,
                 )
             )
+            consecutive_failures = 0
             checkpoint = next_checkpoint
             sleep_between_requests = checkpoint.resume_required
         except GitHubRateLimitError as exc:
+            consecutive_failures += 1
             session.rollback()
             backoff_seconds = max(
                 pacing_seconds * 2,
                 exc.retry_after_seconds or 0,
             )
-            if backoff_seconds > 0 and (should_stop is None or not should_stop()):
-                sleep_fn(backoff_seconds)
             outcomes.append(
                 FirehosePageOutcome(
                     mode=mode,
@@ -209,8 +234,79 @@ def run_firehose_job(
                     error=str(exc),
                 )
             )
+            # Persist pause state BEFORE sleeping so a crash during backoff cannot
+            # lose the cross-run protection that Story 4.4 guarantees.
+            try:
+                classification = classify_github_error(exc)
+                failure_sev = determine_severity(classification, consecutive_failures)
+                event_id = emit_failure_event(
+                    session,
+                    event_type="rate_limit_hit",
+                    agent_name="firehose",
+                    message="firehose hit the GitHub rate limit and backed off.",
+                    classification=classification,
+                    failure_severity=failure_sev,
+                    http_status_code=exc.status_code,
+                    retry_after_seconds=exc.retry_after_seconds,
+                    upstream_provider="github",
+                    context_json=json.dumps(
+                        {
+                            "mode": mode.value,
+                            "page": requested_page,
+                            "anchor_date": anchored_date.isoformat(),
+                            "retry_after_seconds": exc.retry_after_seconds,
+                            "backoff_seconds": backoff_seconds,
+                        },
+                        sort_keys=True,
+                    ),
+                    agent_run_id=agent_run_id,
+                    commit=False,
+                )
+                # Evaluate pause policy and execute if needed
+                decision = evaluate_pause_policy("firehose", classification, failure_sev, consecutive_failures)
+                if decision.should_pause:
+                    execute_pause(session, decision, event_id)
+                    # Update the failure event with pause metadata so operators see complete context
+                    from app.models import SystemEvent
+                    failure_event = session.get(SystemEvent, event_id)
+                    if failure_event and failure_event.context_json:
+                        ctx = json.loads(failure_event.context_json)
+                        ctx["pause_reason"] = decision.reason
+                        ctx["resume_condition"] = decision.resume_condition
+                        ctx["is_paused"] = True
+                        failure_event.context_json = json.dumps(ctx, sort_keys=True)
+                    for affected_agent in decision.affected_agents:
+                        pause_context = json.dumps({
+                            "pause_reason": decision.reason,
+                            "resume_condition": decision.resume_condition,
+                            "is_paused": True,
+                        })
+                        emit_failure_event(
+                            session,
+                            event_type="agent_paused",
+                            agent_name=affected_agent,
+                            message=f"{affected_agent} paused: {decision.reason}",
+                            classification=classification,
+                            failure_severity="critical",
+                            upstream_provider="github",
+                            context_json=pause_context,
+                            agent_run_id=pause_event_run_id(
+                                triggering_agent_name="firehose",
+                                affected_agent_name=affected_agent,
+                                triggering_run_id=agent_run_id,
+                            ),
+                            commit=False,
+                        )
+                session.commit()
+            except Exception:
+                session.rollback()
+                logger.warning("Failed to emit rate_limit_hit event for firehose", exc_info=True)
+            # Sleep after committing so pause state survives a shutdown during backoff.
+            if backoff_seconds > 0 and (should_stop is None or not should_stop()):
+                sleep_fn(backoff_seconds)
             break
-        except Exception as exc:
+        except GitHubProviderError as exc:
+            consecutive_failures += 1
             session.rollback()
             outcomes.append(
                 FirehosePageOutcome(
@@ -223,9 +319,130 @@ def run_firehose_job(
                     error=str(exc),
                 )
             )
+            try:
+                classification = classify_github_error(exc)
+                failure_sev = determine_severity(classification, consecutive_failures)
+                event_id = emit_failure_event(
+                    session,
+                    event_type="repository_discovery_failed",
+                    agent_name="firehose",
+                    message="firehose failed while discovering repositories from GitHub.",
+                    classification=classification,
+                    failure_severity=failure_sev,
+                    upstream_provider="github",
+                    context_json=json.dumps(
+                        {
+                            "mode": mode.value,
+                            "page": requested_page,
+                            "anchor_date": anchored_date.isoformat(),
+                            "error": str(exc),
+                        },
+                        sort_keys=True,
+                    ),
+                    agent_run_id=agent_run_id,
+                    commit=False,
+                )
+                # Evaluate pause policy and execute if needed
+                decision = evaluate_pause_policy("firehose", classification, failure_sev, consecutive_failures)
+                if decision.should_pause:
+                    execute_pause(session, decision, event_id)
+                    for affected_agent in decision.affected_agents:
+                        pause_context = json.dumps({
+                            "pause_reason": decision.reason,
+                            "resume_condition": decision.resume_condition,
+                            "is_paused": True,
+                        })
+                        emit_failure_event(
+                            session,
+                            event_type="agent_paused",
+                            agent_name=affected_agent,
+                            message=f"{affected_agent} paused: {decision.reason}",
+                            classification=classification,
+                            failure_severity="critical",
+                            upstream_provider="github",
+                            context_json=pause_context,
+                            agent_run_id=pause_event_run_id(
+                                triggering_agent_name="firehose",
+                                affected_agent_name=affected_agent,
+                                triggering_run_id=agent_run_id,
+                            ),
+                            commit=False,
+                        )
+                session.commit()
+            except Exception:
+                session.rollback()
+                logger.warning(
+                    "Failed to emit repository_discovery_failed event for firehose",
+                    exc_info=True,
+                )
+            break
+        except Exception as exc:
+            consecutive_failures += 1
+            session.rollback()
+            outcomes.append(
+                FirehosePageOutcome(
+                    mode=mode,
+                    page=requested_page,
+                    anchor_date=anchored_date,
+                    fetched_count=len(repositories),
+                    inserted_count=0,
+                    skipped_count=0,
+                    error=str(exc),
+                )
+            )
+            try:
+                classification = FailureClassification.BLOCKING
+                failure_sev = determine_severity(classification, consecutive_failures)
+                event_id = emit_failure_event(
+                    session,
+                    event_type="repository_discovery_failed",
+                    agent_name="firehose",
+                    message="firehose encountered an unexpected runtime failure.",
+                    classification=classification,
+                    failure_severity=failure_sev,
+                    context_json=json.dumps(
+                        {
+                            "mode": mode.value,
+                            "page": requested_page,
+                            "anchor_date": anchored_date.isoformat(),
+                            "error": str(exc),
+                        },
+                        sort_keys=True,
+                    ),
+                    agent_run_id=agent_run_id,
+                    commit=False,
+                )
+                decision = evaluate_pause_policy("firehose", classification, failure_sev, consecutive_failures)
+                if decision.should_pause:
+                    execute_pause(session, decision, event_id)
+                    for affected_agent in decision.affected_agents:
+                        emit_failure_event(
+                            session,
+                            event_type="agent_paused",
+                            agent_name=affected_agent,
+                            message=f"{affected_agent} paused: {decision.reason}",
+                            classification=classification,
+                            failure_severity="critical",
+                            agent_run_id=pause_event_run_id(
+                                triggering_agent_name="firehose",
+                                affected_agent_name=affected_agent,
+                                triggering_run_id=agent_run_id,
+                            ),
+                            commit=False,
+                        )
+                session.commit()
+            except Exception:
+                session.rollback()
+                logger.warning(
+                    "Failed to emit unexpected runtime failure event for firehose",
+                    exc_info=True,
+                )
             break
 
-    status = _determine_status(outcomes)
+    status = _determine_status(
+        outcomes,
+        interrupted=interrupted,
+    )
     artifact_path: Path | None = None
     artifact_errors: list[str] = list(snapshot_errors)
     try:
@@ -264,8 +481,14 @@ def _save_checkpoint(session: Session, checkpoint: FirehoseCheckpointState) -> N
     save_firehose_progress(session, checkpoint, commit=False)
 
 
-def _determine_status(outcomes: list[FirehosePageOutcome]) -> FirehoseRunStatus:
+def _determine_status(
+    outcomes: list[FirehosePageOutcome],
+    *,
+    interrupted: bool = False,
+) -> FirehoseRunStatus:
     has_error = any(outcome.error for outcome in outcomes)
+    if interrupted and not has_error:
+        return FirehoseRunStatus.SKIPPED
     # Any outcome that completed without an error counts as a success, even when it
     # returned an empty batch — zero results is valid data, not a failure.
     has_success = any(outcome.error is None for outcome in outcomes)

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Callable
@@ -12,7 +13,12 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
+from agentic_workers.core.events import emit_failure_event
+from agentic_workers.core.failure_detector import determine_severity
+from agentic_workers.core.pause_manager import execute_pause, is_agent_paused
+from agentic_workers.core.pause_policy import evaluate_pause_policy
 from agentic_workers.storage.backend_models import (
+    FailureClassification,
     RepositoryIntake,
     RepositoryQueueStatus,
     RepositoryTriageExplanation,
@@ -20,11 +26,15 @@ from agentic_workers.storage.backend_models import (
     RepositoryTriageStatus,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class BouncerRunStatus(StrEnum):
     SUCCESS = "success"
     PARTIAL_FAILURE = "partial_failure"
     FAILED = "failed"
+    SKIPPED = "skipped"
+    SKIPPED_PAUSED = "skipped_paused"
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +79,17 @@ def run_bouncer_job(
     exclude_rules: tuple[str, ...] = (),
     should_stop: Callable[[], bool] | None = None,
     write_artifact: ArtifactWriter | None = None,
+    agent_run_id: int | None = None,
 ) -> BouncerRunResult:
+    # Check if agent is paused
+    if is_agent_paused(session, "bouncer"):
+        logger.info("Bouncer is paused, skipping run")
+        return BouncerRunResult(
+            status=BouncerRunStatus.SKIPPED_PAUSED,
+            outcomes=[],
+            artifact_path=None,
+        )
+
     normalized_include_rules = _normalize_rules(include_rules)
     normalized_exclude_rules = _normalize_rules(exclude_rules)
     artifact_writer = write_artifact or _write_run_artifact
@@ -82,8 +102,10 @@ def run_bouncer_job(
     ).all()
 
     outcomes: list[BouncerRepositoryOutcome] = []
+    interrupted = False
     for row in queue_rows:
         if should_stop is not None and should_stop():
+            interrupted = True
             break
 
         started_at = datetime.now(timezone.utc)
@@ -134,7 +156,56 @@ def run_bouncer_job(
                 github_repository_id=row.github_repository_id,
                 started_at=started_at,
                 failed_at=failed_at,
+                commit=True,
             )
+            if recovery_error is None:
+                try:
+                    classification = FailureClassification.BLOCKING
+                    failure_sev = determine_severity(classification, 1)
+                    event_id = emit_failure_event(
+                        session,
+                        event_type="repository_triage_failed",
+                        agent_name="bouncer",
+                        message="bouncer failed while evaluating repository rules.",
+                        classification=classification,
+                        failure_severity=failure_sev,
+                        affected_repository_id=row.github_repository_id,
+                        context_json=json.dumps(
+                            {
+                                "github_repository_id": row.github_repository_id,
+                                "full_name": row.full_name,
+                                "error": str(exc),
+                            },
+                            sort_keys=True,
+                        ),
+                        agent_run_id=agent_run_id,
+                    )
+                    decision = evaluate_pause_policy("bouncer", classification, failure_sev, 1)
+                    if decision.should_pause:
+                        execute_pause(session, decision, event_id)
+                        pause_context = json.dumps({
+                            "pause_reason": decision.reason,
+                            "resume_condition": decision.resume_condition,
+                            "is_paused": True,
+                        })
+                        emit_failure_event(
+                            session,
+                            event_type="agent_paused",
+                            agent_name="bouncer",
+                            message=f"bouncer paused: {decision.reason}",
+                            classification=classification,
+                            failure_severity="critical",
+                            context_json=pause_context,
+                            agent_run_id=agent_run_id,
+                        )
+                    session.commit()
+                except Exception:
+                    session.rollback()
+                    logger.warning(
+                        "Failed to emit repository_triage_failed event for %s",
+                        row.full_name,
+                        exc_info=True,
+                    )
             outcomes.append(
                 BouncerRepositoryOutcome(
                     github_repository_id=row.github_repository_id,
@@ -154,7 +225,10 @@ def run_bouncer_job(
                 )
             )
 
-    status = _determine_status(outcomes)
+    status = _determine_status(
+        outcomes,
+        interrupted=interrupted,
+    )
     artifact_path: Path | None = None
     artifact_error: str | None = None
     try:
@@ -248,8 +322,14 @@ def _normalized_haystack(*, full_name: str, description: str | None) -> str:
     ).strip()
 
 
-def _determine_status(outcomes: list[BouncerRepositoryOutcome]) -> BouncerRunStatus:
+def _determine_status(
+    outcomes: list[BouncerRepositoryOutcome],
+    *,
+    interrupted: bool = False,
+) -> BouncerRunStatus:
     has_error = any(outcome.error for outcome in outcomes)
+    if interrupted and not has_error:
+        return BouncerRunStatus.SKIPPED
     has_success = any(outcome.error is None for outcome in outcomes)
     if has_error and has_success:
         return BouncerRunStatus.PARTIAL_FAILURE
@@ -331,6 +411,7 @@ def _mark_repository_failed(
     github_repository_id: int,
     started_at: datetime,
     failed_at: datetime,
+    commit: bool = True,
 ) -> str | None:
     try:
         failed_row = session.get(RepositoryIntake, github_repository_id)
@@ -341,7 +422,8 @@ def _mark_repository_failed(
         failed_row.last_failed_at = failed_at
         failed_row.status_updated_at = failed_at
         session.add(failed_row)
-        session.commit()
+        if commit:
+            session.commit()
     except Exception as exc:
         _rollback_after_failure(session)
         return f"failure status update skipped: {exc}"

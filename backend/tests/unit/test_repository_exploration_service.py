@@ -159,7 +159,7 @@ def test_repository_exploration_service_returns_joined_metadata_summary_and_arti
     assert response.stargazers_count == 321
     assert response.forks_count == 45
     assert response.pushed_at == now
-    assert response.queue_status.value == "completed"
+    assert response.intake_status.value == "completed"
     assert response.triage.triage_status.value == "accepted"
     assert response.triage.explanation is not None
     assert response.triage.explanation.kind.value == "include_rule"
@@ -172,6 +172,10 @@ def test_repository_exploration_service_returns_joined_metadata_summary_and_arti
     assert response.analysis_artifact is not None
     assert response.analysis_artifact.provider_name == "StaticAnalysisProvider"
     assert response.analysis_artifact.payload["analysis"]["pros"] == ["Clear workflow"]
+    assert response.processing.intake_created_at == now
+    assert response.processing.intake_started_at is None
+    assert response.processing.intake_completed_at is None
+    assert response.processing.failure is None
     assert response.has_readme_artifact is True
     assert response.has_analysis_artifact is True
     assert response.is_starred is False
@@ -256,8 +260,96 @@ def test_repository_exploration_service_lists_catalog_page(
     assert response.total_pages == 1
     assert len(response.items) == 1
     assert response.items[0].github_repository_id == 707
+    assert response.items[0].intake_status is RepositoryQueueStatus.COMPLETED
     assert response.items[0].monetization_potential is RepositoryMonetizationPotential.HIGH
     assert response.items[0].has_readme_artifact is True
     assert response.items[0].has_analysis_artifact is False
     assert response.items[0].is_starred is False
     assert response.items[0].user_tags == []
+
+
+def test_repository_exploration_service_preserves_failed_analysis_status_with_artifacts(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 3, 9, 15, 0, tzinfo=timezone.utc)
+    with _make_session(tmp_path) as session:
+        session.add(
+            RepositoryIntake(
+                github_repository_id=808,
+                owner_login="octocat",
+                repository_name="broken-analyzer",
+                full_name="octocat/broken-analyzer",
+                repository_description="Analysis job failed after README capture",
+                stargazers_count=128,
+                forks_count=12,
+                pushed_at=now,
+                discovery_source=RepositoryDiscoverySource.BACKFILL,
+                queue_status=RepositoryQueueStatus.COMPLETED,
+                triage_status=RepositoryTriageStatus.ACCEPTED,
+                analysis_status=RepositoryAnalysisStatus.FAILED,
+                discovered_at=now,
+                queue_created_at=now,
+                processing_started_at=now,
+                processing_completed_at=now,
+                status_updated_at=now,
+                triaged_at=now,
+                analysis_started_at=now,
+                analysis_last_attempted_at=now,
+                analysis_last_failed_at=now,
+                analysis_failure_message="Gateway rate limit while analyzing repository.",
+            )
+        )
+        session.add(
+            RepositoryArtifact(
+                github_repository_id=808,
+                artifact_kind=RepositoryArtifactKind.README_SNAPSHOT,
+                runtime_relative_path="data/readmes/808.md",
+                content_sha256="c" * 64,
+                byte_size=128,
+                content_type="text/markdown; charset=utf-8",
+                source_kind="repository_readme",
+                generated_at=now,
+            )
+        )
+        session.add(
+            RepositoryArtifact(
+                github_repository_id=808,
+                artifact_kind=RepositoryArtifactKind.ANALYSIS_RESULT,
+                runtime_relative_path="data/analyses/808.json",
+                content_sha256="d" * 64,
+                byte_size=256,
+                content_type="application/json",
+                source_kind="repository_analysis",
+                generated_at=now,
+            )
+        )
+        session.commit()
+
+        runtime_dir = tmp_path / "runtime"
+        (runtime_dir / "data" / "readmes").mkdir(parents=True)
+        (runtime_dir / "data" / "analyses").mkdir(parents=True)
+        (runtime_dir / "data" / "readmes" / "808.md").write_text(
+            "# Broken Analyzer\n\nREADME captured before failure.",
+            encoding="utf-8",
+        )
+        (runtime_dir / "data" / "analyses" / "808.json").write_text(
+            json.dumps({"status": "partial"}),
+            encoding="utf-8",
+        )
+
+        service = RepositoryExplorationService(
+            RepositoryExplorationRepository(session),
+            runtime_dir=runtime_dir,
+        )
+        response = service.get_repository_exploration(808)
+
+    assert response.intake_status.value == "completed"
+    assert response.analysis_status.value == "failed"
+    assert response.has_analysis_artifact is True
+    assert response.processing.analysis_failed_at == now
+    assert response.processing.failure is not None
+    assert response.processing.failure.stage == "analysis"
+    assert response.processing.failure.upstream_source == "backfill"
+    assert response.processing.failure.error_message == (
+        "Gateway rate limit while analyzing repository."
+    )

@@ -467,7 +467,7 @@ const pages = [
   {
     path: "/overview",
     heading: "Overview",
-    body: /Pipeline Flow/,
+    body: /Mission Control/,
   },
   {
     path: "/repositories",
@@ -479,16 +479,16 @@ const pages = [
     heading: "Hydrating repository dossier",
     body: /Pulling repository metadata, README context, triage rationale, and generated analysis artifacts/,
   },
-  { path: "/ideas", heading: "Ideas", body: /Placeholder for canonical page model\./ },
+  { path: "/ideas", heading: "Ideas", body: /Select a family to view details/ },
   {
     path: "/agents",
     heading: "Agents",
-    body: /Placeholder for the future agent-management surface\./,
+    body: /Monitor current agent state, recent executions, and system events without leaving the control surface\./,
   },
   {
     path: "/incidents",
     heading: "Incidents",
-    body: /Placeholder for canonical page model\./,
+    body: /Review historical operational events and failure context/,
   },
   {
     path: "/settings",
@@ -637,7 +637,7 @@ test("overview page renders backend-fed Firehose and Backfill intake status", as
   currentRuntimeScenario = "success";
   const html = await fetchPage("/overview");
 
-  assert.match(html, /Pipeline Flow/);
+  assert.match(html, /Mission Control/);
   assert.match(html, /Auto-refresh every 15 seconds/);
   assert.match(html, /Firehose/);
   assert.match(html, /Backfill/);
@@ -675,7 +675,7 @@ test("overview page hydrates with deterministic UTC timestamps", async () => {
 
   try {
     const textContent = normalizeText(page.document.body.textContent ?? "");
-    assert.match(textContent, /Pipeline Flow/);
+    assert.match(textContent, /Mission Control/);
     assert.match(textContent, /Times shown in UTC/);
     assert.match(
       textContent,
@@ -697,7 +697,7 @@ test("overview page renders a fallback when the runtime endpoint returns a 500",
   try {
     const html = await fetchPage("/overview");
 
-    assert.match(html, /Pipeline Flow/);
+    assert.match(html, /Mission Control/);
     assert.match(html, /Gateway runtime lookup failed\./);
     assert.match(html, /The initial runtime load failed\. The polling loop will keep retrying automatically\./);
     assert.match(html, /Last updated <!-- -->Waiting for first successful sync/);
@@ -715,7 +715,7 @@ test("overview page renders a fallback when the runtime payload is malformed", a
   try {
     const html = await fetchPage("/overview");
 
-    assert.match(html, /Pipeline Flow/);
+    assert.match(html, /Mission Control/);
     assert.match(html, /Unable to load backend-owned intake status\./);
     assert.match(html, /The initial runtime load failed\. The polling loop will keep retrying automatically\./);
     assert.match(html, /Last updated <!-- -->Waiting for first successful sync/);

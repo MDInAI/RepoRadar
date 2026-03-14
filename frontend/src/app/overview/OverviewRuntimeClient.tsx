@@ -1,6 +1,15 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { fetchGatewayRuntime, ReadinessRequestError } from "@/api/readiness";
+import {
+  fetchAgentPauseStates,
+  fetchLatestAgentRuns,
+  getAgentPauseStatesQueryKey,
+  getLatestAgentRunsQueryKey,
+} from "@/api/agents";
+import { AgentStatusMatrix } from "@/components/agents/AgentStatusMatrix";
+import { useEventStream } from "@/hooks/useEventStream";
 import type {
   GatewayAgentIntakeQueueSummary,
   GatewayAgentQueue,
@@ -201,6 +210,18 @@ export function OverviewRuntimeClient({
   const [displayTimeZone, setDisplayTimeZone] = useState("UTC");
   const mountedRef = useRef(false);
   const refreshControllerRef = useRef<RuntimeRefreshController | null>(null);
+  useEventStream();
+  const latestRunsQuery = useQuery({
+    queryKey: getLatestAgentRunsQueryKey(),
+    queryFn: fetchLatestAgentRuns,
+    staleTime: 30_000,
+  });
+  const pauseStatesQuery = useQuery({
+    queryKey: getAgentPauseStatesQueryKey(),
+    queryFn: fetchAgentPauseStates,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+  });
 
   const applyClientState = (updater: () => void) => {
     if (!mountedRef.current) {
@@ -402,6 +423,38 @@ export function OverviewRuntimeClient({
                 />
               ) : null}
             </section>
+
+            {latestRunsQuery.isError ? (
+              <section className="rounded-[2rem] border border-rose-200 bg-rose-50 px-6 py-5 text-sm text-rose-900 shadow-[0_20px_60px_-36px_rgba(244,63,94,0.35)]">
+                {latestRunsQuery.error instanceof Error
+                  ? latestRunsQuery.error.message
+                  : "Unable to load the agent status summary."}
+              </section>
+            ) : null}
+
+            {pauseStatesQuery.isError ? (
+              <section className="rounded-[2rem] border border-amber-200 bg-amber-50 px-6 py-5 text-sm text-amber-900 shadow-[0_20px_60px_-36px_rgba(245,158,11,0.25)]">
+                Unable to load agent pause states — pause badges may be missing or outdated.
+              </section>
+            ) : null}
+
+            {!latestRunsQuery.isError ? (
+              <AgentStatusMatrix
+                agents={latestRunsQuery.data?.agents ?? []}
+                pauseStates={pauseStatesQuery.data ?? []}
+                pauseStateStatus={
+                  pauseStatesQuery.isError
+                    ? "unavailable"
+                    : pauseStatesQuery.isLoading
+                      ? "loading"
+                      : "available"
+                }
+                description="Latest run status per named agent with links into the dedicated monitoring surface."
+                isLoading={latestRunsQuery.isLoading}
+                title="Agent Status"
+                variant="compact"
+              />
+            ) : null}
 
             <AgentMatrix runtime={runtime.runtime} />
           </>

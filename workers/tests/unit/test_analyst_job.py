@@ -3,11 +3,20 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+import agentic_workers.jobs.analyst_job as analyst_job_module
 from sqlmodel import Session, create_engine, select
 
 from agentic_workers.jobs.analyst_job import AnalystRunStatus, run_analyst_job
-from agentic_workers.providers.github_provider import GitHubReadmeNotFoundError, RepositoryReadme
+from agentic_workers.providers.github_provider import (
+    GitHubProviderError,
+    GitHubRateLimitError,
+    GitHubReadmeNotFoundError,
+    RepositoryReadme,
+)
 from agentic_workers.storage.backend_models import (
+    AgentPauseState,
+    AgentRun,
+    AgentRunStatus,
     RepositoryAnalysisFailureCode,
     RepositoryAnalysisResult,
     RepositoryAnalysisStatus,
@@ -17,6 +26,7 @@ from agentic_workers.storage.backend_models import (
     RepositoryQueueStatus,
     RepositoryTriageStatus,
     SQLModel,
+    SystemEvent,
 )
 
 
@@ -44,6 +54,22 @@ class StaticAnalysisProvider:
 
     def analyze(self, *, repository_full_name: str, readme: object) -> str:
         return self.payload
+
+
+class RaisingAnalysisProvider:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def analyze(self, *, repository_full_name: str, readme: object) -> str:
+        del repository_full_name, readme
+        raise self.error
+
+
+class FakeRateLimitError(Exception):
+    def __init__(self, message: str, *, status_code: int, retry_after_seconds: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
 
 
 def _make_session(tmp_path: Path) -> Session:
@@ -243,3 +269,213 @@ def test_analyst_job_fails_when_durable_artifact_directories_are_unwritable(
     assert row.analysis_status is RepositoryAnalysisStatus.FAILED
     assert row.analysis_failure_code is RepositoryAnalysisFailureCode.PERSISTENCE_ERROR
     assert analysis_row is None
+
+
+def test_analyst_job_returns_skipped_paused_when_agent_is_paused(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(analyst_job_module, "is_agent_paused", lambda *_args, **_kwargs: True)
+
+    class Provider:
+        def get_readme(self, *, owner_login: str, repository_name: str) -> RepositoryReadme:
+            del owner_login, repository_name
+            raise AssertionError("get_readme should not run while paused")
+
+    with _make_session(tmp_path) as session:
+        result = run_analyst_job(
+            session=session,
+            provider=Provider(),  # type: ignore[arg-type]
+            runtime_dir=tmp_path / "runtime",
+        )
+
+    assert result.status is AnalystRunStatus.SKIPPED_PAUSED
+    assert result.outcomes == []
+
+
+def test_analyst_job_records_llm_timeout_events_with_llm_provider_context(tmp_path: Path) -> None:
+    provider = StubGitHubProvider(
+        {
+            808: RepositoryReadme(
+                owner_login="octocat",
+                repository_name="llm-timeout",
+                content="# Product\n\nWorkflow automation with analytics.",
+                fetched_at=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc),
+                source_url="https://api.github.com/repos/octocat/llm-timeout/readme",
+            )
+        }
+    )
+
+    with _make_session(tmp_path) as session:
+        session.add(_accepted_row(808, "octocat/llm-timeout"))
+        session.add(AgentRun(agent_name="analyst", status=AgentRunStatus.RUNNING))
+        session.commit()
+        run = session.exec(select(AgentRun)).one()
+
+        result = run_analyst_job(
+            session=session,
+            provider=provider,  # type: ignore[arg-type]
+            runtime_dir=tmp_path / "runtime",
+            analysis_provider=RaisingAnalysisProvider(TimeoutError("LLM timed out")),
+            agent_run_id=run.id,
+        )
+        row = session.get(RepositoryIntake, 808)
+        event = session.exec(
+            select(SystemEvent).where(SystemEvent.event_type == "repository_analysis_failed")
+        ).one()
+
+    assert result.status is AnalystRunStatus.FAILED
+    assert row is not None
+    assert row.analysis_status is RepositoryAnalysisStatus.FAILED
+    assert row.analysis_failure_code is RepositoryAnalysisFailureCode.TRANSPORT_ERROR
+    assert event.upstream_provider == "llm"
+    assert event.failure_classification.value == "retryable"
+    assert event.affected_repository_id == 808
+
+
+def test_analyst_job_records_llm_rate_limit_event_context(tmp_path: Path) -> None:
+    provider = StubGitHubProvider(
+        {
+            909: RepositoryReadme(
+                owner_login="octocat",
+                repository_name="llm-ratelimit",
+                content="# Product\n\nAnalytics for SaaS workflow teams.",
+                fetched_at=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc),
+                source_url="https://api.github.com/repos/octocat/llm-ratelimit/readme",
+            )
+        }
+    )
+
+    with _make_session(tmp_path) as session:
+        session.add(_accepted_row(909, "octocat/llm-ratelimit"))
+        session.add(AgentRun(agent_name="analyst", status=AgentRunStatus.RUNNING))
+        session.commit()
+        run = session.exec(select(AgentRun)).one()
+
+        result = run_analyst_job(
+            session=session,
+            provider=provider,  # type: ignore[arg-type]
+            runtime_dir=tmp_path / "runtime",
+            analysis_provider=RaisingAnalysisProvider(
+                FakeRateLimitError(
+                    "429 rate limit from llm provider",
+                    status_code=429,
+                    retry_after_seconds=45,
+                )
+            ),
+            agent_run_id=run.id,
+        )
+        row = session.get(RepositoryIntake, 909)
+        event = session.exec(
+            select(SystemEvent).where(SystemEvent.event_type == "repository_analysis_failed")
+        ).one()
+
+    assert result.status is AnalystRunStatus.FAILED
+    assert row is not None
+    assert row.analysis_failure_code is RepositoryAnalysisFailureCode.RATE_LIMITED
+    assert event.upstream_provider == "llm"
+    assert event.failure_classification.value == "rate_limited"
+    assert event.http_status_code == 429
+    assert event.retry_after_seconds == 45
+
+
+def test_analyst_github_rate_limit_does_not_pause_analyst(tmp_path: Path) -> None:
+    """A GitHub rate limit while fetching READMEs must NOT pause analyst per AC2.
+
+    GitHub rate limits pause firehose and backfill, but analyst is excluded because
+    it processes already-fetched data paths. The pause policy must distinguish
+    upstream_provider="github" from an LLM rate limit.
+    """
+    with _make_session(tmp_path) as session:
+        session.add(_accepted_row(1001, "octocat/github-rl-repo"))
+        session.add(AgentRun(agent_name="analyst", status=AgentRunStatus.RUNNING))
+        session.commit()
+        run = session.exec(select(AgentRun)).one()
+
+        provider = StubGitHubProvider(
+            {1001: GitHubRateLimitError(status_code=429, retry_after_seconds=60)}
+        )
+
+        result = run_analyst_job(
+            session=session,
+            provider=provider,  # type: ignore[arg-type]
+            runtime_dir=tmp_path / "runtime",
+            agent_run_id=run.id,
+        )
+        pause_state = session.exec(
+            select(AgentPauseState).where(AgentPauseState.agent_name == "analyst")
+        ).first()
+
+    assert result.status is AnalystRunStatus.FAILED
+    # The critical assertion: analyst must NOT be paused by a GitHub rate limit
+    assert pause_state is None
+
+
+def test_analyst_three_consecutive_retryable_failures_trigger_pause(tmp_path: Path) -> None:
+    """3+ consecutive retryable failures from analyst must trigger an auto-pause.
+
+    The consecutive_failures counter must be passed through to evaluate_pause_policy
+    so the 3+ retryable rule is actually evaluated.
+    """
+    with _make_session(tmp_path) as session:
+        for repo_id in (2001, 2002, 2003):
+            session.add(_accepted_row(repo_id, f"octocat/repo-{repo_id}"))
+        session.add(AgentRun(agent_name="analyst", status=AgentRunStatus.RUNNING))
+        session.commit()
+        run = session.exec(select(AgentRun)).one()
+
+        # Stub: every repo fetch raises a generic GitHubProviderError (→ RETRYABLE)
+        provider = StubGitHubProvider(
+            {2001: GitHubProviderError("connection reset")}
+        )
+
+        result = run_analyst_job(
+            session=session,
+            provider=provider,  # type: ignore[arg-type]
+            runtime_dir=tmp_path / "runtime",
+            agent_run_id=run.id,
+        )
+        pause_state = session.exec(
+            select(AgentPauseState).where(AgentPauseState.agent_name == "analyst")
+        ).first()
+
+    assert result.status is AnalystRunStatus.FAILED
+    # After 3 consecutive retryable failures analyst must be paused
+    assert pause_state is not None
+    assert pause_state.is_paused is True
+
+
+def test_analyst_persists_failure_state_when_event_emission_rolls_back(tmp_path: Path, monkeypatch) -> None:
+    with _make_session(tmp_path) as session:
+        session.add(_accepted_row(3001, "octocat/event-sink-failure"))
+        session.commit()
+
+        monkeypatch.setattr(
+            "agentic_workers.jobs.analyst_job.emit_failure_event",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("event sink failed")),
+        )
+
+        result = run_analyst_job(
+            session=session,
+            provider=StubGitHubProvider(
+                {
+                    3001: RepositoryReadme(
+                        owner_login="octocat",
+                        repository_name="event-sink-failure",
+                        content="# Product\n\nWorkflow automation with analytics.",
+                        fetched_at=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc),
+                        source_url="https://api.github.com/repos/octocat/event-sink-failure/readme",
+                    )
+                }
+            ),  # type: ignore[arg-type]
+            runtime_dir=tmp_path / "runtime",
+            analysis_provider=RaisingAnalysisProvider(TimeoutError("LLM timed out")),
+        )
+        row = session.get(RepositoryIntake, 3001)
+        events = session.exec(select(SystemEvent)).all()
+
+    assert result.status is AnalystRunStatus.FAILED
+    assert row is not None
+    assert row.analysis_status is RepositoryAnalysisStatus.FAILED
+    assert row.analysis_failure_code is RepositoryAnalysisFailureCode.TRANSPORT_ERROR
+    assert events == []

@@ -1,0 +1,13 @@
+{
+  "created_before_boundary": "2026-03-10",
+  "created_before_cursor": "2010-09-25T16:43:00+00:00",
+  "exhausted": false,
+  "generated_at": "2026-03-10T23:53:39.735416+00:00",
+  "last_checkpointed_at": "2026-03-10T23:53:39.727888+00:00",
+  "next_page": 2,
+  "pages_processed_in_run": 0,
+  "resume_required": false,
+  "source_provider": "github",
+  "window_end_date": "2026-03-09",
+  "window_start_date": "2026-02-08"
+}
