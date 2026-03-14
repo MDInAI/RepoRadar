@@ -2,62 +2,55 @@ import Link from "next/link";
 
 export default function Home() {
   return (
-    <main className="flex flex-col min-h-screen p-8 max-w-5xl mx-auto">
-      <header className="mb-12 border-b border-neutral-800 pb-8">
-        <h1 className="text-3xl font-bold tracking-tight mb-2">Agentic-Workflow Dashboard</h1>
-        <p className="text-neutral-400">
-          Local-first intelligent repository discovery and idea synthesis.
-        </p>
-      </header>
+    <div style={{ background: 'var(--bg-0)', minHeight: '100vh', padding: '40px' }}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        <header style={{ marginBottom: '48px' }}>
+          <h1 style={{ fontSize: '32px', fontWeight: 700, color: 'var(--text-0)', marginBottom: '8px' }}>
+            Agentic-Workflow
+          </h1>
+          <p style={{ color: 'var(--text-2)', fontSize: '14px' }}>
+            Multi-agent repository discovery and analysis system
+          </p>
+        </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <NavigationCard
-          href="/overview"
-          title="Overview"
-          description="System metrics, queue progress, and live agent status."
-        />
-        <NavigationCard
-          href="/repositories"
-          title="Repositories"
-          description="Browse, filter, and sort ingested repositories."
-        />
-        <NavigationCard
-          href="/ideas"
-          title="Ideas Workspace"
-          description="Curate ideas and interact with combinations."
-        />
-        <NavigationCard
-          href="/agents"
-          title="Agents"
-          description="Monitor and control active runtime agents."
-        />
-        <NavigationCard
-          href="/incidents"
-          title="Incidents"
-          description="Review operational failures, rate limits, and system paused state."
-        />
-        <NavigationCard
-          href="/settings"
-          title="Settings & Configuration"
-          description="Manage API keys, paths, and platform connections."
-        />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+          <NavCard href="/overview" title="Overview" desc="System metrics and agent status" />
+          <NavCard href="/control" title="Control Panel" desc="Advanced agent configuration" />
+          <NavCard href="/agents" title="Agents" desc="Monitor runtime agents" />
+          <NavCard href="/repositories" title="Repositories" desc="Browse discovered repos" />
+          <NavCard href="/ideas" title="Ideas" desc="Synthesized insights" />
+          <NavCard href="/incidents" title="Incidents" desc="System events and alerts" />
+          <NavCard href="/settings" title="Settings" desc="Configuration and validation" />
+        </div>
       </div>
-    </main>
+    </div>
   );
 }
 
-function NavigationCard({ href, title, description }: { href: string; title: string; description: string }) {
+function NavCard({ href, title, desc }: { href: string; title: string; desc: string }) {
   return (
-    <Link
-      href={href}
-      className="block p-6 rounded-xl border border-neutral-800 bg-neutral-900/50 hover:bg-neutral-800 hover:border-neutral-700 transition-colors shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
-    >
-      <h2 className="text-xl font-semibold mb-2 flex items-center justify-between">
+    <Link href={href} style={{
+      display: 'block',
+      padding: '24px',
+      background: 'var(--bg-2)',
+      border: '1px solid var(--border)',
+      borderRadius: '10px',
+      textDecoration: 'none',
+      transition: 'all 0.2s'
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.background = 'var(--bg-3)';
+      e.currentTarget.style.borderColor = 'var(--border-h)';
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.background = 'var(--bg-2)';
+      e.currentTarget.style.borderColor = 'var(--border)';
+    }}>
+      <h2 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-0)', marginBottom: '8px' }}>
         {title}
-        <span className="text-indigo-400 text-sm">→</span>
       </h2>
-      <p className="text-neutral-400 text-sm">
-        {description}
+      <p style={{ fontSize: '13px', color: 'var(--text-2)' }}>
+        {desc}
       </p>
     </Link>
   );

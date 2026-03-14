@@ -1,0 +1,193 @@
+{
+  "exclude_rules": [],
+  "generated_at": "2026-03-14T17:31:03.914505+00:00",
+  "include_rules": [],
+  "outcomes": [
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.889899+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "berkekristalos1/wallet-seed-phrase-recover",
+      "github_repository_id": 1180756401,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.892099+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "YouMingYeh/ntu",
+      "github_repository_id": 1180955021,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.893773+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "draguris/dragonclaw",
+      "github_repository_id": 1180975575,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.895865+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "H-Freax/TermHub",
+      "github_repository_id": 1181626424,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.897382+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "kenerry-serain/dvn-workshop-mar-dia-1",
+      "github_repository_id": 1180814876,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.899031+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "rewire-run/rewire",
+      "github_repository_id": 1180887791,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.900555+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "GDWN-BLDR/stateweave",
+      "github_repository_id": 1180977679,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.902126+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "tanvirnwu/SpikeRain",
+      "github_repository_id": 1181218649,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.903794+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "FuzzySecurity/Cassowary-CVE-2024-23222-x86_64",
+      "github_repository_id": 1181264890,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.905388+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "saimon4u/Drive-Pool",
+      "github_repository_id": 1181271578,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.907235+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "my-claude-utils/clsh",
+      "github_repository_id": 1181272190,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.908840+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "mshadmanrahman/pm-pilot",
+      "github_repository_id": 1181331729,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.910343+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "tianfangyetan1/vscode-gkd-toolkit",
+      "github_repository_id": 1181572111,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.911963+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "borisalekseev/fastapi-template",
+      "github_repository_id": 1181652484,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T17:31:03.913443+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "rust-lang/rustlings",
+      "github_repository_id": 42489829,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    }
+  ],
+  "status": "success",
+  "summary": {
+    "accepted": 15,
+    "failed": 0,
+    "rejected": 0
+  }
+}

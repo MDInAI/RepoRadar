@@ -39,6 +39,11 @@ class AgentRunResponse(BaseModel):
     items_succeeded: int | None = None
     items_failed: int | None = None
     error_summary: str | None = None
+    provider_name: str | None = None
+    model_name: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 class AgentRunDetailResponse(AgentRunResponse):
@@ -65,6 +70,19 @@ class SystemEventListParams(BaseModel):
 
 class AgentStatusEntry(BaseModel):
     agent_name: str
+    display_name: str
+    role_label: str
+    description: str
+    implementation_status: str
+    runtime_kind: str
+    uses_github_token: bool
+    uses_model: bool
+    configured_provider: str | None = None
+    configured_model: str | None = None
+    notes: list[str] = Field(default_factory=list)
+    token_usage_24h: int = 0
+    input_tokens_24h: int = 0
+    output_tokens_24h: int = 0
     has_run: bool
     latest_run: AgentRunResponse | None = None
 

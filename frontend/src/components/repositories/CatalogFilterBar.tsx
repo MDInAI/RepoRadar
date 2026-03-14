@@ -3,49 +3,56 @@ import type {
   RepositoryCatalogFilterChip,
   RepositoryCatalogSortBy,
   RepositoryCatalogSortOrder,
+  RepositoryCategory,
   RepositoryDiscoverySource,
   RepositoryMonetizationPotential,
   RepositoryQueueStatus,
   RepositoryTriageStatus,
 } from "@/api/repositories";
 
-const SOURCE_OPTIONS: Array<{
-  label: string;
-  value: RepositoryDiscoverySource | "";
-}> = [
-  { label: "All Sources", value: "" },
+const SOURCE_OPTIONS: Array<{ label: string; value: RepositoryDiscoverySource | "" }> = [
+  { label: "All sources", value: "" },
   { label: "Firehose", value: "firehose" },
   { label: "Backfill", value: "backfill" },
 ];
 
-const TRIAGE_OPTIONS: Array<{
-  label: string;
-  value: RepositoryTriageStatus | "";
-}> = [
-  { label: "All Triage", value: "" },
+const CATEGORY_OPTIONS: Array<{ label: string; value: RepositoryCategory | "" }> = [
+  { label: "All categories", value: "" },
+  { label: "Workflow", value: "workflow" },
+  { label: "Analytics", value: "analytics" },
+  { label: "DevOps", value: "devops" },
+  { label: "Infrastructure", value: "infrastructure" },
+  { label: "DevTools", value: "devtools" },
+  { label: "CRM", value: "crm" },
+  { label: "Communication", value: "communication" },
+  { label: "Support", value: "support" },
+  { label: "Observability", value: "observability" },
+  { label: "Low-Code", value: "low_code" },
+  { label: "Security", value: "security" },
+  { label: "AI / ML", value: "ai_ml" },
+  { label: "Data", value: "data" },
+  { label: "Productivity", value: "productivity" },
+];
+
+const TRIAGE_OPTIONS: Array<{ label: string; value: RepositoryTriageStatus | "" }> = [
+  { label: "All triage", value: "" },
   { label: "Accepted", value: "accepted" },
   { label: "Rejected", value: "rejected" },
   { label: "Pending", value: "pending" },
 ];
 
-const QUEUE_OPTIONS: Array<{
-  label: string;
-  value: RepositoryQueueStatus | "";
-}> = [
-  { label: "All Queue States", value: "" },
+const QUEUE_OPTIONS: Array<{ label: string; value: RepositoryQueueStatus | "" }> = [
+  { label: "All queue", value: "" },
   { label: "Pending", value: "pending" },
-  { label: "In Progress", value: "in_progress" },
+  { label: "In progress", value: "in_progress" },
   { label: "Completed", value: "completed" },
   { label: "Failed", value: "failed" },
 ];
 
-const ANALYSIS_OPTIONS: Array<{
-  label: string;
-  value: RepositoryAnalysisStatus | "";
-}> = [
-  { label: "All Analysis", value: "" },
+const ANALYSIS_OPTIONS: Array<{ label: string; value: RepositoryAnalysisStatus | "" }> = [
+  { label: "All analysis", value: "" },
   { label: "Completed", value: "completed" },
-  { label: "In Progress", value: "in_progress" },
+  { label: "In progress", value: "in_progress" },
   { label: "Pending", value: "pending" },
   { label: "Failed", value: "failed" },
 ];
@@ -54,23 +61,20 @@ const MONETIZATION_OPTIONS: Array<{
   label: string;
   value: RepositoryMonetizationPotential | "";
 }> = [
-  { label: "All Fit Scores", value: "" },
+  { label: "All fit scores", value: "" },
   { label: "High", value: "high" },
   { label: "Medium", value: "medium" },
   { label: "Low", value: "low" },
 ];
 
-const SORT_OPTIONS: Array<{
-  label: string;
-  value: RepositoryCatalogSortBy;
-}> = [
+const SORT_OPTIONS: Array<{ label: string; value: RepositoryCatalogSortBy }> = [
   { label: "Stars", value: "stars" },
   { label: "Forks", value: "forks" },
   { label: "Pushed At", value: "pushed_at" },
   { label: "Ingested", value: "ingested_at" },
 ];
 
-function ToolbarSelect({
+function FilterSelect({
   ariaLabel,
   value,
   options,
@@ -82,14 +86,9 @@ function ToolbarSelect({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="flex min-w-0 flex-1 flex-col gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-      <span>{ariaLabel}</span>
-      <select
-        aria-label={ariaLabel}
-        className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium normal-case tracking-normal text-slate-900 shadow-sm outline-none transition focus:border-orange-400"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
+    <label className="repo-filter-control">
+      <span className="repo-filter-label">{ariaLabel}</span>
+      <select aria-label={ariaLabel} className="select" value={value} onChange={(event) => onChange(event.target.value)}>
         {options.map((option) => (
           <option key={option.label} value={option.value}>
             {option.label}
@@ -100,9 +99,38 @@ function ToolbarSelect({
   );
 }
 
+function FilterInput({
+  ariaLabel,
+  value,
+  placeholder,
+  onChange,
+}: {
+  ariaLabel: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="repo-filter-control">
+      <span className="repo-filter-label">{ariaLabel}</span>
+      <input
+        aria-label={ariaLabel}
+        className="input"
+        placeholder={placeholder}
+        type="text"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
 export function CatalogFilterBar({
   searchValue,
   source,
+  category,
+  agentTag,
+  userTag,
   queueStatus,
   triageStatus,
   analysisStatus,
@@ -120,6 +148,9 @@ export function CatalogFilterBar({
   validationMessage,
   onSearchChange,
   onSourceChange,
+  onCategoryChange,
+  onAgentTagChange,
+  onUserTagChange,
   onQueueStatusChange,
   onTriageStatusChange,
   onAnalysisStatusChange,
@@ -135,6 +166,9 @@ export function CatalogFilterBar({
 }: {
   searchValue: string;
   source: RepositoryDiscoverySource | null;
+  category: RepositoryCategory | null;
+  agentTag: string | null;
+  userTag: string | null;
   queueStatus: RepositoryQueueStatus | null;
   triageStatus: RepositoryTriageStatus | null;
   analysisStatus: RepositoryAnalysisStatus | null;
@@ -152,6 +186,9 @@ export function CatalogFilterBar({
   validationMessage: string | null;
   onSearchChange: (value: string) => void;
   onSourceChange: (value: RepositoryDiscoverySource | null) => void;
+  onCategoryChange: (value: RepositoryCategory | null) => void;
+  onAgentTagChange: (value: string | null) => void;
+  onUserTagChange: (value: string | null) => void;
   onQueueStatusChange: (value: RepositoryQueueStatus | null) => void;
   onTriageStatusChange: (value: RepositoryTriageStatus | null) => void;
   onAnalysisStatusChange: (value: RepositoryAnalysisStatus | null) => void;
@@ -165,28 +202,68 @@ export function CatalogFilterBar({
   onRemoveChip: (key: RepositoryCatalogFilterChip["key"]) => void;
   onClearAll: () => void;
 }) {
-  return (
-    <section className="rounded-[2rem] border border-black/10 bg-white/85 p-5 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.45)] backdrop-blur">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end">
-        <label className="flex min-w-0 flex-[1.5] flex-col gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-          <span>Search</span>
-          <input
-            aria-label="Search repositories"
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium normal-case tracking-normal text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-orange-400"
-            placeholder="Search name or description"
-            type="search"
-            value={searchValue}
-            onChange={(event) => onSearchChange(event.target.value)}
-          />
-        </label>
+  const effectiveChips: RepositoryCatalogFilterChip[] =
+    chips.length > 0
+      ? chips
+      : [
+          ...(searchValue ? [{ key: "search" as const, label: `Search: ${searchValue}` }] : []),
+          ...(source
+            ? [
+                {
+                  key: "source" as const,
+                  label: `Source: ${source.charAt(0).toUpperCase()}${source.slice(1)}`,
+                },
+              ]
+            : []),
+          ...(category
+            ? [
+                {
+                  key: "category" as const,
+                  label: `Category: ${CATEGORY_OPTIONS.find((option) => option.value === category)?.label ?? category}`,
+                },
+              ]
+            : []),
+          ...(agentTag ? [{ key: "agentTag" as const, label: `Agent Tag: ${agentTag}` }] : []),
+          ...(userTag ? [{ key: "userTag" as const, label: `User Tag: ${userTag}` }] : []),
+        ];
 
-        <ToolbarSelect
+  return (
+    <section className="card">
+      <div className="card-header">
+        <div>
+          <p className="card-label">Corpus Browser</p>
+          <h2 className="card-title" style={{ marginTop: "6px" }}>
+            Search, filter, and curate repositories with real analysis tags
+          </h2>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          {isRefreshing ? <span className="badge badge-blue">Refreshing</span> : null}
+          <span className="card-label">
+            Showing {visibleCount} of {totalCount} repos
+          </span>
+        </div>
+      </div>
+
+      <div className="repo-filter-grid repo-filter-grid-primary">
+        <FilterInput
+          ariaLabel="Search repositories"
+          value={searchValue}
+          placeholder="Search name or description"
+          onChange={onSearchChange}
+        />
+        <FilterSelect
           ariaLabel="Discovery source"
           value={source ?? ""}
           options={SOURCE_OPTIONS}
           onChange={(value) => onSourceChange((value || null) as RepositoryDiscoverySource | null)}
         />
-        <ToolbarSelect
+        <FilterSelect
+          ariaLabel="Category"
+          value={category ?? ""}
+          options={CATEGORY_OPTIONS}
+          onChange={(value) => onCategoryChange((value || null) as RepositoryCategory | null)}
+        />
+        <FilterSelect
           ariaLabel="Monetization fit"
           value={monetization ?? ""}
           options={MONETIZATION_OPTIONS}
@@ -194,37 +271,40 @@ export function CatalogFilterBar({
             onMonetizationChange((value || null) as RepositoryMonetizationPotential | null)
           }
         />
-        <ToolbarSelect
+        <FilterSelect
           ariaLabel="Sort by"
           value={sort}
           options={SORT_OPTIONS}
           onChange={(value) => onSortChange(value as RepositoryCatalogSortBy)}
         />
-
-        <button
-          aria-label="Toggle sort order"
-          className="inline-flex h-[3.15rem] min-w-[9rem] items-center justify-center rounded-2xl border border-slate-200 bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800"
-          type="button"
-          onClick={() => onOrderChange(order === "desc" ? "asc" : "desc")}
-        >
-          {order === "desc" ? "Descending" : "Ascending"}
-        </button>
       </div>
 
-      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <ToolbarSelect
+      <div className="repo-filter-grid" style={{ marginTop: "14px" }}>
+        <FilterInput
+          ariaLabel="Agent tag"
+          value={agentTag ?? ""}
+          placeholder="workflow, crm, analytics"
+          onChange={(value) => onAgentTagChange(value.trim() ? value.trim().toLowerCase() : null)}
+        />
+        <FilterInput
+          ariaLabel="User tag"
+          value={userTag ?? ""}
+          placeholder="high-priority, saas-candidate"
+          onChange={(value) => onUserTagChange(value.trim() || null)}
+        />
+        <FilterSelect
           ariaLabel="Queue status"
           value={queueStatus ?? ""}
           options={QUEUE_OPTIONS}
           onChange={(value) => onQueueStatusChange((value || null) as RepositoryQueueStatus | null)}
         />
-        <ToolbarSelect
+        <FilterSelect
           ariaLabel="Triage status"
           value={triageStatus ?? ""}
           options={TRIAGE_OPTIONS}
           onChange={(value) => onTriageStatusChange((value || null) as RepositoryTriageStatus | null)}
         />
-        <ToolbarSelect
+        <FilterSelect
           ariaLabel="Analysis status"
           value={analysisStatus ?? ""}
           options={ANALYSIS_OPTIONS}
@@ -232,109 +312,100 @@ export function CatalogFilterBar({
             onAnalysisStatusChange((value || null) as RepositoryAnalysisStatus | null)
           }
         />
-        <label className="flex min-w-0 flex-col gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-          <span>Minimum stars</span>
+      </div>
+
+      <div className="repo-filter-grid" style={{ marginTop: "14px", gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
+        <label className="repo-filter-control">
+          <span className="repo-filter-label">Minimum stars</span>
           <input
             aria-label="Minimum stars"
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium normal-case tracking-normal text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-orange-400"
+            className="input"
             min={0}
             placeholder="No threshold"
             type="number"
             value={minStars ?? ""}
             onChange={(event) => {
-              const nextValue = event.target.value;
-              onMinStarsChange(nextValue === "" ? null : Number.parseInt(nextValue, 10));
+              const value = event.target.value;
+              onMinStarsChange(value === "" ? null : Number.parseInt(value, 10));
             }}
           />
         </label>
-        <label className="flex min-w-0 flex-col gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-          <span>Maximum stars</span>
+        <label className="repo-filter-control">
+          <span className="repo-filter-label">Maximum stars</span>
           <input
             aria-label="Maximum stars"
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium normal-case tracking-normal text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-orange-400"
+            className="input"
             min={0}
             placeholder="No ceiling"
             type="number"
             value={maxStars ?? ""}
             onChange={(event) => {
-              const nextValue = event.target.value;
-              onMaxStarsChange(nextValue === "" ? null : Number.parseInt(nextValue, 10));
+              const value = event.target.value;
+              onMaxStarsChange(value === "" ? null : Number.parseInt(value, 10));
             }}
           />
         </label>
-        <label className="flex min-w-0 items-center gap-3 rounded-[1.5rem] border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 shadow-sm">
+        <label className="repo-filter-toggle">
           <input
             aria-label="Show failures only"
             checked={hasFailures}
-            className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
             type="checkbox"
             onChange={(event) => onHasFailuresChange(event.target.checked)}
           />
           <span>Show failures only</span>
         </label>
-        <label className="flex min-w-0 items-center gap-3 rounded-[1.5rem] border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 shadow-sm">
+        <label className="repo-filter-toggle">
           <input
             aria-label="Show starred only"
             checked={starredOnly}
-            className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
             type="checkbox"
             onChange={(event) => onStarredOnlyChange(event.target.checked)}
           />
           <span>Show starred only</span>
         </label>
+        <button
+          aria-label="Toggle sort order"
+          className="btn"
+          style={{ justifyContent: "center", alignSelf: "end", height: "34px" }}
+          type="button"
+          onClick={() => onOrderChange(order === "desc" ? "asc" : "desc")}
+        >
+          {order === "desc" ? "Descending" : "Ascending"}
+        </button>
       </div>
 
-      {validationMessage ? (
-        <p
-          aria-live="polite"
-          className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950"
-        >
-          {validationMessage}
-        </p>
-      ) : null}
-
-      <div className="mt-5 flex flex-col gap-3 border-t border-slate-200/80 pt-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap items-center gap-2">
-          {chips.length === 0 ? (
-            <span className="rounded-full border border-dashed border-slate-300 px-3 py-1 text-xs font-medium text-slate-500">
-              No active filters
-            </span>
-          ) : (
-            chips.map((chip) => (
+      <div className="repo-chip-row">
+        <span className="card-label">Filters</span>
+        {effectiveChips.length > 0 ? (
+          <>
+            {effectiveChips.map((chip) => (
               <button
-                key={chip.label}
+                key={chip.key}
                 aria-label={`Remove ${chip.label} filter`}
-                className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-900 transition hover:border-orange-300 hover:bg-orange-100"
+                className="tag tag-active"
                 type="button"
                 onClick={() => onRemoveChip(chip.key)}
               >
-                <span>{chip.label}</span>
-                <span aria-hidden="true">x</span>
+                {chip.label} ×
               </button>
-            ))
-          )}
-          {chips.length > 1 ? (
-            <button
-              className="inline-flex items-center rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-100"
-              type="button"
-              onClick={onClearAll}
-            >
+            ))}
+            <button className="btn btn-sm" type="button" onClick={onClearAll}>
               Clear all
             </button>
-          ) : null}
-        </div>
-
-        <div className="flex items-center gap-3 text-sm text-slate-600">
-          <span className="font-semibold text-slate-900">
-            Showing {visibleCount} of {totalCount} repos
-          </span>
-          {isRefreshing ? (
-            <span className="rounded-full bg-slate-950 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
-              Refreshing
-            </span>
-          ) : null}
-        </div>
+          </>
+        ) : (
+          <span style={{ color: "var(--text-2)", fontSize: "12px" }}>No active filters</span>
+        )}
       </div>
+
+      {validationMessage ? (
+        <div className="card" style={{ marginTop: "14px", borderColor: "rgba(217, 79, 79, 0.28)", background: "var(--red-dim)" }}>
+          <p className="card-label" style={{ color: "var(--red)" }}>
+            Validation Issue
+          </p>
+          <p style={{ marginTop: "8px", color: "var(--text-1)" }}>{validationMessage}</p>
+        </div>
+      ) : null}
     </section>
   );
 }

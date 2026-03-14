@@ -6,6 +6,9 @@ export interface OverviewSummary {
     pending_intake: number;
     firehose_discovered: number;
     backfill_discovered: number;
+    discovered_last_24h: number;
+    firehose_discovered_last_24h: number;
+    backfill_discovered_last_24h: number;
   };
   triage: {
     pending: number;
@@ -33,15 +36,36 @@ export interface OverviewSummary {
   };
   agents: Array<{
     agent_name: string;
+    display_name: string;
+    role_label: string;
+    description: string;
+    implementation_status: string;
+    runtime_kind: string;
+    uses_github_token: boolean;
+    uses_model: boolean;
+    configured_provider: string | null;
+    configured_model: string | null;
+    notes: string[];
     status: string | null;
     is_paused: boolean;
     last_run_at: string | null;
+    token_usage_24h: number;
+    input_tokens_24h: number;
+    output_tokens_24h: number;
   }>;
   failures: {
     total_failures: number;
     critical_failures: number;
     rate_limited_failures: number;
     blocking_failures: number;
+  };
+  token_usage: {
+    total_tokens_24h: number;
+    input_tokens_24h: number;
+    output_tokens_24h: number;
+    llm_runs_24h: number;
+    top_consumer_agent_name: string | null;
+    top_consumer_tokens_24h: number;
   };
 }
 

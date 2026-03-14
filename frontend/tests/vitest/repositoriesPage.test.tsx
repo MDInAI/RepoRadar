@@ -107,8 +107,8 @@ describe("RepositoriesPage", () => {
     renderPage();
 
     expect(await screen.findByText("alpha/growth-engine")).toBeTruthy();
-    expect(screen.getByText("Search: growth")).toBeTruthy();
-    expect(screen.getByText("Source: Firehose")).toBeTruthy();
+    expect(screen.getByLabelText("Remove Search: growth filter")).toBeTruthy();
+    expect(screen.getByLabelText("Remove Source: Firehose filter")).toBeTruthy();
 
     await user.click(screen.getByLabelText("Remove Source: Firehose filter"));
 

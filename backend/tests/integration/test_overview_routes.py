@@ -67,6 +67,7 @@ def test_get_overview_summary_empty(client: TestClient, session: Session):
     assert data["backlog"]["analysis_pending"] == 0
     assert len(data["agents"]) == 7
     assert data["failures"]["total_failures"] == 0
+    assert data["token_usage"]["total_tokens_24h"] == 0
 
 
 def test_get_overview_summary_with_data(client: TestClient, session: Session):
@@ -127,6 +128,9 @@ def test_get_overview_summary_with_data(client: TestClient, session: Session):
     assert data["ingestion"]["pending_intake"] == 1
     assert data["ingestion"]["firehose_discovered"] == 1
     assert data["ingestion"]["backfill_discovered"] == 1
+    assert data["ingestion"]["discovered_last_24h"] == 2
+    assert data["ingestion"]["firehose_discovered_last_24h"] == 1
+    assert data["ingestion"]["backfill_discovered_last_24h"] == 1
 
     assert data["triage"]["pending"] == 1
     assert data["triage"]["accepted"] == 1
@@ -144,6 +148,8 @@ def test_get_overview_summary_with_data(client: TestClient, session: Session):
 
     assert len(data["agents"]) == 7
     firehose_agent = next(a for a in data["agents"] if a["agent_name"] == "firehose")
+    assert firehose_agent["display_name"] == "Firehose"
+    assert firehose_agent["uses_github_token"] is True
     assert firehose_agent["status"] == "completed"
     assert firehose_agent["is_paused"] is False
 
@@ -153,3 +159,4 @@ def test_get_overview_summary_with_data(client: TestClient, session: Session):
     assert data["failures"]["total_failures"] == 1
     assert data["failures"]["critical_failures"] == 1
     assert data["failures"]["blocking_failures"] == 1
+    assert data["token_usage"]["total_tokens_24h"] == 0

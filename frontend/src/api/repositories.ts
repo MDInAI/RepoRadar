@@ -6,6 +6,21 @@ export type RepositoryIntakeStatus = RepositoryQueueStatus;
 export type RepositoryTriageStatus = "pending" | "accepted" | "rejected";
 export type RepositoryAnalysisStatus = "pending" | "in_progress" | "completed" | "failed";
 export type RepositoryMonetizationPotential = "low" | "medium" | "high";
+export type RepositoryCategory =
+  | "workflow"
+  | "analytics"
+  | "devops"
+  | "infrastructure"
+  | "devtools"
+  | "crm"
+  | "communication"
+  | "support"
+  | "observability"
+  | "low_code"
+  | "security"
+  | "ai_ml"
+  | "data"
+  | "productivity";
 export type RepositoryCatalogSortBy = "stars" | "forks" | "pushed_at" | "ingested_at";
 export type RepositoryCatalogSortOrder = "asc" | "desc";
 export type RepositoryTriageExplanationKind =
@@ -33,6 +48,8 @@ export interface RepositoryCatalogItem {
   intake_failed_at: string | null;
   analysis_failed_at: string | null;
   failure: RepositoryFailureContext | null;
+  category?: RepositoryCategory | null;
+  agent_tags?: string[];
   monetization_potential: RepositoryMonetizationPotential | null;
   has_readme_artifact: boolean;
   has_analysis_artifact: boolean;
@@ -82,6 +99,8 @@ export interface RepositoryArtifactRef {
 
 export interface RepositoryAnalysisSummary {
   monetization_potential: RepositoryMonetizationPotential;
+  category?: RepositoryCategory | null;
+  agent_tags?: string[];
   pros: string[];
   cons: string[];
   missing_feature_signals: string[];
@@ -157,6 +176,8 @@ export interface RepositoryDetailResponse {
   discovered_at: string;
   status_updated_at: string;
   pushed_at: string | null;
+  category?: RepositoryCategory | null;
+  agent_tags?: string[];
   triage: RepositoryTriageContext;
   analysis_summary: RepositoryAnalysisSummary | null;
   readme_snapshot: RepositoryReadmeSnapshot | null;
@@ -199,6 +220,9 @@ export interface RepositoryCatalogViewState {
   triageStatus: RepositoryTriageStatus | null;
   analysisStatus: RepositoryAnalysisStatus | null;
   hasFailures: boolean;
+  category: RepositoryCategory | null;
+  agentTag: string | null;
+  userTag: string | null;
   monetization: RepositoryMonetizationPotential | null;
   minStars: number | null;
   maxStars: number | null;
@@ -213,6 +237,9 @@ export type RepositoryCatalogFilterKey =
   | "triageStatus"
   | "analysisStatus"
   | "hasFailures"
+  | "category"
+  | "agentTag"
+  | "userTag"
   | "monetization"
   | "minStars"
   | "maxStars"
@@ -238,6 +265,9 @@ const DEFAULT_VIEW_STATE: RepositoryCatalogViewState = {
   triageStatus: null,
   analysisStatus: null,
   hasFailures: false,
+  category: null,
+  agentTag: null,
+  userTag: null,
   monetization: null,
   minStars: null,
   maxStars: null,
@@ -255,6 +285,22 @@ const ANALYSIS_VALUES: RepositoryAnalysisStatus[] = [
   "failed",
 ];
 const MONETIZATION_VALUES: RepositoryMonetizationPotential[] = ["low", "medium", "high"];
+const CATEGORY_VALUES: RepositoryCategory[] = [
+  "workflow",
+  "analytics",
+  "devops",
+  "infrastructure",
+  "devtools",
+  "crm",
+  "communication",
+  "support",
+  "observability",
+  "low_code",
+  "security",
+  "ai_ml",
+  "data",
+  "productivity",
+];
 const SORT_VALUES: RepositoryCatalogSortBy[] = ["stars", "forks", "pushed_at", "ingested_at"];
 const ORDER_VALUES: RepositoryCatalogSortOrder[] = ["asc", "desc"];
 
@@ -374,6 +420,9 @@ export function parseRepositoryCatalogSearchParams(
     triageStatus: parseEnumValue(searchParams.get("triageStatus"), TRIAGE_VALUES),
     analysisStatus: parseEnumValue(searchParams.get("analysisStatus"), ANALYSIS_VALUES),
     hasFailures: parseBooleanParam(searchParams.get("hasFailures")),
+    category: parseEnumValue(searchParams.get("category"), CATEGORY_VALUES),
+    agentTag: searchParams.get("agentTag")?.trim().toLowerCase() || null,
+    userTag: searchParams.get("userTag")?.trim() || null,
     monetization: parseEnumValue(searchParams.get("monetization"), MONETIZATION_VALUES),
     minStars: parseNonNegativeInt(searchParams.get("minStars")),
     maxStars: parseNonNegativeInt(searchParams.get("maxStars")),
@@ -417,6 +466,15 @@ export function buildRepositoryCatalogSearchParams(
   if (state.hasFailures) {
     params.set("hasFailures", "true");
   }
+  if (state.category) {
+    params.set("category", state.category);
+  }
+  if (state.agentTag) {
+    params.set("agentTag", state.agentTag);
+  }
+  if (state.userTag) {
+    params.set("userTag", state.userTag);
+  }
   if (state.monetization) {
     params.set("monetization", state.monetization);
   }
@@ -447,6 +505,9 @@ export function getRepositoryCatalogQueryKey(state: RepositoryCatalogViewState) 
     state.triageStatus,
     state.analysisStatus,
     state.hasFailures,
+    state.category,
+    state.agentTag,
+    state.userTag,
     state.monetization,
     state.minStars,
     state.maxStars,
@@ -497,6 +558,15 @@ function buildRepositoryCatalogApiParams(
   }
   if (state.hasFailures) {
     params.set("has_failures", "true");
+  }
+  if (state.category) {
+    params.set("category", state.category);
+  }
+  if (state.agentTag) {
+    params.set("agent_tag", state.agentTag);
+  }
+  if (state.userTag) {
+    params.set("user_tag", state.userTag);
   }
   if (state.monetization) {
     params.set("monetization_potential", state.monetization);
@@ -766,6 +836,24 @@ export function describeRepositoryCatalogFilters(
       label: "Failures only",
     });
   }
+  if (state.category) {
+    chips.push({
+      key: "category",
+      label: `Category: ${titleCaseWords(state.category)}`,
+    });
+  }
+  if (state.agentTag) {
+    chips.push({
+      key: "agentTag",
+      label: `Agent Tag: ${state.agentTag}`,
+    });
+  }
+  if (state.userTag) {
+    chips.push({
+      key: "userTag",
+      label: `User Tag: ${state.userTag}`,
+    });
+  }
   if (state.monetization) {
     chips.push({
       key: "monetization",
@@ -821,6 +909,15 @@ export function clearRepositoryCatalogFilter(
   if (key === "hasFailures") {
     nextState.hasFailures = false;
   }
+  if (key === "category") {
+    nextState.category = null;
+  }
+  if (key === "agentTag") {
+    nextState.agentTag = null;
+  }
+  if (key === "userTag") {
+    nextState.userTag = null;
+  }
   if (key === "monetization") {
     nextState.monetization = null;
   }
@@ -849,6 +946,9 @@ export function clearAllRepositoryCatalogFilters(
     triageStatus: null,
     analysisStatus: null,
     hasFailures: false,
+    category: null,
+    agentTag: null,
+    userTag: null,
     monetization: null,
     minStars: null,
     maxStars: null,

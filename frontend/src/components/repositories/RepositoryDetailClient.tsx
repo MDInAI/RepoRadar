@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import {
   addRepositoryUserTag,
@@ -9,24 +9,10 @@ import {
   getRepositoryDetailQueryKey,
   removeRepositoryUserTag,
   updateRepositoryStar,
-  type RepositoryAnalysisArtifact,
   type RepositoryDetailResponse,
 } from "@/api/repositories";
 
-import {
-  formatAnalysisStatusLabel,
-  formatCompactNumber,
-  formatDiscoverySourceLabel,
-  formatMonetizationLabel,
-  formatQueueStatusLabel,
-  formatRelativeDate,
-  formatTriageStatusLabel,
-  getFitBadgeClassName,
-  getQueueStatusBadgeClassName,
-  getStatusBadgeClassName,
-  getTriageStatusBadgeClassName,
-} from "./catalogPresentation";
-
+type RepositoryTab = "overview" | "readme" | "analysis" | "history";
 type RepositoryActionKey = "family-assignment" | "combiner-draft" | "similar-project-scan";
 
 interface RepositoryActionDefinition {
@@ -37,106 +23,150 @@ interface RepositoryActionDefinition {
   buttonLabel: string;
 }
 
+const TABS: Array<{ key: RepositoryTab; label: string }> = [
+  { key: "overview", label: "Overview" },
+  { key: "readme", label: "README Intelligence" },
+  { key: "analysis", label: "Analyst Output" },
+  { key: "history", label: "History" },
+];
+
 const ACTIONS: RepositoryActionDefinition[] = [
   {
     key: "family-assignment",
-    title: "Family Assignment",
+    title: "Add to Family",
     destination: "Ideas > Family Workspace",
-    expectedResult:
-      "The repository is staged for inclusion in a future idea family grouping workflow.",
+    expectedResult: "The repository is staged for a future family clustering decision.",
     buttonLabel: "Stage family assignment",
   },
   {
     key: "combiner-draft",
     title: "Create Combiner Brief",
     destination: "Ideas > Combiner Results",
-    expectedResult:
-      "A synthesis draft is prepared so the Combiner can generate a composite business idea.",
+    expectedResult: "A synthesis prompt is prepared for idea-family generation.",
     buttonLabel: "Create Combiner brief",
   },
   {
     key: "similar-project-scan",
     title: "Similar-Project Scan",
     destination: "Repositories > Similar Results",
-    expectedResult:
-      "A follow-up scan is queued to surface repositories with adjacent market or product signals.",
+    expectedResult: "A follow-up scan is queued for comparable repositories.",
     buttonLabel: "Queue similar-project scan",
   },
 ];
-
-function formatStatusLabel(value: string): string {
-  return value
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function formatTriageExplanationKind(value: string): string {
-  return value
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function collectAgentTags(detail: RepositoryDetailResponse): string[] {
-  const explanation = detail.triage.explanation;
-  if (!explanation) {
-    return [];
-  }
-  return [...explanation.matched_include_rules, ...explanation.matched_exclude_rules];
-}
-
-function collectCategorySignals(detail: RepositoryDetailResponse): string[] {
-  const categories = new Set<string>();
-  categories.add(formatDiscoverySourceLabel(detail.discovery_source));
-  if (detail.analysis_summary?.monetization_potential) {
-    categories.add(formatMonetizationLabel(detail.analysis_summary.monetization_potential));
-  }
-  if (detail.analysis_summary?.missing_feature_signals.length) {
-    categories.add("Missing feature signals");
-  }
-  return [...categories];
-}
-
-function renderAnalysisPayload(analysisArtifact: RepositoryAnalysisArtifact | null) {
-  const payload = analysisArtifact?.payload;
-  if (!payload) {
-    return (
-      <p className="text-sm leading-6 text-slate-600">
-        No generated analysis artifact is available yet.
-      </p>
-    );
-  }
-
-  return (
-    <pre className="overflow-x-auto rounded-[1.4rem] bg-slate-950 px-4 py-4 text-xs leading-6 text-slate-100">
-      {JSON.stringify(payload, null, 2)}
-    </pre>
-  );
-}
 
 function formatTimestamp(value: string | null | undefined): string {
   if (!value) {
     return "Unavailable";
   }
-
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     return "Unknown";
   }
-
   return `${parsed.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+function formatRelativeDate(value: string | null | undefined): string {
+  if (!value) {
+    return "Unavailable";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "Unknown";
+  }
+  const diffHours = Math.round((Date.now() - parsed.getTime()) / (1000 * 60 * 60));
+  if (diffHours < 1) {
+    return "Less than 1 hour ago";
+  }
+  if (diffHours < 24) {
+    return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+  }
+  const diffDays = Math.round(diffHours / 24);
+  return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+}
+
+function titleCase(value: string): string {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function renderTagList(tags: string[], className: string, emptyLabel = "None yet") {
+  if (tags.length === 0) {
+    return <span style={{ color: "var(--text-3)" }}>{emptyLabel}</span>;
+  }
+  return (
+    <div className="repo-tag-cluster">
+      {tags.map((tag) => (
+        <span key={tag} className={className}>
+          {tag}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function buildDecisionRows(detail: RepositoryDetailResponse) {
+  const fit = titleCase(detail.analysis_summary?.monetization_potential ?? "unscored");
+  const category = detail.category ? titleCase(detail.category) : "Unclassified";
+  const recommendation =
+    detail.analysis_summary?.monetization_potential === "high"
+      ? "Create family + Combiner brief"
+      : detail.analysis_summary?.monetization_potential === "medium"
+        ? "Keep on watchlist and gather more evidence"
+        : "Monitor only";
+
+  return [
+    { label: "Monetization", value: `${fit} fit` },
+    { label: "Category", value: category },
+    {
+      label: "Market timing",
+      value:
+        detail.stargazers_count >= 1000
+          ? "Strong community signal"
+          : "Needs more demand validation",
+    },
+    { label: "Recommended action", value: recommendation },
+  ];
+}
+
+function buildHistoryRows(detail: RepositoryDetailResponse) {
+  return [
+    ["Discovered", formatTimestamp(detail.discovered_at)],
+    ["Status updated", formatTimestamp(detail.status_updated_at)],
+    ["Triage completed", formatTimestamp(detail.triage.triaged_at)],
+    ["Analysis started", formatTimestamp(detail.processing.analysis_started_at)],
+    ["Analysis completed", formatTimestamp(detail.processing.analysis_completed_at)],
+    ["Last attempted", formatTimestamp(detail.processing.analysis_last_attempted_at)],
+  ];
+}
+
+function buildCategorySignals(detail: RepositoryDetailResponse): string[] {
+  const signals = new Set<string>();
+  if (detail.category) {
+    signals.add(titleCase(detail.category));
+  }
+  if (detail.discovery_source) {
+    signals.add(titleCase(detail.discovery_source));
+  }
+  if (detail.analysis_summary?.monetization_potential) {
+    signals.add(`${titleCase(detail.analysis_summary.monetization_potential)} fit`);
+  }
+  return [...signals];
 }
 
 export function RepositoryDetailClient({ repositoryId }: { repositoryId: number }) {
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<RepositoryTab>("overview");
   const [selectedAction, setSelectedAction] = useState<RepositoryActionDefinition | null>(null);
   const [newUserTag, setNewUserTag] = useState("");
   const [curationError, setCurationError] = useState<string | null>(null);
+
   const detailQuery = useQuery({
     queryKey: getRepositoryDetailQueryKey(repositoryId),
     queryFn: () => fetchRepositoryDetail(repositoryId),
   });
+
   const starMutation = useMutation({
     mutationFn: (starred: boolean) => updateRepositoryStar(repositoryId, starred),
     onMutate: async (starred) => {
@@ -155,7 +185,7 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
       if (context?.previousDetail) {
         queryClient.setQueryData(getRepositoryDetailQueryKey(repositoryId), context.previousDetail);
       }
-      setCurationError(error instanceof Error ? error.message : "Unable to update starred state.");
+      setCurationError(error instanceof Error ? error.message : "Unable to update watch state.");
     },
     onSuccess: (curation) => {
       queryClient.setQueryData<RepositoryDetailResponse>(
@@ -174,11 +204,10 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
       void queryClient.invalidateQueries({ queryKey: ["repositories", "catalog"] });
     },
   });
+
   const addTagMutation = useMutation({
     mutationFn: (tagLabel: string) => addRepositoryUserTag(repositoryId, tagLabel),
-    onMutate: () => {
-      setCurationError(null);
-    },
+    onMutate: () => setCurationError(null),
     onError: (error) => {
       setCurationError(error instanceof Error ? error.message : "Unable to add user tag.");
     },
@@ -197,11 +226,10 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
       void queryClient.invalidateQueries({ queryKey: ["repositories", "catalog"] });
     },
   });
+
   const removeTagMutation = useMutation({
     mutationFn: (tagLabel: string) => removeRepositoryUserTag(repositoryId, tagLabel),
-    onMutate: () => {
-      setCurationError(null);
-    },
+    onMutate: () => setCurationError(null),
     onError: (error) => {
       setCurationError(error instanceof Error ? error.message : "Unable to remove user tag.");
     },
@@ -220,682 +248,462 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
     },
   });
 
+  const detail = detailQuery.data;
+  const decisionRows = useMemo(() => (detail ? buildDecisionRows(detail) : []), [detail]);
+  const historyRows = useMemo(() => (detail ? buildHistoryRows(detail) : []), [detail]);
+  const categorySignals = useMemo(() => (detail ? buildCategorySignals(detail) : []), [detail]);
+
   if (!Number.isFinite(repositoryId) || repositoryId <= 0) {
     return (
-      <main className="min-h-screen bg-[linear-gradient(180deg,#fff8f1_0%,#f8fafc_40%,#dbeafe_100%)] px-6 py-10 text-slate-900">
-        <div className="mx-auto max-w-7xl rounded-[2rem] border border-amber-200 bg-amber-50 px-6 py-12 shadow-[0_20px_60px_-36px_rgba(180,83,9,0.35)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-700">
-            Invalid Route
-          </p>
-          <h1 className="mt-3 text-2xl font-semibold text-amber-950">
+      <main className="repo-detail-page">
+        <section className="card">
+          <p className="card-label">Invalid Route</p>
+          <h1 className="card-title" style={{ marginTop: "10px", fontSize: "22px" }}>
             Repository ID is missing or invalid
           </h1>
-          <p className="mt-3 max-w-2xl text-sm text-amber-900">
-            Open the dossier from the repository catalog so the route can resolve a valid
+          <p style={{ marginTop: "10px", color: "var(--text-2)" }}>
+            Open the dossier from the repositories catalog so the route can resolve a valid
             repository identifier.
           </p>
-        </div>
+        </section>
       </main>
     );
   }
 
-  if (detailQuery.isLoading && !detailQuery.data) {
+  if (detailQuery.isLoading && !detail) {
     return (
-      <main className="min-h-screen bg-[linear-gradient(180deg,#fff8f1_0%,#f8fafc_40%,#dbeafe_100%)] px-6 py-10 text-slate-900">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6">
-          <section className="rounded-[2rem] border border-black/10 bg-white/90 px-6 py-16 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.45)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-              Loading
-            </p>
-            <h1 className="mt-3 text-3xl font-semibold text-slate-950">
-              Hydrating repository dossier
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-              Pulling repository metadata, README context, triage rationale, and generated
-              analysis artifacts into the multi-pane detail surface.
-            </p>
-          </section>
-        </div>
+      <main className="repo-detail-page">
+        <section className="card">
+          <p className="card-label">Loading</p>
+          <h1 className="card-title" style={{ marginTop: "10px", fontSize: "22px" }}>
+            Hydrating repository dossier
+          </h1>
+          <p style={{ marginTop: "10px", color: "var(--text-2)" }}>
+            Pulling README context, triage rationale, analysis output, and curation state into the
+            dossier workspace.
+          </p>
+        </section>
       </main>
     );
   }
 
-  if (detailQuery.isError || !detailQuery.data) {
-    const errorMessage =
-      detailQuery.error instanceof Error
-        ? detailQuery.error.message
-        : "Unable to load the repository dossier.";
+  if (detailQuery.isError || !detail) {
     return (
-      <main className="min-h-screen bg-[linear-gradient(180deg,#fff8f1_0%,#f8fafc_40%,#dbeafe_100%)] px-6 py-10 text-slate-900">
-        <div className="mx-auto max-w-7xl rounded-[2rem] border border-rose-200 bg-rose-50 px-6 py-12 shadow-[0_20px_60px_-36px_rgba(244,63,94,0.35)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-rose-700">
+      <main className="repo-detail-page">
+        <section className="card" style={{ borderColor: "rgba(217, 79, 79, 0.28)", background: "var(--red-dim)" }}>
+          <p className="card-label" style={{ color: "var(--red)" }}>
             Dossier Error
           </p>
-          <h1 className="mt-3 text-2xl font-semibold text-rose-950">
+          <h1 className="card-title" style={{ marginTop: "10px", fontSize: "22px" }}>
             Unable to load repository detail
           </h1>
-          <p className="mt-3 max-w-2xl text-sm text-rose-900">{errorMessage}</p>
-          <button
-            className="mt-5 rounded-full border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-900 transition hover:bg-rose-100"
-            type="button"
-            onClick={() => {
-              void detailQuery.refetch();
-            }}
-          >
-            Retry fetch
-          </button>
-        </div>
+          <p style={{ marginTop: "10px", color: "var(--text-1)" }}>
+            {detailQuery.error instanceof Error
+              ? detailQuery.error.message
+              : "The repository dossier could not be loaded."}
+          </p>
+        </section>
       </main>
     );
   }
 
-  const detail = detailQuery.data;
-  const triageExplanation = detail.triage.explanation;
-  const agentTags = collectAgentTags(detail);
-  const categorySignals = collectCategorySignals(detail);
-  const intakeStatus = detail.intake_status;
   const failureContext = detail.processing.failure;
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#fff8f1_0%,#f8fafc_40%,#dbeafe_100%)] px-6 py-10 text-slate-900">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <header className="rounded-[2.2rem] border border-black/10 bg-white/85 px-6 py-7 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.45)] backdrop-blur">
-          <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-            <div className="max-w-4xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.32em] text-orange-700">
-                Repository Dossier
-              </p>
-              <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
-                {detail.full_name}
-              </h1>
-              <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-600">
-                {detail.repository_description ?? "No repository description is available yet."}
-              </p>
+    <>
+      <div className="topbar">
+        <span className="topbar-title">Repository Detail</span>
+        <span className="topbar-breadcrumb">dossier · {detail.repository_name}</span>
+      </div>
 
-              <div className="mt-5 flex flex-wrap gap-3">
-                <span
-                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${getQueueStatusBadgeClassName(
-                    intakeStatus,
-                  )}`}
-                >
-                  Intake: {formatQueueStatusLabel(intakeStatus)}
-                </span>
-                <span
-                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${getTriageStatusBadgeClassName(
-                    detail.triage_status,
-                  )}`}
-                >
-                  Triage: {formatTriageStatusLabel(detail.triage_status)}
-                </span>
-                <span
-                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusBadgeClassName(
-                    detail.analysis_status,
-                  )}`}
-                >
-                  Analysis: {formatAnalysisStatusLabel(detail.analysis_status)}
-                </span>
-                <span
-                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${getFitBadgeClassName(
-                    detail.analysis_summary?.monetization_potential ?? null,
-                  )}`}
-                >
-                  Fit: {formatMonetizationLabel(detail.analysis_summary?.monetization_potential ?? null)}
-                </span>
-                <button
-                  aria-label={detail.is_starred ? "Unstar repository" : "Star repository"}
-                  aria-pressed={detail.is_starred}
-                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs font-semibold transition ${
-                    detail.is_starred
-                      ? "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-amber-300 hover:text-amber-700"
-                  }`}
-                  disabled={starMutation.isPending}
-                  type="button"
-                  onClick={() => {
-                    starMutation.mutate(!detail.is_starred);
-                  }}
-                >
-                  <span aria-hidden="true">{detail.is_starred ? "★" : "☆"}</span>
-                  {detail.is_starred ? "Starred" : "Add to starred"}
-                </button>
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2 xl:w-[24rem]">
-              <div className="rounded-[1.6rem] border border-orange-200 bg-orange-50/90 px-4 py-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-orange-700">
-                  Trust Signals
-                </p>
-                <div className="mt-3 space-y-2 text-sm text-orange-950">
-                  <p>
-                    <span className="font-semibold">{formatCompactNumber(detail.stargazers_count)}</span>{" "}
-                    stars
-                  </p>
-                  <p>
-                    <span className="font-semibold">{formatCompactNumber(detail.forks_count)}</span>{" "}
-                    forks
-                  </p>
-                  <p>Discovery: {formatDiscoverySourceLabel(detail.discovery_source)}</p>
-                  <p>Pushed {formatRelativeDate(detail.pushed_at)}</p>
-                </div>
-              </div>
-
-              <div className="rounded-[1.6rem] border border-slate-200 bg-slate-50/90 px-4 py-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Action Context
-                </p>
-                <div className="mt-3 space-y-2 text-sm text-slate-700">
-                  <p>Object: {detail.full_name}</p>
-                  <p>Route target: `/repositories/{detail.github_repository_id}`</p>
-                  <p>Last status change: {formatRelativeDate(detail.status_updated_at)}</p>
-                </div>
-              </div>
+      <main className="repo-detail-page">
+        <section className="hero-strip">
+          <div style={{ minWidth: 0 }}>
+            <p className="card-label">Repository Dossier</p>
+            <h1 style={{ marginTop: "10px", fontSize: "28px", fontWeight: 700, letterSpacing: "-0.04em" }}>
+              {detail.full_name}
+            </h1>
+            <p style={{ marginTop: "10px", color: "var(--text-2)", maxWidth: "780px", fontSize: "15px" }}>
+              {detail.repository_description || "No description is stored for this repository yet."}
+            </p>
+            <div className="repo-hero-metrics">
+              <span>{detail.stargazers_count.toLocaleString()} stars</span>
+              <span>{detail.forks_count.toLocaleString()} forks</span>
+              <span>Discovered {formatRelativeDate(detail.discovered_at)}</span>
+              <span>Last commit: {formatRelativeDate(detail.pushed_at)}</span>
             </div>
           </div>
-        </header>
 
-        {selectedAction ? (
-          <section
-            aria-live="polite"
-            className="rounded-[1.8rem] border border-emerald-200 bg-emerald-50 px-6 py-5 shadow-[0_20px_60px_-40px_rgba(16,185,129,0.35)]"
-            role="status"
-          >
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">
-              Action Scaffold Ready
-            </p>
-            <h2 className="mt-2 text-xl font-semibold text-emerald-950">{selectedAction.title}</h2>
-            <p className="mt-3 text-sm text-emerald-950">
-              <span className="font-semibold">Object:</span> {detail.full_name}
-            </p>
-            <p className="mt-1 text-sm text-emerald-950">
-              <span className="font-semibold">Destination:</span> {selectedAction.destination}
-            </p>
-            <p className="mt-1 text-sm text-emerald-950">
-              <span className="font-semibold">Expected Result:</span> {selectedAction.expectedResult}
-            </p>
-          </section>
-        ) : null}
+          <div className="repo-hero-badges">
+            <button
+              aria-label={detail.is_starred ? "Unstar repository" : "Star repository"}
+              className={`btn ${detail.is_starred ? "btn-primary" : ""}`}
+              type="button"
+              onClick={() => starMutation.mutate(!detail.is_starred)}
+            >
+              {detail.is_starred ? "★ Watchlisted" : "☆ Watchlist"}
+            </button>
+            <span className="badge badge-green">{titleCase(detail.analysis_status)}</span>
+            <span className="badge badge-blue">{titleCase(detail.discovery_source)}</span>
+            {detail.analysis_summary?.monetization_potential ? (
+              <span className="badge badge-yellow">
+                {titleCase(detail.analysis_summary.monetization_potential)} Fit
+              </span>
+            ) : null}
+          </div>
+        </section>
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="flex flex-col gap-6">
-            <section className="rounded-[2rem] border border-black/10 bg-white/90 px-6 py-6 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.45)]">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Repo Overview
-                  </p>
-                  <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-                    Repository metadata and triage context
-                  </h2>
-                </div>
+        <div className="repo-tabs">
+          {TABS.map((tab) => (
+            <button
+              key={tab.key}
+              className={`repo-tab ${tab.key === activeTab ? "active" : ""}`}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-                <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-                  <p>Owner: {detail.owner_login}</p>
-                  <p>Repository: {detail.repository_name}</p>
-                  <p>Provider: {detail.source_provider}</p>
-                  <p>Discovered {formatRelativeDate(detail.discovered_at)}</p>
-                </div>
-              </div>
-
-              <div className="mt-6 grid gap-4 lg:grid-cols-2">
-                <div className="rounded-[1.6rem] border border-slate-200 bg-slate-50/80 px-5 py-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Triage Context
-                  </p>
-                  <p className="mt-3 text-sm font-semibold text-slate-950">
-                    Status: {formatStatusLabel(detail.triage.triage_status)}
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-700">
-                    {triageExplanation?.summary ??
-                      "Triage explanation is not available yet for this repository."}
-                  </p>
-                  {triageExplanation ? (
-                    <div className="mt-4 space-y-2 text-sm text-slate-700">
-                      <p>
-                        Explanation kind: {formatTriageExplanationKind(triageExplanation.kind)}
-                      </p>
-                      <p>
-                        Include rules:{" "}
-                        {triageExplanation.matched_include_rules.length > 0
-                          ? triageExplanation.matched_include_rules.join(", ")
-                          : "None"}
-                      </p>
-                      <p>
-                        Exclude rules:{" "}
-                        {triageExplanation.matched_exclude_rules.length > 0
-                          ? triageExplanation.matched_exclude_rules.join(", ")
-                          : "None"}
-                      </p>
+        <div className="repo-dossier-grid">
+          <div className="repo-dossier-main">
+            {activeTab === "overview" ? (
+              <>
+                <section className="card">
+                  <div className="card-header">
+                    <div>
+                      <h2 className="card-title" style={{ fontSize: "18px" }}>
+                        Analyst Summary
+                      </h2>
                     </div>
-                  ) : null}
-                </div>
-
-                <div className="rounded-[1.6rem] border border-orange-200 bg-orange-50/70 px-5 py-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-orange-700">
-                    Generated Summary
+                    {detail.analysis_summary?.monetization_potential ? (
+                      <span className="badge badge-green">
+                        {titleCase(detail.analysis_summary.monetization_potential)} Confidence
+                      </span>
+                    ) : null}
+                  </div>
+                  <p style={{ color: "var(--text-1)", fontSize: "15px", lineHeight: 1.7 }}>
+                    {detail.analysis_summary?.pros?.length
+                      ? detail.analysis_summary.pros.join(" ")
+                      : "Analysis output is not available yet. Once Analyst completes, this card will summarize fit, product signals, and gaps."}
                   </p>
-                  {detail.analysis_summary ? (
-                    <div className="mt-3 space-y-3 text-sm text-orange-950">
-                      <p>
-                        Monetization fit:{" "}
-                        <span className="font-semibold">
-                          {formatMonetizationLabel(detail.analysis_summary.monetization_potential)}
-                        </span>
-                      </p>
-                      <p>
-                        Pros:{" "}
-                        {detail.analysis_summary.pros.length > 0
-                          ? detail.analysis_summary.pros.join(", ")
-                          : "None"}
-                      </p>
-                      <p>
-                        Risks:{" "}
-                        {detail.analysis_summary.cons.length > 0
-                          ? detail.analysis_summary.cons.join(", ")
-                          : "None"}
-                      </p>
-                      <p>
-                        Missing features:{" "}
-                        {detail.analysis_summary.missing_feature_signals.length > 0
-                          ? detail.analysis_summary.missing_feature_signals.join(", ")
-                          : "None"}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-sm leading-6 text-orange-950">
-                      Analysis has not been generated yet.
+                </section>
+
+                <section className="card">
+                  <div className="card-header">
+                    <h2 className="card-title" style={{ fontSize: "18px" }}>
+                      Decision Summary
+                    </h2>
+                  </div>
+                  <div className="repo-key-value-list">
+                    {decisionRows.map((row) => (
+                      <div key={row.label} className="repo-key-value-row">
+                        <span className="card-label">{row.label}</span>
+                        <span>{row.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="card">
+                  <div className="card-header">
+                    <h2 className="card-title" style={{ fontSize: "18px" }}>
+                      Evidence & Notes
+                    </h2>
+                    <button className="btn btn-sm" type="button">
+                      + Add Note
+                    </button>
+                  </div>
+                  <div className="repo-note-list">
+                    {(detail.analysis_summary?.cons ?? ["No risk notes are stored yet."]).map((note) => (
+                      <p key={note}>{note}</p>
+                    ))}
+                    {(detail.analysis_summary?.missing_feature_signals ?? []).map((signal) => (
+                      <p key={signal}>{signal}</p>
+                    ))}
+                  </div>
+                </section>
+              </>
+            ) : null}
+
+            {activeTab === "readme" ? (
+              <section className="card">
+                <div className="card-header">
+                  <div>
+                    <h2 className="card-title" style={{ fontSize: "18px" }}>
+                      README Intelligence
+                    </h2>
+                    <p style={{ marginTop: "6px", color: "var(--text-2)" }}>
+                      Raw source and normalized parsing metadata stay visible so generated analysis
+                      can be audited against the source document.
                     </p>
-                  )}
+                  </div>
                 </div>
-              </div>
-            </section>
+                <div className="repo-two-col">
+                  <div className="card" style={{ padding: "14px" }}>
+                    <p className="card-label">Raw README Source</p>
+                    <pre className="repo-code-block">
+                      {detail.readme_snapshot?.content ?? "README artifact content is not available."}
+                    </pre>
+                  </div>
+                  <div className="card" style={{ padding: "14px" }}>
+                    <p className="card-label">Parsed Context</p>
+                    <div className="repo-key-value-list" style={{ marginTop: "12px" }}>
+                      <div className="repo-key-value-row">
+                        <span className="card-label">Normalization</span>
+                        <span>{detail.readme_snapshot?.normalization_version ?? "Unavailable"}</span>
+                      </div>
+                      <div className="repo-key-value-row">
+                        <span className="card-label">Raw chars</span>
+                        <span>{detail.readme_snapshot?.raw_character_count ?? "Unavailable"}</span>
+                      </div>
+                      <div className="repo-key-value-row">
+                        <span className="card-label">Normalized chars</span>
+                        <span>{detail.readme_snapshot?.normalized_character_count ?? "Unavailable"}</span>
+                      </div>
+                      <div className="repo-key-value-row">
+                        <span className="card-label">Removed lines</span>
+                        <span>{detail.readme_snapshot?.removed_line_count ?? "Unavailable"}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ) : null}
 
-            <section className="rounded-[2rem] border border-black/10 bg-white/90 px-6 py-6 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.45)]">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Processing Monitor
-                  </p>
-                  <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-                    Intake, triage, and analysis status at a glance
-                  </h2>
+            {activeTab === "analysis" ? (
+              <section className="card">
+                <div className="card-header">
+                  <div>
+                    <h2 className="card-title" style={{ fontSize: "18px" }}>
+                      Analyst Output
+                    </h2>
+                    <p style={{ marginTop: "6px", color: "var(--text-2)" }}>
+                      Structured output, provenance, and semantic taxonomy tags produced by Analyst.
+                    </p>
+                  </div>
+                </div>
+                <div className="repo-two-col">
+                  <div className="card" style={{ padding: "14px" }}>
+                    <p className="card-label">Generated Analysis Output</p>
+                    <pre className="repo-code-block">
+                      {JSON.stringify(detail.analysis_artifact?.payload ?? { analysis: null }, null, 2)}
+                    </pre>
+                  </div>
+                  <div className="card" style={{ padding: "14px" }}>
+                    <p className="card-label">Analysis Provenance</p>
+                    <div className="repo-key-value-list" style={{ marginTop: "12px" }}>
+                      <div className="repo-key-value-row">
+                        <span className="card-label">Provider</span>
+                        <span>{detail.analysis_artifact?.provider_name ?? "Unavailable"}</span>
+                      </div>
+                      <div className="repo-key-value-row">
+                        <span className="card-label">Category</span>
+                        <span>{detail.category ? titleCase(detail.category) : "Unclassified"}</span>
+                      </div>
+                      <div className="repo-key-value-row">
+                        <span className="card-label">Agent tags</span>
+                        <span>
+                          {detail.agent_tags && detail.agent_tags.length > 0
+                            ? detail.agent_tags.join(", ")
+                            : "None"}
+                        </span>
+                      </div>
+                      <div className="repo-key-value-row">
+                        <span className="card-label">Generated at</span>
+                        <span>{formatTimestamp(detail.analysis_summary?.analyzed_at)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            {activeTab === "history" ? (
+              <section className="card">
+                <div className="card-header">
+                  <div>
+                    <h2 className="card-title" style={{ fontSize: "18px" }}>
+                      Processing History
+                    </h2>
+                    <p style={{ marginTop: "6px", color: "var(--text-2)" }}>
+                      Repository intake, triage, and analysis timestamps in one operator-facing ledger.
+                    </p>
+                  </div>
                 </div>
 
                 {failureContext ? (
-                  <div className="rounded-[1.4rem] border border-rose-200 bg-rose-50 px-4 py-4 text-sm text-rose-950">
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-rose-700">
+                  <div className="card" style={{ padding: "14px", borderColor: "rgba(217, 79, 79, 0.28)", background: "var(--red-dim)" }}>
+                    <p className="card-label" style={{ color: "var(--red)" }}>
                       Active failure context
                     </p>
-                    <p className="mt-2 font-semibold">
-                      {formatStatusLabel(failureContext.stage)} failure at{" "}
-                      {formatStatusLabel(failureContext.step)}
+                    <p style={{ marginTop: "8px", fontWeight: 600 }}>
+                      {titleCase(failureContext.stage)} failure at {titleCase(failureContext.step)}
                     </p>
-                    <p className="mt-1">
-                      Source: {formatDiscoverySourceLabel(detail.discovery_source)}
-                    </p>
-                    <p className="mt-1">
+                    <p style={{ marginTop: "6px", color: "var(--text-1)" }}>
                       Error: {failureContext.error_message ?? "No failure message recorded."}
                     </p>
-                    <p className="mt-1">Recorded at: {formatTimestamp(failureContext.failed_at)}</p>
+                    <p style={{ marginTop: "6px", color: "var(--text-2)" }}>
+                      Recorded at: {formatTimestamp(failureContext.failed_at)}
+                    </p>
                   </div>
                 ) : (
-                  <div className="rounded-[1.4rem] border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-950">
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">
+                  <div className="card" style={{ padding: "14px", borderColor: "rgba(61, 186, 106, 0.24)", background: "var(--green-dim)" }}>
+                    <p className="card-label" style={{ color: "var(--green)" }}>
                       Operational state
                     </p>
-                    <p className="mt-2 font-semibold">
+                    <p style={{ marginTop: "8px", fontWeight: 600 }}>
                       No repository processing failure is currently recorded.
                     </p>
-                    <p className="mt-1">
-                      Operators can use this panel to confirm which stage is pending, complete, or
-                      blocked before escalating.
+                    <p style={{ marginTop: "6px", color: "var(--text-1)" }}>
+                      Use this timeline to confirm which stage is pending, complete, or blocked before escalating.
                     </p>
                   </div>
                 )}
-              </div>
 
-              <div className="mt-5 grid gap-4 lg:grid-cols-3">
-                <article className="rounded-[1.6rem] border border-slate-200 bg-slate-50/80 px-5 py-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Intake
-                  </p>
-                  <p className="mt-3 text-sm font-semibold text-slate-950">
-                    Status: {formatQueueStatusLabel(intakeStatus)}
-                  </p>
-                  <div className="mt-3 space-y-2 text-sm text-slate-700">
-                    <p>Queued at: {formatTimestamp(detail.processing?.intake_created_at ?? detail.discovered_at)}</p>
-                    <p>Started at: {formatTimestamp(detail.processing?.intake_started_at)}</p>
-                    <p>Completed at: {formatTimestamp(detail.processing?.intake_completed_at)}</p>
-                    <p>Failed at: {formatTimestamp(detail.processing?.intake_failed_at)}</p>
-                  </div>
-                </article>
-
-                <article className="rounded-[1.6rem] border border-slate-200 bg-slate-50/80 px-5 py-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Triage
-                  </p>
-                  <p className="mt-3 text-sm font-semibold text-slate-950">
-                    Status: {formatTriageStatusLabel(detail.triage_status)}
-                  </p>
-                  <div className="mt-3 space-y-2 text-sm text-slate-700">
-                    <p>Triaged at: {formatTimestamp(detail.processing?.triaged_at ?? detail.triage.triaged_at)}</p>
-                    <p>Explanation kind: {triageExplanation ? formatTriageExplanationKind(triageExplanation.kind) : "Unavailable"}</p>
-                  </div>
-                </article>
-
-                <article className="rounded-[1.6rem] border border-slate-200 bg-slate-50/80 px-5 py-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                    Analysis
-                  </p>
-                  <p className="mt-3 text-sm font-semibold text-slate-950">
-                    Status: {formatAnalysisStatusLabel(detail.analysis_status)}
-                  </p>
-                  <div className="mt-3 space-y-2 text-sm text-slate-700">
-                    <p>Started at: {formatTimestamp(detail.processing?.analysis_started_at)}</p>
-                    <p>Last attempted: {formatTimestamp(detail.processing?.analysis_last_attempted_at)}</p>
-                    <p>Completed at: {formatTimestamp(detail.processing?.analysis_completed_at ?? detail.analysis_summary?.analyzed_at)}</p>
-                    <p>Failed at: {formatTimestamp(detail.processing?.analysis_failed_at)}</p>
-                  </div>
-                </article>
-              </div>
-            </section>
-
-            <section className="rounded-[2rem] border border-black/10 bg-white/90 px-6 py-6 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.45)]">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                README Intelligence
-              </p>
-              <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                <div className="rounded-[1.6rem] border border-sky-200 bg-sky-50/70 px-5 py-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">
-                    Raw README Source
-                  </p>
-                  <p className="mt-3 text-sm leading-6 text-sky-950">
-                    This pane shows the persisted README artifact, so operators can inspect source
-                    material separately from generated analysis.
-                  </p>
-                  <pre className="mt-4 max-h-[22rem] overflow-auto rounded-[1.2rem] bg-slate-950 px-4 py-4 text-xs leading-6 text-slate-100">
-                    {detail.readme_snapshot?.content ?? "README artifact content is not available."}
-                  </pre>
-                </div>
-
-                <div className="rounded-[1.6rem] border border-emerald-200 bg-emerald-50/70 px-5 py-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">
-                    Parsed Context
-                  </p>
-                  <div className="mt-3 space-y-2 text-sm leading-6 text-emerald-950">
-                    <p>
-                      Normalization version:{" "}
-                      {detail.readme_snapshot?.normalization_version ?? "Unavailable"}
-                    </p>
-                    <p>
-                      Raw characters:{" "}
-                      {detail.readme_snapshot?.raw_character_count ?? "Unavailable"}
-                    </p>
-                    <p>
-                      Normalized characters:{" "}
-                      {detail.readme_snapshot?.normalized_character_count ?? "Unavailable"}
-                    </p>
-                    <p>
-                      Removed lines: {detail.readme_snapshot?.removed_line_count ?? "Unavailable"}
-                    </p>
-                    <p>
-                      Artifact path:{" "}
-                      {detail.readme_snapshot?.artifact?.runtime_relative_path ?? "Unavailable"}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-[2rem] border border-black/10 bg-white/90 px-6 py-6 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.45)]">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Analyst Output
-              </p>
-              <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                <div className="rounded-[1.6rem] border border-orange-200 bg-orange-50/80 px-5 py-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-orange-700">
-                    Generated Analysis Output
-                  </p>
-                  <p className="mt-3 text-sm leading-6 text-orange-950">
-                    This pane shows generated analysis so it is visually distinct from the raw
-                    README source shown above.
-                  </p>
-                  <div className="mt-4">{renderAnalysisPayload(detail.analysis_artifact)}</div>
-                </div>
-
-                <div className="rounded-[1.6rem] border border-violet-200 bg-violet-50/80 px-5 py-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-violet-700">
-                    Analysis Provenance
-                  </p>
-                  <div className="mt-3 space-y-2 text-sm leading-6 text-violet-950">
-                    <p>
-                      Provider: {detail.analysis_artifact?.provider_name ?? "Unavailable"}
-                    </p>
-                    <p>
-                      Analysis artifact:{" "}
-                      {detail.analysis_artifact?.artifact?.runtime_relative_path ?? "Unavailable"}
-                    </p>
-                    <p>
-                      README source path:{" "}
-                      {typeof detail.analysis_artifact?.source_metadata.readme_artifact_path ===
-                      "string"
-                        ? detail.analysis_artifact.source_metadata.readme_artifact_path
-                        : "Unavailable"}
-                    </p>
-                    <p>
-                      Generated at:{" "}
-                      {detail.analysis_artifact?.artifact?.generated_at
-                        ? formatRelativeDate(detail.analysis_artifact.artifact.generated_at)
-                        : "Unavailable"}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-[2rem] border border-black/10 bg-white/90 px-6 py-6 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.45)]">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Action Launcher
-              </p>
-              <div className="mt-5 grid gap-4 lg:grid-cols-3">
-                {ACTIONS.map((action) => (
-                  <article
-                    key={action.key}
-                    className="rounded-[1.6rem] border border-slate-200 bg-slate-50/90 px-5 py-5"
-                  >
-                    <p className="text-lg font-semibold text-slate-950">{action.title}</p>
-                    <div className="mt-4 space-y-2 text-sm leading-6 text-slate-700">
-                      <p>
-                        <span className="font-semibold text-slate-950">Object:</span>{" "}
-                        {detail.full_name}
-                      </p>
-                      <p>
-                        <span className="font-semibold text-slate-950">Destination:</span>{" "}
-                        {action.destination}
-                      </p>
-                      <p>
-                        <span className="font-semibold text-slate-950">Expected Result:</span>{" "}
-                        {action.expectedResult}
-                      </p>
+                <div className="repo-key-value-list" style={{ marginTop: "16px" }}>
+                  {historyRows.map(([label, value]) => (
+                    <div key={label} className="repo-key-value-row">
+                      <span className="card-label">{label}</span>
+                      <span>{value}</span>
                     </div>
-                    <button
-                      className="mt-5 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
-                      type="button"
-                      onClick={() => {
-                        setSelectedAction(action);
-                      }}
-                    >
-                      {action.buttonLabel}
-                    </button>
-                  </article>
-                ))}
-              </div>
-            </section>
+                  ))}
+                </div>
+              </section>
+            ) : null}
           </div>
 
-          <aside className="flex flex-col gap-6">
-            <section className="rounded-[2rem] border border-black/10 bg-white/90 px-5 py-5 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.45)]">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Secondary Rail
-              </p>
-              <h2 className="mt-2 text-xl font-semibold text-slate-950">
-                Tags, categories, watch state, and linked ideas
-              </h2>
+          <aside className="repo-dossier-rail">
+            <section className="card">
+              <div className="card-header">
+                <h2 className="card-title" style={{ fontSize: "18px" }}>
+                  Tags & Categories
+                </h2>
+              </div>
 
-              <div className="mt-5 space-y-5">
-                {curationError ? (
-                  <p className="rounded-[1.2rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-                    {curationError}
-                  </p>
-                ) : null}
+              {curationError ? (
+                <p className="card" style={{ padding: "12px", marginBottom: "12px", borderColor: "rgba(217, 79, 79, 0.28)", background: "var(--red-dim)" }}>
+                  {curationError}
+                </p>
+              ) : null}
 
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    Agent Tags
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {agentTags.length > 0 ? (
-                      agentTags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-950"
-                        >
-                          {tag}
-                        </span>
-                      ))
-                    ) : (
-                      <p className="text-sm text-slate-600">No triage rule tags are stored yet.</p>
-                    )}
-                  </div>
-                </div>
+              <div className="repo-rail-section">
+                <p className="card-label">Agent Tags</p>
+                {renderTagList(detail.agent_tags ?? [], "tag tag-agent")}
+              </div>
 
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    Category Signals
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {categorySignals.map((signal) => (
-                      <span
-                        key={signal}
-                        className="rounded-full border border-orange-300 bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-950"
+              <div className="repo-rail-section">
+                <p className="card-label">Category Signals</p>
+                {renderTagList(categorySignals, "tag tag-active")}
+              </div>
+
+              <div className="repo-rail-section">
+                <p className="card-label">User Tags</p>
+                {renderTagList(detail.user_tags, "tag tag-user", "No user tags added yet")}
+                <form
+                  className="repo-inline-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const normalizedTag = newUserTag.trim();
+                    if (normalizedTag.length === 0 || addTagMutation.isPending) {
+                      return;
+                    }
+                    addTagMutation.mutate(normalizedTag);
+                  }}
+                >
+                  <input
+                    aria-label="Add user tag"
+                    className="input"
+                    maxLength={100}
+                    placeholder="Add user tag"
+                    type="text"
+                    value={newUserTag}
+                    onChange={(event) => setNewUserTag(event.target.value)}
+                  />
+                  <button
+                    className="btn btn-sm"
+                    disabled={newUserTag.trim().length === 0 || addTagMutation.isPending}
+                    type="submit"
+                  >
+                    Add tag
+                  </button>
+                </form>
+                {detail.user_tags.length > 0 ? (
+                  <div className="repo-tag-cluster" style={{ marginTop: "10px" }}>
+                    {detail.user_tags.map((tag) => (
+                      <button
+                        key={tag}
+                        aria-label={`Remove ${tag} tag`}
+                        className="tag tag-user"
+                        type="button"
+                        onClick={() => removeTagMutation.mutate(tag)}
                       >
-                        {signal}
-                      </span>
+                        {tag} ×
+                      </button>
                     ))}
                   </div>
-                </div>
-
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    User Tags
-                  </p>
-                  <p className="mt-3 text-sm leading-6 text-slate-700">
-                    User-applied tags stay separate from agent-generated tags above so later idea
-                    family workflows can distinguish operator curation from analysis output.
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {detail.user_tags.length > 0 ? (
-                      detail.user_tags.map((tag) => (
-                        <button
-                          key={tag}
-                          aria-label={`Remove ${tag} tag`}
-                          className="inline-flex items-center gap-2 rounded-full border border-sky-300 bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-950 transition hover:bg-sky-200"
-                          disabled={removeTagMutation.isPending}
-                          type="button"
-                          onClick={() => {
-                            removeTagMutation.mutate(tag);
-                          }}
-                        >
-                          <span>{tag}</span>
-                          <span aria-hidden="true">x</span>
-                        </button>
-                      ))
-                    ) : (
-                      <p className="text-sm text-slate-600">No user tags added yet.</p>
-                    )}
-                  </div>
-                  <form
-                    className="mt-4 flex gap-2"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      const normalizedTag = newUserTag.trim();
-                      if (normalizedTag.length === 0 || addTagMutation.isPending) {
-                        return;
-                      }
-                      addTagMutation.mutate(normalizedTag);
-                    }}
-                  >
-                    <input
-                      aria-label="Add user tag"
-                      className="min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-900 outline-none transition focus:border-sky-400"
-                      maxLength={100}
-                      placeholder="Add user tag"
-                      type="text"
-                      value={newUserTag}
-                      onChange={(event) => {
-                        setNewUserTag(event.target.value);
-                      }}
-                    />
-                    <button
-                      className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={newUserTag.trim().length === 0 || addTagMutation.isPending}
-                      type="submit"
-                    >
-                      Add tag
-                    </button>
-                  </form>
-                </div>
-
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    Watch State
-                  </p>
-                  <p className="mt-3 text-sm leading-6 text-slate-700">
-                    {detail.is_starred
-                      ? "This repository is starred for later idea-family work."
-                      : "This repository is not starred yet. Use the star control to keep it in your later-work queue."}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    Linked Ideas
-                  </p>
-                  <p className="mt-3 text-sm leading-6 text-slate-700">
-                    No idea family links exist yet. Use the action launcher to stage family or
-                    Combiner follow-ups from this repository.
-                  </p>
-                </div>
+                ) : null}
               </div>
             </section>
 
-            <section className="rounded-[2rem] border border-black/10 bg-white/90 px-5 py-5 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.45)]">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Artifact Ledger
-              </p>
-              <div className="mt-4 space-y-3">
-                {detail.artifacts.length > 0 ? (
-                  detail.artifacts.map((artifact) => (
-                    <article
-                      key={`${artifact.artifact_kind}:${artifact.runtime_relative_path}`}
-                      className="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 px-4 py-4"
-                    >
-                      <p className="text-sm font-semibold text-slate-950">
-                        {artifact.artifact_kind.replace("_", " ")}
-                      </p>
-                      <p className="mt-2 break-all text-xs leading-5 text-slate-600">
-                        {artifact.runtime_relative_path}
-                      </p>
-                    </article>
-                  ))
-                ) : (
-                  <p className="text-sm text-slate-600">No durable artifacts are tracked yet.</p>
-                )}
+            {ACTIONS.map((action) => (
+              <section key={action.key} className="card">
+                <div className="card-header">
+                  <h2 className="card-title" style={{ fontSize: "18px" }}>
+                    {action.title}
+                  </h2>
+                </div>
+                <div className="repo-key-value-list">
+                  <div className="repo-key-value-row">
+                    <span className="card-label">Object</span>
+                    <span>{detail.repository_name}</span>
+                  </div>
+                  <div className="repo-key-value-row">
+                    <span className="card-label">Destination</span>
+                    <span>{action.destination}</span>
+                  </div>
+                  <div className="repo-key-value-row">
+                    <span className="card-label">Result</span>
+                    <span>{action.expectedResult}</span>
+                  </div>
+                </div>
+                <button className="btn btn-primary" style={{ marginTop: "14px", width: "100%" }} type="button" onClick={() => setSelectedAction(action)}>
+                  {action.buttonLabel}
+                </button>
+              </section>
+            ))}
+
+            <section className="card">
+              <div className="card-header">
+                <h2 className="card-title" style={{ fontSize: "18px" }}>
+                  What Happens
+                </h2>
               </div>
+              {selectedAction ? (
+                <div className="repo-key-value-list">
+                  <div className="repo-key-value-row">
+                    <span className="card-label">Selected</span>
+                    <span>{selectedAction.title}</span>
+                  </div>
+                  <div className="repo-key-value-row">
+                    <span className="card-label">Destination</span>
+                    <span>{selectedAction.destination}</span>
+                  </div>
+                  <div className="repo-key-value-row">
+                    <span className="card-label">Expected Result</span>
+                    <span>{selectedAction.expectedResult}</span>
+                  </div>
+                </div>
+              ) : (
+                <p style={{ color: "var(--text-2)" }}>
+                  Choose an action from the rail to preview what the next workflow will do.
+                </p>
+              )}
             </section>
           </aside>
         </div>
-      </div>
-    </main>
+      </main>
+    </>
   );
 }

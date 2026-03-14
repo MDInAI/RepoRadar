@@ -15,6 +15,7 @@ from agentic_workers.storage.artifact_store import (
     build_json_artifact,
 )
 from agentic_workers.storage.backend_models import (
+    RepositoryCategory,
     RepositoryAnalysisFailureCode,
     RepositoryAnalysisResult,
     RepositoryAnalysisStatus,
@@ -213,6 +214,8 @@ def _upsert_analysis_result(
         "source_kind": "repository_readme",
         "source_metadata": source_metadata,
         "monetization_potential": analysis.monetization_potential.value,
+        "category": analysis.category,
+        "agent_tags": list(analysis.agent_tags),
         "pros": list(analysis.pros),
         "cons": list(analysis.cons),
         "missing_feature_signals": list(analysis.missing_feature_signals),
@@ -252,6 +255,10 @@ def _upsert_analysis_result(
         result.monetization_potential = RepositoryMonetizationPotential(
             analysis.monetization_potential.value
         )
+        result.category = (
+            RepositoryCategory(analysis.category) if analysis.category is not None else None
+        )
+        result.agent_tags = list(analysis.agent_tags)
         result.pros = list(analysis.pros)
         result.cons = list(analysis.cons)
         result.missing_feature_signals = list(analysis.missing_feature_signals)

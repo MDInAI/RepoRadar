@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.models import (
     RepositoryAnalysisStatus,
     RepositoryArtifactKind,
+    RepositoryCategory,
     RepositoryDiscoverySource,
     RepositoryMonetizationPotential,
     RepositoryQueueStatus,
@@ -30,6 +31,8 @@ class RepositoryArtifactRefResponse(BaseModel):
 
 class RepositoryAnalysisSummaryResponse(BaseModel):
     monetization_potential: RepositoryMonetizationPotential
+    category: RepositoryCategory | None = None
+    agent_tags: list[str] = Field(default_factory=list)
     pros: list[str] = Field(default_factory=list)
     cons: list[str] = Field(default_factory=list)
     missing_feature_signals: list[str] = Field(default_factory=list)
@@ -105,6 +108,8 @@ class RepositoryExplorationResponse(BaseModel):
     discovered_at: datetime
     status_updated_at: datetime
     pushed_at: datetime | None = None
+    category: RepositoryCategory | None = None
+    agent_tags: list[str] = Field(default_factory=list)
     triage: RepositoryTriageContextResponse
     analysis_summary: RepositoryAnalysisSummaryResponse | None = None
     readme_snapshot: RepositoryReadmeSnapshotResponse | None = None
@@ -139,6 +144,8 @@ class RepositoryCatalogQueryParams(BaseModel):
     triage_status: RepositoryTriageStatus | None = None
     analysis_status: RepositoryAnalysisStatus | None = None
     has_failures: bool = False
+    category: RepositoryCategory | None = None
+    agent_tag: str | None = None
     monetization_potential: RepositoryMonetizationPotential | None = None
     min_stars: int | None = None
     max_stars: int | None = None
@@ -168,6 +175,8 @@ class RepositoryCatalogItemResponse(BaseModel):
     intake_failed_at: datetime | None = None
     analysis_failed_at: datetime | None = None
     failure: RepositoryFailureContextResponse | None = None
+    category: RepositoryCategory | None = None
+    agent_tags: list[str] = Field(default_factory=list)
     monetization_potential: RepositoryMonetizationPotential | None = None
     has_readme_artifact: bool = False
     has_analysis_artifact: bool = False

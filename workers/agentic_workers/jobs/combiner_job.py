@@ -34,6 +34,11 @@ class CombinerRunStatus(StrEnum):
 class CombinerRunResult:
     status: CombinerRunStatus
     run_id: int | None
+    provider_name: str | None = None
+    model_name: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
     error_message: str | None = None
 
 
@@ -57,11 +62,11 @@ def run_combiner_job(
     ).limit(1)
 
     run = session.exec(stmt).first()
-    if not run:
-        logger.debug("No pending combiner runs found")
-        return CombinerRunResult(
-            status=CombinerRunStatus.SUCCESS,
-            run_id=None,
+        if not run:
+            logger.debug("No pending combiner runs found")
+            return CombinerRunResult(
+                status=CombinerRunStatus.SUCCESS,
+                run_id=None,
         )
 
     try:
@@ -120,7 +125,8 @@ def run_combiner_job(
             provider = RetryableCombinerProvider(AnthropicCombinerProvider())
         else:
             provider = RetryableCombinerProvider(HeuristicCombinerProvider())
-        output = provider.synthesize(readme_contents, previous_insights)
+        synthesis_result = provider.synthesize(readme_contents, previous_insights)
+        output = synthesis_result.output_text
 
         # Parse structured output
         try:
@@ -182,6 +188,11 @@ def run_combiner_job(
         return CombinerRunResult(
             status=CombinerRunStatus.SUCCESS,
             run_id=run.id,
+            provider_name=synthesis_result.provider_name,
+            model_name=synthesis_result.model_name,
+            input_tokens=synthesis_result.input_tokens,
+            output_tokens=synthesis_result.output_tokens,
+            total_tokens=synthesis_result.total_tokens,
         )
 
     except Exception as exc:
@@ -195,5 +206,10 @@ def run_combiner_job(
         return CombinerRunResult(
             status=CombinerRunStatus.FAILED,
             run_id=run.id,
+            provider_name=None,
+            model_name=None,
+            input_tokens=0,
+            output_tokens=0,
+            total_tokens=0,
             error_message=str(exc),
         )

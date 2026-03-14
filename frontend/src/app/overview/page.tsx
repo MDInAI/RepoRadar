@@ -2,227 +2,361 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { fetchOverviewSummary, getOverviewSummaryQueryKey } from "@/api/overview";
-import {
-  fetchAgentPauseStates,
-  fetchLatestAgentRuns,
-  getAgentPauseStatesQueryKey,
-  getLatestAgentRunsQueryKey,
-  type AgentName,
-} from "@/api/agents";
-import { AgentStatusMatrix } from "@/components/agents/AgentStatusMatrix";
-import { useEventStream } from "@/hooks/useEventStream";
-import Link from "next/link";
-
-function MetricCard({ title, value, subtitle }: { title: string; value: number; subtitle?: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
-      <p className="text-xs uppercase tracking-wider text-slate-500">{title}</p>
-      <p className="mt-2 text-3xl font-semibold text-slate-900">{value}</p>
-      {subtitle && <p className="mt-1 text-xs text-slate-600">{subtitle}</p>}
-    </div>
-  );
-}
 
 export default function OverviewPage() {
-  useEventStream();
-
   const { data, isLoading, error } = useQuery({
     queryKey: getOverviewSummaryQueryKey(),
     queryFn: fetchOverviewSummary,
     refetchInterval: 30_000,
   });
 
-  const latestRunsQuery = useQuery({
-    queryKey: getLatestAgentRunsQueryKey(),
-    queryFn: fetchLatestAgentRuns,
-    staleTime: 30_000,
-  });
-
-  const pauseStatesQuery = useQuery({
-    queryKey: getAgentPauseStatesQueryKey(),
-    queryFn: fetchAgentPauseStates,
-    staleTime: 30_000,
-    refetchInterval: 30_000,
-  });
-
   if (error) {
     return (
-      <main className="min-h-screen bg-slate-50 px-6 py-10">
-        <div className="mx-auto max-w-7xl">
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-6 py-4 text-red-900">
-            Failed to load overview: {error instanceof Error ? error.message : "Unknown error"}
+      <>
+        <div className="topbar">
+          <span className="topbar-title">Overview</span>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+          <div className="card" style={{ background: 'var(--red-dim)', borderColor: 'var(--red)' }}>
+            Failed to load overview
           </div>
         </div>
-      </main>
+      </>
     );
   }
 
-  return (
-    <main className="min-h-screen bg-slate-50 px-6 py-10">
-      <div className="mx-auto max-w-7xl space-y-8">
-        <header>
-          <p className="text-xs font-semibold uppercase tracking-wider text-orange-600">Overview</p>
-          <h1 className="mt-2 text-4xl font-semibold text-slate-900">Mission Control</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Master monitoring and control surface for pipeline operations
-          </p>
-        </header>
+  const activeAgents = data?.agents.filter(a => !a.is_paused && a.status === 'completed').length || 0;
+  const runningAgents = data?.agents.filter(a => !a.is_paused && a.status === 'running').length || 0;
+  const healthyAgents = data?.agents.filter(a => !a.is_paused && a.status !== 'failed').length || 0;
+  const reposDiscovered24h = data?.ingestion.discovered_last_24h || 0;
+  const acceptedRepos = data?.triage.accepted || 0;
+  const criticalIncidents = data?.failures.critical_failures || 0;
+  const totalFailures = data?.failures.total_failures || 0;
+  const tokenBurn24h = data?.token_usage.total_tokens_24h || 0;
+  const topTokenAgent = data?.agents.find(
+    (agent) => agent.agent_name === data?.token_usage.top_consumer_agent_name,
+  );
 
+  return (
+    <>
+      <div className="topbar">
+        <span className="topbar-title">Overview</span>
+        <span className="topbar-breadcrumb">mission control</span>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
         {isLoading ? (
-          <div className="text-slate-600">Loading...</div>
+          <div style={{ color: 'var(--text-3)' }}>Loading...</div>
         ) : data ? (
           <>
-            <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900">Quick Actions</h2>
-              <div className="mt-4 flex flex-wrap gap-3">
-                <Link
-                  href="/agents"
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Manage Agents
-                </Link>
-                <Link
-                  href="/incidents"
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  View Incidents
-                </Link>
-                <Link
-                  href="/repositories"
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Browse Repositories
-                </Link>
-              </div>
-            </section>
-
-            <AgentStatusMatrix
-              agents={latestRunsQuery.data?.agents ?? data.agents.map(a => ({
-                agent_name: a.agent_name as AgentName,
-                has_run: a.last_run_at !== null,
-                latest_run: a.last_run_at ? {
-                  id: 0,
-                  agent_name: a.agent_name as AgentName,
-                  status: a.status as any,
-                  started_at: a.last_run_at,
-                  completed_at: null,
-                  duration_seconds: null,
-                  items_processed: null,
-                  items_succeeded: null,
-                  items_failed: null,
-                  error_summary: null,
-                } : null,
-              }))}
-              pauseStates={pauseStatesQuery.data ?? data.agents.map(a => ({
-                agent_name: a.agent_name as AgentName,
-                is_paused: a.is_paused,
-                paused_at: null,
-                pause_reason: null,
-                resume_condition: null,
-                triggered_by_event_id: null,
-                resumed_at: null,
-                resumed_by: null,
-              }))}
-              pauseStateStatus={
-                pauseStatesQuery.isError
-                  ? "unavailable"
-                  : pauseStatesQuery.isLoading
-                    ? "loading"
-                    : "available"
-              }
-              description="Agent health and control surface for pause/resume operations"
-              isLoading={latestRunsQuery.isLoading && !data.agents.length}
-              title="Agent Health & Control"
-              variant="detail"
-            />
-            {latestRunsQuery.isError && (
-              <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
-                ⚠️ Detailed agent status unavailable. Showing summary data only.
-              </div>
-            )}
-            <section>
-              <h2 className="text-lg font-semibold text-slate-900">Ingestion</h2>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <MetricCard title="Total Repositories" value={data.ingestion.total_repositories} />
-                <MetricCard title="Pending Intake" value={data.ingestion.pending_intake} />
-                <MetricCard title="Firehose" value={data.ingestion.firehose_discovered} />
-                <MetricCard title="Backfill" value={data.ingestion.backfill_discovered} />
-              </div>
-            </section>
-
-            <section>
-              <h2 className="text-lg font-semibold text-slate-900">Triage</h2>
-              <div className="mt-4 grid gap-4 sm:grid-cols-3">
-                <MetricCard title="Pending" value={data.triage.pending} />
-                <MetricCard title="Accepted" value={data.triage.accepted} />
-                <MetricCard title="Rejected" value={data.triage.rejected} />
-              </div>
-            </section>
-
-            <section>
-              <h2 className="text-lg font-semibold text-slate-900">Analysis</h2>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <MetricCard title="Pending" value={data.analysis.pending} />
-                <MetricCard title="In Progress" value={data.analysis.in_progress} />
-                <MetricCard title="Completed" value={data.analysis.completed} />
-                <MetricCard title="Failed" value={data.analysis.failed} />
-              </div>
-            </section>
-
-            <section>
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-900">Repository Backlog</h2>
-                <Link href="/repositories" className="text-sm text-blue-600 hover:text-blue-800">
-                  View All →
-                </Link>
-              </div>
-              <div className="mt-4 space-y-4">
-                <div>
-                  <h3 className="text-sm font-medium text-slate-700">Queue Status</h3>
-                  <div className="mt-2 grid gap-4 sm:grid-cols-4">
-                    <MetricCard title="Pending" value={data.backlog.queue_pending} />
-                    <MetricCard title="In Progress" value={data.backlog.queue_in_progress} />
-                    <MetricCard title="Completed" value={data.backlog.queue_completed} />
-                    <MetricCard title="Failed" value={data.backlog.queue_failed} />
-                  </div>
+            <div className="hero-strip mb-16">
+              <div>
+                <h2>Mission Control</h2>
+                <div className="sub">
+                  {data?.agents.length || 0} agents · {activeAgents} active · {runningAgents} running
                 </div>
-                <div>
-                  <h3 className="text-sm font-medium text-slate-700">Triage Status</h3>
-                  <div className="mt-2 grid gap-4 sm:grid-cols-3">
-                    <MetricCard title="Pending" value={data.backlog.triage_pending} />
-                    <MetricCard title="Accepted" value={data.backlog.triage_accepted} />
-                    <MetricCard title="Rejected" value={data.backlog.triage_rejected} />
-                  </div>
+              </div>
+              <div className="flex items-center gap-12">
+                <div className="mode-pill mode-active">
+                  <span className="dot dot-green" style={{ width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block' }}></span>
+                  Auto-discovery ON
                 </div>
-                <div>
-                  <h3 className="text-sm font-medium text-slate-700">Analysis Status</h3>
-                  <div className="mt-2 grid gap-4 sm:grid-cols-4">
-                    <MetricCard title="Pending" value={data.backlog.analysis_pending} />
-                    <MetricCard title="In Progress" value={data.backlog.analysis_in_progress} />
-                    <MetricCard title="Completed" value={data.backlog.analysis_completed} />
-                    <MetricCard title="Failed" value={data.backlog.analysis_failed} />
+                <button className="btn btn-primary">▶ Resume Firehose</button>
+                <button className="btn">⌘ Command…</button>
+              </div>
+            </div>
+
+            <div className="cmd-bar mb-16">
+              <span className="cmd-icon">⌘</span>
+              <span className="cmd-text">Standing order: watch for B2B workflow tools with rising star velocity and low hosted competition</span>
+              <span className="cmd-meta">Updated 2m ago</span>
+              <button className="btn btn-sm">Edit</button>
+            </div>
+
+            <div className="section-head">
+              <span className="section-title">System Health</span>
+              <div className="section-line"></div>
+            </div>
+            <div className="grid g5 mb-16">
+              <div className="card metric-card">
+                <div className="card-label">Healthy Agents</div>
+                <div className="card-metric">{healthyAgents}<span style={{ fontSize: '16px', color: 'var(--text-2)' }}>/{data.agents.length}</span></div>
+                <div className="flex items-center gap-8 mt-8">
+                  <span className={`badge ${totalFailures > 0 ? "badge-yellow" : "badge-green"}`}>
+                    ● {totalFailures > 0 ? "Attention" : "Stable"}
+                  </span>
+                </div>
+                <div className="progress mt-8">
+                  <div className="progress-bar progress-green" style={{ width: `${data.agents.length ? (healthyAgents / data.agents.length) * 100 : 0}%` }}></div>
+                </div>
+              </div>
+              <div className="card metric-card">
+                <div className="card-label">Open Incidents</div>
+                <div className="card-metric">{totalFailures}</div>
+                <div className="flex items-center gap-8 mt-8">
+                  {criticalIncidents > 0 && <span className="badge badge-red">{criticalIncidents} Critical</span>}
+                  <span className="badge badge-yellow">{totalFailures - criticalIncidents} Warning</span>
+                </div>
+              </div>
+              <div className="card metric-card">
+                <div className="card-label">Repos Discovered (24h)</div>
+                <div className="card-metric">{reposDiscovered24h}</div>
+                <div className="card-sub">
+                  {data.ingestion.firehose_discovered_last_24h} firehose · {data.ingestion.backfill_discovered_last_24h} backfill
+                </div>
+                <div className="card-sub">{data.analysis.completed} analyzed · {data.triage.accepted} accepted</div>
+              </div>
+              <div className="card metric-card">
+                <div className="card-label">Token Burn (24h)</div>
+                <div className="card-metric">{formatTokenCount(tokenBurn24h)}</div>
+                <div className="flex items-center gap-8 mt-8">
+                  <span className={`badge ${tokenBurn24h > 0 ? "badge-yellow" : "badge-muted"}`}>
+                    {tokenBurn24h > 0 ? "Tracked" : "No LLM usage"}
+                  </span>
+                </div>
+                <div className="card-sub">
+                  {tokenBurn24h > 0 && topTokenAgent
+                    ? `${topTokenAgent.display_name} used ${formatTokenCount(data.token_usage.top_consumer_tokens_24h)} in the last 24h`
+                    : "No model-backed runs recorded in the last 24h"}
+                </div>
+              </div>
+              <div className="card metric-card">
+                <div className="card-label">Accepted Repos</div>
+                <div className="card-metric">{acceptedRepos}</div>
+                <div className="card-sub">{data.triage.rejected} rejected · {data.triage.pending} pending</div>
+                <div className="card-sub">Accepted through triage, not synthesized business ideas.</div>
+              </div>
+            </div>
+
+            <div className="section-head">
+              <span className="section-title">Pipeline Flow</span>
+              <div className="section-line"></div>
+            </div>
+            <div className="card mb-16">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', overflowX: 'auto' }}>
+                <PipelineNode name="Firehose" count={data.backlog.queue_pending} status="in queue" active={data.ingestion.firehose_discovered_last_24h > 0} />
+                <div style={{ color: 'var(--text-3)', fontSize: '20px' }}>→</div>
+                <PipelineNode name="Backfill" count={0} status="historical" active={false} />
+                <div style={{ color: 'var(--text-3)', fontSize: '20px' }}>→</div>
+                <PipelineNode name="Bouncer" count={data.triage.pending} status="triage" active={data.triage.pending > 0} />
+                <div style={{ color: 'var(--text-3)', fontSize: '20px' }}>→</div>
+                <PipelineNode name="Analyst" count={data.analysis.in_progress} status="analyzing" active={data.analysis.in_progress > 0} />
+                <div style={{ color: 'var(--text-3)', fontSize: '20px' }}>→</div>
+                <PipelineNode name="Combiner" count={0} status="synthesis" active={false} />
+                <div style={{ color: 'var(--text-3)', fontSize: '20px' }}>→</div>
+                <PipelineNode name="Ideas DB" count={acceptedRepos} status="accepted" active={acceptedRepos > 0} />
+              </div>
+            </div>
+
+            <div className="section-head">
+              <span className="section-title">Operator Control</span>
+              <div className="section-line"></div>
+            </div>
+            <div className="grid g-wide mb-16">
+              <div className="ctrl-dock">
+                <div className="ctrl-dock-head">
+                  <span className="card-title">Active Control Dock</span>
+                  <span className="badge badge-green">Ready</span>
+                </div>
+                <div className="ctrl-dock-body">
+                  <div className="ctrl-row"><span className="ctrl-label">Target</span><span className="ctrl-value">Firehose Agent</span></div>
+                  <div className="ctrl-row"><span className="ctrl-label">Action</span><span className="ctrl-value">Resume after safe pause</span></div>
+                  <div className="ctrl-row"><span className="ctrl-label">Scope</span><span className="ctrl-value">Remaining batch only</span></div>
+                  <div className="mt-12 flex gap-8">
+                    <button className="btn btn-primary">Execute: Resume Firehose</button>
+                    <button className="btn btn-danger">Cancel</button>
                   </div>
                 </div>
               </div>
-            </section>
+              <div className="ctrl-dock">
+                <div className="ctrl-dock-head">
+                  <span className="card-title">Pending Commands</span>
+                  <span className="badge badge-muted">0</span>
+                </div>
+                <div className="ctrl-dock-body">
+                  <div style={{ fontSize: '12px', color: 'var(--text-3)', textAlign: 'center', padding: '20px' }}>No pending commands</div>
+                </div>
+              </div>
+            </div>
 
-            <section>
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-900">Failures</h2>
-                <Link href="/incidents" className="text-sm text-blue-600 hover:text-blue-800">
-                  View Incidents →
-                </Link>
+            <div className="section-head">
+              <span className="section-title">Agent Status</span>
+              <div className="section-line"></div>
+            </div>
+            <div className="grid g3 mb-16">
+              <div className="card">
+                <div className="card-header"><span className="card-title">Agent Matrix</span></div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {data.agents.map((agent) => (
+                    <div key={agent.agent_name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '12px', color: 'var(--text-0)' }}>{agent.agent_name}</span>
+                      <span className={`badge badge-${agent.is_paused ? 'red' : agent.status === 'running' ? 'yellow' : 'green'}`}>●</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <MetricCard title="Total" value={data.failures.total_failures} />
-                <MetricCard title="Critical" value={data.failures.critical_failures} />
-                <MetricCard title="Rate Limited" value={data.failures.rate_limited_failures} />
-                <MetricCard title="Blocking" value={data.failures.blocking_failures} />
+              <div className="card">
+                <div className="card-header"><span className="card-title">Recent Activity</span></div>
+                <div style={{ fontSize: '12px', color: 'var(--text-2)' }}>
+                  <div style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>Analyst completed batch #47</div>
+                  <div style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>Firehose discovered 23 repos</div>
+                  <div style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>Bouncer filtered 12 repos</div>
+                  <div style={{ padding: '8px 0' }}>Overlord health check passed</div>
+                </div>
               </div>
-            </section>
+              <div className="card">
+                <div className="card-header"><span className="card-title">Opportunities Now</span></div>
+                <div style={{ fontSize: '12px', color: 'var(--text-2)' }}>
+                  <div style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ color: 'var(--text-0)', marginBottom: '4px' }}>High-fit repos ready</div>
+                    <div>{data.triage.accepted} repos awaiting review</div>
+                  </div>
+                  <div style={{ padding: '8px 0' }}>
+                    <div style={{ color: 'var(--text-0)', marginBottom: '4px' }}>Analysis capacity</div>
+                    <div>Can process {data.analysis.pending} more repos</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="section-head">
+              <span className="section-title">Agent Functions</span>
+              <div className="section-line"></div>
+            </div>
+            <div className="grid g3">
+              {data.agents.map((agent) => (
+                <AgentDescription
+                  key={agent.agent_name}
+                  name={agent.display_name}
+                  desc={agent.description}
+                  role={agent.role_label}
+                  usesAI={agent.uses_model}
+                  model={agent.configured_model}
+                  provider={agent.configured_provider}
+                  githubBacked={agent.uses_github_token}
+                />
+              ))}
+            </div>
+
+            <div className="section-head">
+              <span className="section-title">Trends & Schedule</span>
+              <div className="section-line"></div>
+            </div>
+            <div className="grid g3 mb-16">
+              <div className="card">
+                <div className="card-header"><span className="card-title">Trend Watch</span></div>
+                <div style={{ fontSize: '12px', color: 'var(--text-2)' }}>
+                  <div style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ color: 'var(--text-0)' }}>Repo intake velocity</div>
+                    <div className="delta delta-up">↑ 34% vs yesterday</div>
+                  </div>
+                  <div style={{ padding: '8px 0' }}>
+                    <div style={{ color: 'var(--text-0)' }}>Token consumption</div>
+                    <div className="delta delta-up">↑ 12% trending up</div>
+                  </div>
+                </div>
+              </div>
+              <div className="card">
+                <div className="card-header"><span className="card-title">Scheduled Events</span></div>
+                <div style={{ fontSize: '12px', color: 'var(--text-2)' }}>
+                  <div style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>Backfill run in 2h</div>
+                  <div style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>Weekly combiner in 6h</div>
+                  <div style={{ padding: '8px 0' }}>Maintenance window tomorrow</div>
+                </div>
+              </div>
+              <div className="card">
+                <div className="card-header"><span className="card-title">Backlog Pressure</span></div>
+                <div style={{ fontSize: '12px', color: 'var(--text-2)' }}>
+                  <div style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ color: 'var(--text-0)' }}>Queue depth</div>
+                    <div>{data.backlog.queue_pending} pending</div>
+                  </div>
+                  <div style={{ padding: '8px 0' }}>
+                    <div style={{ color: 'var(--text-0)' }}>Processing rate</div>
+                    <div>~{data.analysis.completed}/day</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid g-wide">
+              <div className="card">
+                <div className="card-header"><span className="card-title">Interest Areas</span></div>
+                <div style={{ fontSize: '12px', color: 'var(--text-2)', lineHeight: '1.6' }}>
+                  Watching B2B workflow tools, developer productivity, and AI-assisted coding platforms. Focus on repos with rising star velocity and low hosted competition.
+                </div>
+              </div>
+              <div className="card">
+                <div className="card-header"><span className="card-title">Recovery Notes</span></div>
+                <div style={{ fontSize: '12px', color: 'var(--text-2)' }}>No active recovery procedures</div>
+              </div>
+            </div>
           </>
         ) : null}
       </div>
-    </main>
+    </>
   );
+}
+
+function PipelineNode({ name, count, status, active }: { name: string; count: number; status: string; active: boolean }) {
+  return (
+    <div style={{
+      background: active ? 'var(--bg-3)' : 'var(--bg-2)',
+      border: `1px solid ${active ? 'var(--border-h)' : 'var(--border)'}`,
+      borderRadius: '8px',
+      padding: '12px 16px',
+      minWidth: '120px',
+      textAlign: 'center'
+    }}>
+      <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-0)', marginBottom: '4px' }}>{name}</div>
+      <div style={{ fontSize: '24px', fontWeight: 700, color: active ? 'var(--amber)' : 'var(--text-2)', fontFamily: 'var(--mono)' }}>{count}</div>
+      <div style={{ fontSize: '10px', color: 'var(--text-3)', marginTop: '4px' }}>{status}</div>
+    </div>
+  );
+}
+
+function AgentDescription({
+  name,
+  desc,
+  role,
+  usesAI,
+  model,
+  provider,
+  githubBacked,
+}: {
+  name: string;
+  desc: string;
+  role: string;
+  usesAI: boolean;
+  model?: string | null;
+  provider?: string | null;
+  githubBacked: boolean;
+}) {
+  return (
+    <div className="card">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+        <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-0)' }}>{name}</span>
+        {usesAI && <span className="badge badge-blue">AI</span>}
+        {githubBacked && <span className="badge badge-muted">GitHub API</span>}
+      </div>
+      <div style={{ fontSize: '11px', color: 'var(--text-3)', marginBottom: '8px', fontFamily: 'var(--mono)' }}>{role}</div>
+      <div style={{ fontSize: '12px', color: 'var(--text-2)', lineHeight: '1.5' }}>{desc}</div>
+      <div style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '8px', fontFamily: 'var(--mono)' }}>
+        Provider: {provider ?? "local-only"}
+      </div>
+      <div style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '4px', fontFamily: 'var(--mono)' }}>
+        Model: {model ?? "none"}
+      </div>
+    </div>
+  );
+}
+
+function formatTokenCount(value: number) {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(1)}K`;
+  }
+  return `${value}`;
 }

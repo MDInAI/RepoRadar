@@ -10,6 +10,7 @@ from app.api.deps import (
 from app.core.errors import AppError
 from app.models import (
     RepositoryAnalysisStatus,
+    RepositoryCategory,
     RepositoryDiscoverySource,
     RepositoryMonetizationPotential,
     RepositoryQueueStatus,
@@ -75,6 +76,8 @@ def get_repository_catalog_query_params(
     triage_status: str | None = Query(default=None),
     analysis_status: str | None = Query(default=None),
     has_failures: bool = Query(default=False),
+    category: str | None = Query(default=None),
+    agent_tag: str | None = Query(default=None),
     monetization_potential: str | None = Query(default=None),
     min_stars: int | None = Query(default=None),
     max_stars: int | None = Query(default=None),
@@ -126,6 +129,7 @@ def get_repository_catalog_query_params(
 
     normalized_search = search.strip() if search else None
     normalized_user_tag = user_tag.strip() if user_tag else None
+    normalized_agent_tag = agent_tag.strip().lower() if agent_tag else None
 
     return RepositoryCatalogQueryParams(
         page=page,
@@ -152,6 +156,12 @@ def get_repository_catalog_query_params(
             "analysis_status",
         ),
         has_failures=has_failures,
+        category=_parse_repository_catalog_enum(
+            category,
+            RepositoryCategory,
+            "category",
+        ),
+        agent_tag=normalized_agent_tag or None,
         monetization_potential=_parse_repository_catalog_enum(
             monetization_potential,
             RepositoryMonetizationPotential,

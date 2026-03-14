@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -21,6 +21,8 @@ const detailResponse = {
   discovered_at: "2026-03-09T12:00:00Z",
   status_updated_at: "2026-03-09T12:00:00Z",
   pushed_at: "2026-03-09T12:00:00Z",
+  category: "workflow",
+  agent_tags: ["workflow", "approval"],
   triage: {
     triage_status: "accepted",
     triaged_at: "2026-03-09T12:00:00Z",
@@ -34,6 +36,8 @@ const detailResponse = {
   },
   analysis_summary: {
     monetization_potential: "high",
+    category: "workflow",
+    agent_tags: ["workflow", "approval"],
     pros: ["Clear workflow"],
     cons: ["Pricing unknown"],
     missing_feature_signals: ["Missing SSO"],
@@ -188,16 +192,11 @@ describe("Repository detail page", () => {
 
     expect(await screen.findByRole("heading", { name: "alpha/growth-engine" })).toBeTruthy();
     expect(screen.getByText("README Intelligence")).toBeTruthy();
-    expect(screen.getByText("Raw README Source")).toBeTruthy();
-    expect(screen.getByText("Parsed Context")).toBeTruthy();
     expect(screen.getByText("Analyst Output")).toBeTruthy();
-    expect(screen.getByText("Generated Analysis Output")).toBeTruthy();
-    expect(screen.getByText("Analysis Provenance")).toBeTruthy();
-    expect(screen.getByText("Triage Context")).toBeTruthy();
-    expect(screen.getByText("Processing Monitor")).toBeTruthy();
-    expect(screen.getByText("Intake, triage, and analysis status at a glance")).toBeTruthy();
-    expect(screen.getByText("No repository processing failure is currently recorded.")).toBeTruthy();
-    expect(screen.getByText("Family Assignment")).toBeTruthy();
+    expect(screen.getByText("Analyst Summary")).toBeTruthy();
+    expect(screen.getByText("Decision Summary")).toBeTruthy();
+    expect(screen.getByText("Tags & Categories")).toBeTruthy();
+    expect(screen.getByText("Add to Family")).toBeTruthy();
     expect(screen.getByText("Create Combiner Brief")).toBeTruthy();
     expect(screen.getByText("Similar-Project Scan")).toBeTruthy();
     expect(screen.getByText("User Tags")).toBeTruthy();
@@ -245,6 +244,8 @@ describe("Repository detail page", () => {
     });
 
     render(<QueryClientProvider client={queryClient}>{page}</QueryClientProvider>);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "History" }));
 
     expect(await screen.findByText("Active failure context")).toBeTruthy();
     expect(screen.getByText("Analysis failure at Analysis")).toBeTruthy();
@@ -287,9 +288,10 @@ describe("Repository detail page", () => {
 
     render(<QueryClientProvider client={queryClient}>{page}</QueryClientProvider>);
 
-    expect(
-      await screen.findByText("No repository processing failure is currently recorded."),
-    ).toBeTruthy();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "History" }));
+
+    expect(await screen.findByText("No repository processing failure is currently recorded.")).toBeTruthy();
     expect(screen.queryByText("Active failure context")).toBeNull();
   });
 
@@ -300,13 +302,12 @@ describe("Repository detail page", () => {
     await user.click(await screen.findByRole("button", { name: "Stage family assignment" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Action Scaffold Ready")).toBeTruthy();
+      expect(screen.getByText("What Happens")).toBeTruthy();
     });
 
     expect(screen.getAllByText("alpha/growth-engine").length).toBeGreaterThan(0);
-    const status = screen.getByRole("status");
-    expect(within(status).getByText("Destination:")).toBeTruthy();
-    expect(within(status).getByText("Ideas > Family Workspace")).toBeTruthy();
-    expect(within(status).getByText("Expected Result:")).toBeTruthy();
+    expect(screen.getByText("Selected")).toBeTruthy();
+    expect(screen.getAllByText("Ideas > Family Workspace").length).toBeGreaterThan(0);
+    expect(screen.getByText("Expected Result")).toBeTruthy();
   });
 });

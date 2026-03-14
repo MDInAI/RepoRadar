@@ -79,6 +79,18 @@ class AgentRun(SQLModel, table=True):
             "duration_seconds IS NULL OR duration_seconds >= 0",
             name="ck_agent_runs_duration_non_negative",
         ),
+        CheckConstraint(
+            "input_tokens IS NULL OR input_tokens >= 0",
+            name="ck_agent_runs_input_tokens_non_negative",
+        ),
+        CheckConstraint(
+            "output_tokens IS NULL OR output_tokens >= 0",
+            name="ck_agent_runs_output_tokens_non_negative",
+        ),
+        CheckConstraint(
+            "total_tokens IS NULL OR total_tokens >= 0",
+            name="ck_agent_runs_total_tokens_non_negative",
+        ),
         Index("ix_agent_runs_agent_name", "agent_name"),
         Index("ix_agent_runs_status", "status"),
         Index("ix_agent_runs_started_at", "started_at"),
@@ -140,6 +152,26 @@ class AgentRun(SQLModel, table=True):
     error_context: str | None = Field(
         default=None,
         sa_column=Column(Text(), nullable=True),
+    )
+    provider_name: str | None = Field(
+        default=None,
+        sa_column=Column(String(128), nullable=True),
+    )
+    model_name: str | None = Field(
+        default=None,
+        sa_column=Column(String(256), nullable=True),
+    )
+    input_tokens: int | None = Field(
+        default=None,
+        sa_column=Column(Integer, nullable=True),
+    )
+    output_tokens: int | None = Field(
+        default=None,
+        sa_column=Column(Integer, nullable=True),
+    )
+    total_tokens: int | None = Field(
+        default=None,
+        sa_column=Column(Integer, nullable=True),
     )
 
 

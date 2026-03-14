@@ -191,6 +191,23 @@ class RepositoryMonetizationPotential(StrEnum):
     HIGH = "high"
 
 
+class RepositoryCategory(StrEnum):
+    WORKFLOW = "workflow"
+    ANALYTICS = "analytics"
+    DEVOPS = "devops"
+    INFRASTRUCTURE = "infrastructure"
+    DEVTOOLS = "devtools"
+    CRM = "crm"
+    COMMUNICATION = "communication"
+    SUPPORT = "support"
+    OBSERVABILITY = "observability"
+    LOW_CODE = "low_code"
+    SECURITY = "security"
+    AI_ML = "ai_ml"
+    DATA = "data"
+    PRODUCTIVITY = "productivity"
+
+
 class RepositoryIntake(SQLModel, table=True):
     __tablename__ = "repository_intake"
     __table_args__ = (
@@ -938,6 +955,27 @@ class RepositoryAnalysisResult(SQLModel, table=True):
                 create_constraint=True,
             ),
             nullable=False,
+        ),
+    )
+    category: RepositoryCategory | None = Field(
+        default=None,
+        sa_column=Column(
+            SQLEnum(
+                RepositoryCategory,
+                values_callable=_enum_values,
+                name="repository_category",
+                native_enum=False,
+                create_constraint=True,
+            ),
+            nullable=True,
+        ),
+    )
+    agent_tags: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(
+            MutableList.as_mutable(JSONStringListType()),
+            nullable=False,
+            server_default=text("'[]'"),
         ),
     )
     pros: list[str] = Field(
