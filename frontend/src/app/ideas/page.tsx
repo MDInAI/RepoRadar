@@ -60,8 +60,14 @@ function IdeasPageContent() {
   };
 
   return (
-    <main className="flex h-screen">
-      <FamilyListSidebar
+    <>
+      <div className="topbar">
+        <span className="topbar-title">Ideas</span>
+        <span className="topbar-breadcrumb">workspace</span>
+      </div>
+
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        <FamilyListSidebar
         selectedFamilyId={selectedFamilyId}
         onSelectFamily={handleSelectFamily}
         onCreateFamily={handleCreateFamily}
@@ -106,6 +112,7 @@ function IdeasPageContent() {
           <p className="text-neutral-400">Select a family to view details</p>
         </div>
       )}
+      </div>
 
       <FamilyFormDialog
         isOpen={isFormOpen}
@@ -128,7 +135,7 @@ function IdeasPageContent() {
           onClose={() => setViewingRunId(null)}
         />
       )}
-    </main>
+    </>
   );
 }
 

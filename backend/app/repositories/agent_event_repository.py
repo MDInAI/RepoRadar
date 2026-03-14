@@ -67,6 +67,11 @@ class AgentEventRepository:
         items_failed: int | None,
         error_summary: str | None,
         error_context: str | None,
+        provider_name: str | None = None,
+        model_name: str | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        total_tokens: int | None = None,
     ) -> AgentRun:
         record = self.session.get(AgentRun, run_id)
         if record is None:
@@ -81,6 +86,11 @@ class AgentEventRepository:
         record.items_failed = items_failed
         record.error_summary = error_summary
         record.error_context = error_context
+        record.provider_name = provider_name
+        record.model_name = model_name
+        record.input_tokens = input_tokens
+        record.output_tokens = output_tokens
+        record.total_tokens = total_tokens
         self.session.add(record)
         self.session.commit()
         self.session.refresh(record)

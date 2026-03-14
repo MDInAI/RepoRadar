@@ -14,6 +14,7 @@ from app.models import (
     RepositoryAnalysisStatus,
     RepositoryArtifact,
     RepositoryArtifactKind,
+    RepositoryCategory,
     RepositoryDiscoverySource,
     RepositoryIntake,
     RepositoryQueueStatus,
@@ -42,6 +43,8 @@ class RepositoryArtifactRefRecord:
 @dataclass(frozen=True, slots=True)
 class RepositoryAnalysisSummaryRecord:
     monetization_potential: RepositoryMonetizationPotential
+    category: RepositoryCategory | None
+    agent_tags: list[str]
     pros: list[str]
     cons: list[str]
     missing_feature_signals: list[str]
@@ -82,6 +85,8 @@ class RepositoryExplorationRecord:
     discovered_at: datetime
     status_updated_at: datetime
     pushed_at: datetime | None
+    category: RepositoryCategory | None
+    agent_tags: list[str]
     triage: RepositoryTriageRecord
     analysis_summary: RepositoryAnalysisSummaryRecord | None
     artifacts: list[RepositoryArtifactRefRecord]
@@ -95,17 +100,19 @@ class RepositoryExplorationRecord:
 class RepositoryCatalogListParams:
     page: int
     page_size: int
-    search: str | None
-    discovery_source: RepositoryDiscoverySource | None
-    queue_status: RepositoryQueueStatus | None
-    triage_status: RepositoryTriageStatus | None
-    analysis_status: RepositoryAnalysisStatus | None
-    has_failures: bool
-    monetization_potential: RepositoryMonetizationPotential | None
-    min_stars: int | None
-    max_stars: int | None
-    starred_only: bool
-    user_tag: str | None
+    search: str | None = None
+    discovery_source: RepositoryDiscoverySource | None = None
+    queue_status: RepositoryQueueStatus | None = None
+    triage_status: RepositoryTriageStatus | None = None
+    analysis_status: RepositoryAnalysisStatus | None = None
+    has_failures: bool = False
+    category: RepositoryCategory | None = None
+    agent_tag: str | None = None
+    monetization_potential: RepositoryMonetizationPotential | None = None
+    min_stars: int | None = None
+    max_stars: int | None = None
+    starred_only: bool = False
+    user_tag: str | None = None
     idea_family_id: int | None = None
     sort_by: str = "stars"
     sort_order: str = "desc"
@@ -131,6 +138,8 @@ class RepositoryCatalogItemRecord:
     intake_failed_at: datetime | None
     analysis_failed_at: datetime | None
     failure: "RepositoryFailureContextRecord | None"
+    category: RepositoryCategory | None
+    agent_tags: list[str]
     monetization_potential: RepositoryMonetizationPotential | None
     has_readme_artifact: bool
     has_analysis_artifact: bool
@@ -206,6 +215,8 @@ class RepositoryExplorationRepository:
         if analysis_row is not None:
             analysis_summary = RepositoryAnalysisSummaryRecord(
                 monetization_potential=analysis_row.monetization_potential,
+                category=analysis_row.category,
+                agent_tags=list(analysis_row.agent_tags),
                 pros=list(analysis_row.pros),
                 cons=list(analysis_row.cons),
                 missing_feature_signals=list(analysis_row.missing_feature_signals),
@@ -264,6 +275,8 @@ class RepositoryExplorationRepository:
             discovered_at=intake.discovered_at,
             status_updated_at=intake.status_updated_at,
             pushed_at=intake.pushed_at,
+            category=analysis_row.category if analysis_row is not None else None,
+            agent_tags=list(analysis_row.agent_tags) if analysis_row is not None else [],
             triage=RepositoryTriageRecord(
                 triage_status=intake.triage_status,
                 triaged_at=intake.triaged_at,
@@ -320,6 +333,18 @@ class RepositoryExplorationRepository:
         ):
             filters.append(RepositoryIntake.triage_status == RepositoryTriageStatus.ACCEPTED)
             filters.append(RepositoryIntake.analysis_status == RepositoryAnalysisStatus.COMPLETED)
+        if params.category is not None:
+            filters.append(RepositoryAnalysisResult.category == params.category)
+        if params.agent_tag:
+            escaped_agent_tag = (
+                params.agent_tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            )
+            filters.append(
+                RepositoryAnalysisResult.agent_tags.like(
+                    f'%"{escaped_agent_tag}"%',
+                    escape="\\",
+                )
+            )
         if params.monetization_potential is not None:
             filters.append(
                 RepositoryAnalysisResult.monetization_potential == params.monetization_potential
@@ -433,6 +458,8 @@ class RepositoryExplorationRepository:
                 RepositoryIntake.analysis_last_failed_at.label("analysis_failed_at"),
                 RepositoryIntake.analysis_failure_code,
                 RepositoryIntake.analysis_failure_message,
+                RepositoryAnalysisResult.category,
+                RepositoryAnalysisResult.agent_tags,
                 RepositoryAnalysisResult.monetization_potential,
                 readme_exists.label("has_readme_artifact"),
                 analysis_exists.label("has_analysis_artifact"),
@@ -504,6 +531,8 @@ class RepositoryExplorationRepository:
                     intake_failed_at=row.intake_failed_at,
                     analysis_failed_at=row.analysis_failed_at,
                 ),
+                category=row.category,
+                agent_tags=list(row.agent_tags or []),
                 monetization_potential=row.monetization_potential,
                 has_readme_artifact=bool(row.has_readme_artifact),
                 has_analysis_artifact=bool(row.has_analysis_artifact),

@@ -15,18 +15,18 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_check_constraint(
-        'ck_agent_memory_content_type_enum',
-        'agent_memory_segments',
-        "content_type IN ('markdown', 'json')"
-    )
-    op.create_check_constraint(
-        'ck_agent_memory_content_size',
-        'agent_memory_segments',
-        'length(content) <= 51200'
-    )
+    with op.batch_alter_table("agent_memory_segments") as batch_op:
+        batch_op.create_check_constraint(
+            "ck_agent_memory_content_type_enum",
+            "content_type IN ('markdown', 'json')",
+        )
+        batch_op.create_check_constraint(
+            "ck_agent_memory_content_size",
+            "length(content) <= 51200",
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint('ck_agent_memory_content_size', 'agent_memory_segments', type_='check')
-    op.drop_constraint('ck_agent_memory_content_type_enum', 'agent_memory_segments', type_='check')
+    with op.batch_alter_table("agent_memory_segments") as batch_op:
+        batch_op.drop_constraint("ck_agent_memory_content_size", type_="check")
+        batch_op.drop_constraint("ck_agent_memory_content_type_enum", type_="check")

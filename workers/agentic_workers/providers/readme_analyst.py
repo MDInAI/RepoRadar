@@ -17,6 +17,8 @@ class MonetizationPotential(StrEnum):
 
 class ReadmeBusinessAnalysis(BaseModel):
     monetization_potential: MonetizationPotential
+    category: str | None = None
+    agent_tags: list[str] = Field(default_factory=list)
     pros: list[str] = Field(default_factory=list)
     cons: list[str] = Field(default_factory=list)
     missing_feature_signals: list[str] = Field(default_factory=list)
@@ -45,6 +47,14 @@ class HeuristicReadmeAnalysisProvider:
 
     def analyze(self, *, repository_full_name: str, readme: NormalizedReadme) -> str:
         lower_text = readme.normalized_text.lower()
+        category = _classify_category(
+            repository_full_name=repository_full_name,
+            lower_text=lower_text,
+        )
+        agent_tags = _extract_agent_tags(
+            repository_full_name=repository_full_name,
+            lower_text=lower_text,
+        )
         monetization_potential = _score_monetization(lower_text=lower_text)
 
         pros = _dedupe(
@@ -60,6 +70,8 @@ class HeuristicReadmeAnalysisProvider:
         return json.dumps(
             {
                 "monetization_potential": monetization_potential.value,
+                "category": category,
+                "agent_tags": agent_tags[:8],
                 "pros": pros[:4],
                 "cons": cons[:4],
                 "missing_feature_signals": missing_feature_signals[:4],
@@ -127,6 +139,46 @@ _SKIPPED_SECTION_HEADINGS = {
     "code of conduct",
 }
 
+_CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "workflow": ("workflow", "approval", "automation", "orchestrat", "business process"),
+    "analytics": ("analytics", "dashboard", "insight", "reporting", "metric", "bi "),
+    "devops": ("ci/cd", "deploy", "kubernetes", "infra as code", "devops", "pipeline"),
+    "infrastructure": ("gateway", "proxy", "database", "storage", "infrastructure", "cluster"),
+    "devtools": ("developer", "sdk", "cli", "tooling", "framework", "plugin"),
+    "crm": ("crm", "customer relationship", "sales", "lead", "pipeline", "account"),
+    "communication": ("chat", "message", "email", "notification", "communication", "slack"),
+    "support": ("ticket", "helpdesk", "support", "knowledge base", "incident response"),
+    "observability": ("observability", "monitoring", "tracing", "logging", "metrics"),
+    "low_code": ("no-code", "no code", "low-code", "low code", "builder", "form builder"),
+    "security": ("security", "authentication", "authorization", "sso", "compliance"),
+    "ai_ml": ("machine learning", "ml", "llm", "ai ", "embedding", "model"),
+    "data": ("etl", "warehouse", "data pipeline", "data sync", "schema", "lineage"),
+    "productivity": ("productivity", "project management", "task management", "notes"),
+}
+
+_AGENT_TAG_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "workflow": ("workflow", "approval", "orchestrat"),
+    "automation": ("automation", "automate"),
+    "analytics": ("analytics", "dashboard", "reporting", "insight"),
+    "embedded": ("embedded", "widget", "sdk"),
+    "crm": ("crm", "sales", "lead"),
+    "b2b": ("enterprise", "team", "b2b", "customer"),
+    "devops": ("devops", "ci/cd", "deploy", "infrastructure"),
+    "support": ("support", "ticket", "helpdesk"),
+    "communication": ("message", "email", "chat", "notification"),
+    "monitoring": ("monitoring", "observability", "tracing", "logging"),
+    "api": ("api", "rest", "graphql", "webhook"),
+    "gateway": ("gateway", "proxy"),
+    "data": ("etl", "warehouse", "lineage", "schema"),
+    "database": ("database", "postgres", "mysql", "sqlite"),
+    "migration": ("migration", "schema", "sync"),
+    "forms": ("form", "builder"),
+    "low-code": ("low-code", "low code", "no-code", "no code"),
+    "approval": ("approval", "approve"),
+    "lineage": ("lineage",),
+    "ticketing": ("ticket", "helpdesk"),
+}
+
 
 def _heading_text(line: str) -> str | None:
     if not line.startswith("#"):
@@ -173,6 +225,26 @@ def _score_monetization(*, lower_text: str) -> MonetizationPotential:
     if high_count >= 1 or medium_count >= 2:
         return MonetizationPotential.MEDIUM
     return MonetizationPotential.LOW
+
+
+def _classify_category(*, repository_full_name: str, lower_text: str) -> str | None:
+    search_text = f"{repository_full_name.lower()} {lower_text}"
+    best_category: str | None = None
+    best_score = 0
+    for category, keywords in _CATEGORY_KEYWORDS.items():
+        score = sum(keyword in search_text for keyword in keywords)
+        if score > best_score:
+            best_category = category
+            best_score = score
+    return best_category if best_score > 0 else None
+
+
+def _extract_agent_tags(*, repository_full_name: str, lower_text: str) -> list[str]:
+    search_text = f"{repository_full_name.lower()} {lower_text}"
+    tags = [
+        tag for tag, keywords in _AGENT_TAG_KEYWORDS.items() if any(keyword in search_text for keyword in keywords)
+    ]
+    return _dedupe(tags)
 
 
 def _extract_positive_signals(*, lower_text: str) -> list[str]:

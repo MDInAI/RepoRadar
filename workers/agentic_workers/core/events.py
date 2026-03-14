@@ -47,6 +47,11 @@ def complete_agent_run(
     items_processed: int,
     items_succeeded: int,
     items_failed: int,
+    provider_name: str | None = None,
+    model_name: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    total_tokens: int | None = None,
 ) -> None:
     _finish_existing_run(
         session,
@@ -57,6 +62,11 @@ def complete_agent_run(
         items_failed=items_failed,
         error_summary=None,
         error_context=None,
+        provider_name=provider_name,
+        model_name=model_name,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
         event_type="agent_completed",
         severity=EventSeverity.INFO,
         message="{agent_name} run completed.",
@@ -79,6 +89,11 @@ def fail_agent_run(
     items_processed: int | None,
     items_succeeded: int | None,
     items_failed: int | None,
+    provider_name: str | None = None,
+    model_name: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    total_tokens: int | None = None,
 ) -> None:
     _finish_existing_run(
         session,
@@ -89,6 +104,11 @@ def fail_agent_run(
         items_failed=items_failed,
         error_summary=error_summary,
         error_context=error_context,
+        provider_name=provider_name,
+        model_name=model_name,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
         event_type="agent_failed",
         severity=EventSeverity.ERROR,
         message=error_summary,
@@ -105,6 +125,11 @@ def mark_agent_run_skipped(
     items_processed: int | None = 0,
     items_succeeded: int | None = 0,
     items_failed: int | None = 0,
+    provider_name: str | None = None,
+    model_name: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    total_tokens: int | None = None,
 ) -> None:
     event_type = (
         "agent_skipped_paused"
@@ -120,6 +145,11 @@ def mark_agent_run_skipped(
         items_failed=items_failed,
         error_summary=reason,
         error_context=None,
+        provider_name=provider_name,
+        model_name=model_name,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
         event_type=event_type,
         severity=EventSeverity.INFO,
         message=reason,
@@ -141,6 +171,11 @@ def skip_agent_run(session: Session, agent_name: str, reason: str) -> None:
             items_failed=0,
             error_summary=reason,
             error_context=None,
+            provider_name=None,
+            model_name=None,
+            input_tokens=0,
+            output_tokens=0,
+            total_tokens=0,
         )
         session.add(run)
         session.flush()
@@ -284,6 +319,11 @@ def _finish_existing_run(
     items_failed: int | None,
     error_summary: str | None,
     error_context: str | None,
+    provider_name: str | None,
+    model_name: str | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    total_tokens: int | None,
     event_type: str,
     severity: EventSeverity,
     message: str,
@@ -300,6 +340,11 @@ def _finish_existing_run(
         run.items_failed = items_failed
         run.error_summary = error_summary
         run.error_context = error_context
+        run.provider_name = provider_name
+        run.model_name = model_name
+        run.input_tokens = input_tokens
+        run.output_tokens = output_tokens
+        run.total_tokens = total_tokens
         session.add(run)
 
         _add_system_event(

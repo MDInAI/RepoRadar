@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 from typing import TYPE_CHECKING
 
+from sqlalchemy import func
+from sqlmodel import select
+
 from app.core.event_broadcaster import EventBroadcaster
 from app.core.errors import AppError
+from app.models import AgentRun
 from app.repositories.agent_event_repository import (
     AgentEventRepository,
     AgentRunListFilters,
@@ -14,6 +19,7 @@ from app.repositories.agent_event_repository import (
     SystemEventListFilters,
 )
 from app.models import AGENT_NAMES, AgentRunStatus, EventSeverity
+from app.services.agent_metadata import get_agent_metadata
 
 if TYPE_CHECKING:
     from app.schemas.incident import IncidentListParams, IncidentResponse
@@ -76,10 +82,24 @@ class AgentEventService:
             record.agent_name: self._build_agent_run_response(record)
             for record in self.repository.get_latest_run_per_agent()
         }
+        usage_by_name = self._get_agent_usage_24h()
         return AgentLatestRunsResponse(
             agents=[
                 AgentStatusEntry(
                     agent_name=name,
+                    display_name=(metadata := get_agent_metadata(name)).display_name,
+                    role_label=metadata.role_label,
+                    description=metadata.description,
+                    implementation_status=metadata.implementation_status,
+                    runtime_kind=metadata.runtime_kind,
+                    uses_github_token=metadata.uses_github_token,
+                    uses_model=metadata.uses_model,
+                    configured_provider=metadata.configured_provider,
+                    configured_model=metadata.configured_model,
+                    notes=list(metadata.notes),
+                    token_usage_24h=usage_by_name.get(name, {}).get("total_tokens", 0),
+                    input_tokens_24h=usage_by_name.get(name, {}).get("input_tokens", 0),
+                    output_tokens_24h=usage_by_name.get(name, {}).get("output_tokens", 0),
                     has_run=name in runs_by_name,
                     latest_run=runs_by_name.get(name),
                 )
@@ -150,6 +170,11 @@ class AgentEventService:
         items_failed: int | None,
         error_summary: str | None,
         error_context: str | None,
+        provider_name: str | None = None,
+        model_name: str | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        total_tokens: int | None = None,
     ) -> AgentRunResponse:
         record = self.repository.complete_agent_run(
             run_id,
@@ -159,6 +184,11 @@ class AgentEventService:
             items_failed=items_failed,
             error_summary=error_summary,
             error_context=error_context,
+            provider_name=provider_name,
+            model_name=model_name,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
         )
         response = self._build_agent_run_response(record)
         self._broadcast_agent_run_update(response)
@@ -231,6 +261,28 @@ class AgentEventService:
         if self.broadcaster is None:
             return
         self.broadcaster.broadcast("system.event", self._model_dump(response))
+
+    def _get_agent_usage_24h(self) -> dict[str, dict[str, int]]:
+        since = datetime.now(timezone.utc) - timedelta(hours=24)
+        statement = (
+            select(
+                AgentRun.agent_name,
+                func.coalesce(func.sum(AgentRun.input_tokens), 0).label("input_tokens"),
+                func.coalesce(func.sum(AgentRun.output_tokens), 0).label("output_tokens"),
+                func.coalesce(func.sum(AgentRun.total_tokens), 0).label("total_tokens"),
+            )
+            .where(AgentRun.started_at >= since)
+            .group_by(AgentRun.agent_name)
+        )
+        rows = self.repository.session.exec(statement).all()
+        usage_by_name: dict[str, dict[str, int]] = {}
+        for row in rows:
+            usage_by_name[row.agent_name] = {
+                "input_tokens": int(row.input_tokens or 0),
+                "output_tokens": int(row.output_tokens or 0),
+                "total_tokens": int(row.total_tokens or 0),
+            }
+        return usage_by_name
 
     @staticmethod
     def _model_dump(model: AgentRunResponse | SystemEventResponse) -> dict[str, object]:

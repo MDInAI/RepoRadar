@@ -82,6 +82,11 @@ class AgentRunMetrics:
     items_failed: int
     error_summary: str | None = None
     error_context: str | None = None
+    provider_name: str | None = None
+    model_name: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 def calculate_intake_pacing_seconds() -> int:
@@ -382,6 +387,18 @@ def _log_analyst_result(result: AnalystRunResult) -> None:
         logger.warning("Analyst run completed with non-success status: %s", result.status)
 
 
+def _log_combiner_result(result: CombinerRunResult) -> None:
+    logger.info(
+        "Combiner run complete: status=%s provider=%s model=%s total_tokens=%s",
+        result.status,
+        result.provider_name or "n/a",
+        result.model_name or "n/a",
+        result.total_tokens,
+    )
+    if result.error_message:
+        logger.warning("Combiner run failed with error: %s", result.error_message)
+
+
 def _record_run_outcome(
     session: Session,
     run_id: int,
@@ -395,6 +412,11 @@ def _record_run_outcome(
             items_processed=metrics.items_processed,
             items_succeeded=metrics.items_succeeded,
             items_failed=metrics.items_failed,
+            provider_name=metrics.provider_name,
+            model_name=metrics.model_name,
+            input_tokens=metrics.input_tokens,
+            output_tokens=metrics.output_tokens,
+            total_tokens=metrics.total_tokens,
         )
         return
 
@@ -406,6 +428,11 @@ def _record_run_outcome(
         items_processed=metrics.items_processed,
         items_succeeded=metrics.items_succeeded,
         items_failed=metrics.items_failed,
+        provider_name=metrics.provider_name,
+        model_name=metrics.model_name,
+        input_tokens=metrics.input_tokens,
+        output_tokens=metrics.output_tokens,
+        total_tokens=metrics.total_tokens,
     )
 
 
@@ -442,6 +469,11 @@ def _run_tracked_job(
                 items_processed=metrics.items_processed,
                 items_succeeded=metrics.items_succeeded,
                 items_failed=metrics.items_failed,
+                provider_name=metrics.provider_name,
+                model_name=metrics.model_name,
+                input_tokens=metrics.input_tokens,
+                output_tokens=metrics.output_tokens,
+                total_tokens=metrics.total_tokens,
             )
         else:
             _record_run_outcome(session, run_id, is_success(result), metrics)
@@ -487,6 +519,11 @@ def _record_unexpected_run_failure(
         items_processed=metrics.items_processed if metrics is not None else None,
         items_succeeded=metrics.items_succeeded if metrics is not None else None,
         items_failed=metrics.items_failed if metrics is not None else None,
+        provider_name=metrics.provider_name if metrics is not None else None,
+        model_name=metrics.model_name if metrics is not None else None,
+        input_tokens=metrics.input_tokens if metrics is not None else None,
+        output_tokens=metrics.output_tokens if metrics is not None else None,
+        total_tokens=metrics.total_tokens if metrics is not None else None,
     )
 
 
@@ -526,6 +563,11 @@ def _summarize_firehose_run(result: FirehoseRunResult) -> AgentRunMetrics:
         items_failed=items_failed,
         error_summary=error_summary,
         error_context=error_context,
+        provider_name="github",
+        model_name=None,
+        input_tokens=0,
+        output_tokens=0,
+        total_tokens=0,
     )
 
 
@@ -567,6 +609,11 @@ def _summarize_backfill_run(result: BackfillRunResult) -> AgentRunMetrics:
         items_failed=items_failed,
         error_summary=error_summary,
         error_context=error_context,
+        provider_name="github",
+        model_name=None,
+        input_tokens=0,
+        output_tokens=0,
+        total_tokens=0,
     )
 
 
@@ -606,6 +653,11 @@ def _summarize_bouncer_run(result: BouncerRunResult) -> AgentRunMetrics:
         items_failed=items_failed,
         error_summary=error_summary,
         error_context=error_context,
+        provider_name="local-rules",
+        model_name=None,
+        input_tokens=0,
+        output_tokens=0,
+        total_tokens=0,
     )
 
 
@@ -645,7 +697,53 @@ def _summarize_analyst_run(result: AnalystRunResult) -> AgentRunMetrics:
         items_failed=items_failed,
         error_summary=error_summary,
         error_context=error_context,
+        provider_name="heuristic-readme-analysis",
+        model_name=None,
+        input_tokens=0,
+        output_tokens=0,
+        total_tokens=0,
     )
+
+
+def _summarize_combiner_run(result: CombinerRunResult) -> AgentRunMetrics:
+    return AgentRunMetrics(
+        items_processed=1 if result.run_id is not None else 0,
+        items_succeeded=1 if result.status is CombinerRunStatus.SUCCESS and result.run_id is not None else 0,
+        items_failed=1 if result.status is CombinerRunStatus.FAILED else 0,
+        error_summary=result.error_message,
+        error_context=_serialize_json(
+            {
+                "status": result.status,
+                "provider_name": result.provider_name,
+                "model_name": result.model_name,
+                "input_tokens": result.input_tokens,
+                "output_tokens": result.output_tokens,
+                "total_tokens": result.total_tokens,
+            }
+        ) if result.error_message else None,
+        provider_name=result.provider_name,
+        model_name=result.model_name,
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+        total_tokens=result.total_tokens,
+    )
+
+
+def run_configured_combiner_job() -> CombinerRunResult:
+    with Session(engine) as session:
+        return _run_tracked_job(
+            session=session,
+            agent_name="combiner",
+            execute_job=lambda run_id: run_combiner_job(
+                session=session,
+                runtime_dir=settings.runtime.runtime_dir,
+            ),
+            summarize_run=_summarize_combiner_run,
+            is_success=lambda result: result.status is CombinerRunStatus.SUCCESS,
+            is_skipped=lambda result: result.status is CombinerRunStatus.SKIPPED_PAUSED,
+            is_paused_skip=lambda result: result.status is CombinerRunStatus.SKIPPED_PAUSED,
+            skipped_reason="combiner run skipped because shutdown was requested.",
+        )
 
 
 def _unexpected_exception_payload(exc: Exception) -> dict[str, object]:
@@ -742,9 +840,8 @@ async def _run_combiner_if_pending(
         logger.exception("Unable to inspect pending Combiner work. Skipping this pass.")
         return False
 
-    with Session(engine) as session:
-        result = run_combiner_job(session=session, runtime_dir=settings.runtime.runtime_dir)
-    logger.info(f"Combiner run completed with status: {result.status}")
+    result = await asyncio.to_thread(run_configured_combiner_job)
+    _log_combiner_result(result)
     return True
 
 

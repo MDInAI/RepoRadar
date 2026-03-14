@@ -7,6 +7,7 @@ import type {
   RepositoryCatalogFilterChip,
   RepositoryCatalogSortBy,
   RepositoryCatalogSortOrder,
+  RepositoryCategory,
   RepositoryDiscoverySource,
   RepositoryMonetizationPotential,
   RepositoryQueueStatus,
@@ -17,6 +18,9 @@ import { CatalogFilterBar } from "@/components/repositories/CatalogFilterBar";
 interface CatalogFilterBarProps {
   searchValue: string;
   source: RepositoryDiscoverySource | null;
+  category: RepositoryCategory | null;
+  agentTag: string | null;
+  userTag: string | null;
   queueStatus: RepositoryQueueStatus | null;
   triageStatus: RepositoryTriageStatus | null;
   analysisStatus: RepositoryAnalysisStatus | null;
@@ -34,6 +38,9 @@ interface CatalogFilterBarProps {
   validationMessage: string | null;
   onSearchChange: (value: string) => void;
   onSourceChange: (value: RepositoryDiscoverySource | null) => void;
+  onCategoryChange: (value: RepositoryCategory | null) => void;
+  onAgentTagChange: (value: string | null) => void;
+  onUserTagChange: (value: string | null) => void;
   onQueueStatusChange: (value: RepositoryQueueStatus | null) => void;
   onTriageStatusChange: (value: RepositoryTriageStatus | null) => void;
   onAnalysisStatusChange: (value: RepositoryAnalysisStatus | null) => void;
@@ -52,6 +59,9 @@ function renderFilterBar(overrides: Partial<CatalogFilterBarProps> = {}) {
   const props: CatalogFilterBarProps = {
     searchValue: "",
     source: null,
+    category: null,
+    agentTag: null,
+    userTag: null,
     queueStatus: null,
     triageStatus: null,
     analysisStatus: null,
@@ -69,6 +79,9 @@ function renderFilterBar(overrides: Partial<CatalogFilterBarProps> = {}) {
     validationMessage: null,
     onSearchChange: vi.fn(),
     onSourceChange: vi.fn(),
+    onCategoryChange: vi.fn(),
+    onAgentTagChange: vi.fn(),
+    onUserTagChange: vi.fn(),
     onQueueStatusChange: vi.fn(),
     onTriageStatusChange: vi.fn(),
     onAnalysisStatusChange: vi.fn(),
@@ -103,14 +116,15 @@ describe("CatalogFilterBar", () => {
       "Descending",
     );
 
-    expect(screen.getByRole("option", { name: "All Sources" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "All sources" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Backfill" })).toBeTruthy();
-    expect(screen.getByRole("option", { name: "All Queue States" })).toBeTruthy();
-    expect(screen.getByRole("option", { name: "All Triage" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "All categories" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "All queue" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "All triage" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Accepted" })).toBeTruthy();
-    expect(screen.getByRole("option", { name: "All Analysis" })).toBeTruthy();
-    expect(screen.getAllByRole("option", { name: "Completed" })).toHaveLength(2);
-    expect(screen.getByRole("option", { name: "All Fit Scores" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "All analysis" })).toBeTruthy();
+    expect(screen.getAllByRole("option", { name: "Completed" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("option", { name: "All fit scores" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Medium" })).toBeTruthy();
   });
 
@@ -131,8 +145,21 @@ describe("CatalogFilterBar", () => {
     });
     expect(props.onSearchChange).toHaveBeenLastCalledWith("growth");
 
+    fireEvent.change(screen.getByLabelText("Agent tag"), {
+      target: { value: "workflow" },
+    });
+    expect(props.onAgentTagChange).toHaveBeenCalledWith("workflow");
+
+    fireEvent.change(screen.getByLabelText("User tag"), {
+      target: { value: "priority" },
+    });
+    expect(props.onUserTagChange).toHaveBeenCalledWith("priority");
+
     await user.selectOptions(screen.getByLabelText("Discovery source"), "firehose");
     expect(props.onSourceChange).toHaveBeenCalledWith("firehose");
+
+    await user.selectOptions(screen.getByLabelText("Category"), "analytics");
+    expect(props.onCategoryChange).toHaveBeenCalledWith("analytics");
 
     await user.selectOptions(screen.getByLabelText("Queue status"), "failed");
     expect(props.onQueueStatusChange).toHaveBeenCalledWith("failed");

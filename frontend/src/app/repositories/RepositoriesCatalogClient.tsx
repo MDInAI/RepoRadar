@@ -5,31 +5,32 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { startTransition, useState } from "react";
 
 import {
-  type RepositoryCatalogPageResponse,
   buildRepositoryCatalogSearchParams,
   clearAllRepositoryCatalogFilters,
   clearRepositoryCatalogFilter,
   describeRepositoryCatalogFilters,
   fetchRepositoryCatalog,
-  getRepositoryCatalogValidationMessage,
   getRepositoryCatalogQueryKey,
+  getRepositoryCatalogValidationMessage,
   getRepositoryDetailQueryKey,
   parseRepositoryCatalogSearchParams,
   updateRepositoryStar,
   type RepositoryAnalysisStatus,
+  type RepositoryCatalogPageResponse,
   type RepositoryCatalogSortBy,
   type RepositoryCatalogSortOrder,
+  type RepositoryCategory,
   type RepositoryDiscoverySource,
   type RepositoryMonetizationPotential,
   type RepositoryQueueStatus,
   type RepositoryTriageStatus,
 } from "@/api/repositories";
+import { FamilyFormDialog } from "@/components/ideas/FamilyFormDialog";
 import { BacklogSummaryBar } from "@/components/repositories/BacklogSummaryBar";
 import { CatalogFilterBar } from "@/components/repositories/CatalogFilterBar";
 import { CatalogPagination } from "@/components/repositories/CatalogPagination";
 import { RepositoryCatalogTable } from "@/components/repositories/RepositoryCatalogTable";
-import { FamilyFormDialog } from "@/components/ideas/FamilyFormDialog";
-import { useCreateIdeaFamily, useAddRepositoryToFamily } from "@/hooks/useIdeaFamilies";
+import { useAddRepositoryToFamily, useCreateIdeaFamily } from "@/hooks/useIdeaFamilies";
 
 function buildRepositoriesUrl(search: string): string {
   return search.length > 0 ? `/repositories?${search}` : "/repositories";
@@ -157,6 +158,18 @@ export function RepositoriesCatalogClient() {
     updateViewState({ source });
   };
 
+  const handleCategoryChange = (category: RepositoryCategory | null) => {
+    updateViewState({ category });
+  };
+
+  const handleAgentTagChange = (agentTag: string | null) => {
+    updateViewState({ agentTag });
+  };
+
+  const handleUserTagChange = (userTag: string | null) => {
+    updateViewState({ userTag });
+  };
+
   const handleQueueStatusChange = (queueStatus: RepositoryQueueStatus | null) => {
     updateViewState({ queueStatus });
   };
@@ -173,9 +186,7 @@ export function RepositoriesCatalogClient() {
     updateViewState({ hasFailures });
   };
 
-  const handleMonetizationChange = (
-    monetization: RepositoryMonetizationPotential | null,
-  ) => {
+  const handleMonetizationChange = (monetization: RepositoryMonetizationPotential | null) => {
     updateViewState({ monetization });
   };
 
@@ -232,7 +243,7 @@ export function RepositoriesCatalogClient() {
       for (const repoId of selectedRepoIds) {
         try {
           await addRepoMutation.mutateAsync({ familyId: family.id, repoId });
-        } catch (error) {
+        } catch {
           failures.push(repoId);
         }
       }
@@ -241,12 +252,14 @@ export function RepositoriesCatalogClient() {
       setIsFamilyDialogOpen(false);
 
       if (failures.length > 0) {
-        alert(`Family created, but failed to add ${failures.length} of ${selectedRepoIds.size} repositories. Please add them manually from the Ideas page.`);
+        alert(
+          `Family created, but failed to add ${failures.length} of ${selectedRepoIds.size} repositories. Please add them manually from the Ideas page.`,
+        );
       }
 
       router.push(`/ideas?family=${family.id}`);
     } catch (error) {
-      alert(`Failed to create family: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(`Failed to create family: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   };
 
@@ -257,38 +270,19 @@ export function RepositoriesCatalogClient() {
       : "Unable to load repository catalog.";
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#fff8f1_0%,#f8fafc_40%,#dbeafe_100%)] px-6 py-10 text-slate-900">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <header className="rounded-[2.2rem] border border-black/10 bg-white/80 px-6 py-7 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.45)] backdrop-blur">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.32em] text-orange-700">
-                Repository Corpus Grid
-              </p>
-              <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
-                Browse analyzed repositories
-              </h1>
-              <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-600">
-                Filter by source, triage, analysis state, fit score, and popularity without
-                pulling the full dataset into the browser. Each row routes to the repository
-                dossier surface.
-              </p>
-            </div>
+    <>
+      <div className="topbar">
+        <span className="topbar-title">Repositories</span>
+        <span className="topbar-breadcrumb">corpus browser</span>
+      </div>
 
-            <div className="rounded-[1.6rem] border border-orange-200 bg-orange-50/90 px-4 py-4 text-sm text-orange-950">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-700">
-                Sort State
-              </p>
-              <p className="mt-2 font-semibold">
-                {viewState.sort.replace("_", " ")} / {viewState.order}
-              </p>
-            </div>
-          </div>
-        </header>
-
+      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "20px" }}>
         <CatalogFilterBar
           searchValue={viewState.search ?? ""}
           source={viewState.source}
+          category={viewState.category}
+          agentTag={viewState.agentTag}
+          userTag={viewState.userTag}
           queueStatus={viewState.queueStatus}
           triageStatus={viewState.triageStatus}
           analysisStatus={viewState.analysisStatus}
@@ -306,6 +300,9 @@ export function RepositoriesCatalogClient() {
           validationMessage={validationMessage}
           onSearchChange={handleSearchChange}
           onSourceChange={handleSourceChange}
+          onCategoryChange={handleCategoryChange}
+          onAgentTagChange={handleAgentTagChange}
+          onUserTagChange={handleUserTagChange}
           onQueueStatusChange={handleQueueStatusChange}
           onTriageStatusChange={handleTriageStatusChange}
           onAnalysisStatusChange={handleAnalysisStatusChange}
@@ -320,112 +317,105 @@ export function RepositoriesCatalogClient() {
           onClearAll={handleClearAll}
         />
 
-        <BacklogSummaryBar
-          onSelectFilters={(patch) => {
-            updateViewState({
-              queueStatus: null,
-              triageStatus: null,
-              analysisStatus: null,
-              hasFailures: false,
-              ...patch,
-            });
-          }}
-        />
+        <div style={{ marginTop: "16px" }}>
+          <BacklogSummaryBar
+            onSelectFilters={(patch) => {
+              updateViewState({
+                queueStatus: null,
+                triageStatus: null,
+                analysisStatus: null,
+                hasFailures: false,
+                ...patch,
+              });
+            }}
+          />
+        </div>
 
         {validationMessage === null && catalogQuery.isLoading && !data ? (
-          <section className="rounded-[2rem] border border-black/10 bg-white/90 px-6 py-16 text-center shadow-[0_20px_60px_-36px_rgba(15,23,42,0.45)]">
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">
-              Loading
-            </p>
-            <h2 className="mt-3 text-2xl font-semibold text-slate-950">
+          <div className="card" style={{ marginTop: "16px", padding: "48px 24px", textAlign: "center" }}>
+            <p className="card-label">Loading</p>
+            <h2 className="card-title" style={{ marginTop: "8px", fontSize: "16px" }}>
               Fetching repository catalog
             </h2>
-            <p className="mt-3 text-sm text-slate-600">
-              Applying server-side filters and pagination.
+            <p style={{ marginTop: "8px", color: "var(--text-2)" }}>
+              Applying server-side filters, curation tags, and taxonomy labels.
             </p>
-          </section>
+          </div>
         ) : null}
 
         {validationMessage === null && catalogQuery.isError ? (
-          <section className="rounded-[2rem] border border-rose-200 bg-rose-50 px-6 py-12 shadow-[0_20px_60px_-36px_rgba(244,63,94,0.35)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-rose-700">
+          <div className="card" style={{ marginTop: "16px", borderColor: "rgba(217, 79, 79, 0.28)", background: "var(--red-dim)" }}>
+            <p className="card-label" style={{ color: "var(--red)" }}>
               Catalog Error
             </p>
-            <h2 className="mt-3 text-2xl font-semibold text-rose-950">
+            <h2 className="card-title" style={{ marginTop: "8px", fontSize: "16px" }}>
               Unable to load repositories
             </h2>
-            <p className="mt-3 max-w-2xl text-sm text-rose-900">{errorMessage}</p>
-            <button
-              className="mt-5 rounded-full border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-900 transition hover:bg-rose-100"
-              type="button"
-              onClick={() => {
-                void catalogQuery.refetch();
-              }}
-            >
+            <p style={{ marginTop: "8px", color: "var(--text-1)", maxWidth: "640px" }}>{errorMessage}</p>
+            <button className="btn" style={{ marginTop: "14px" }} type="button" onClick={() => void catalogQuery.refetch()}>
               Retry fetch
             </button>
-          </section>
+          </div>
         ) : null}
 
         {validationMessage === null && data && data.items.length === 0 && !catalogQuery.isError ? (
-          <section className="rounded-[2rem] border border-black/10 bg-white/90 px-6 py-16 text-center shadow-[0_20px_60px_-36px_rgba(15,23,42,0.45)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-              Empty Result
-            </p>
-            <h2 className="mt-3 text-2xl font-semibold text-slate-950">
+          <div className="card" style={{ marginTop: "16px", padding: "48px 24px", textAlign: "center" }}>
+            <p className="card-label">Empty Result</p>
+            <h2 className="card-title" style={{ marginTop: "8px", fontSize: "16px" }}>
               No repositories match the current filters
             </h2>
-            <p className="mt-3 text-sm text-slate-600">
+            <p style={{ marginTop: "8px", color: "var(--text-2)" }}>
               Remove one or more active filters to widen the catalog.
             </p>
-          </section>
+          </div>
         ) : null}
 
         {validationMessage === null && data && data.items.length > 0 ? (
           <>
-            {selectedRepoIds.size > 0 && (
-              <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 flex items-center justify-between">
-                <span className="text-sm text-indigo-900">
-                  {selectedRepoIds.size} {selectedRepoIds.size === 1 ? "repository" : "repositories"} selected
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setSelectedRepoIds(new Set())}
-                    className="px-3 py-1 text-sm text-indigo-700 hover:bg-indigo-100 rounded transition-colors"
-                  >
+            {selectedRepoIds.size > 0 ? (
+              <div className="card" style={{ marginTop: "16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+                <div>
+                  <p className="card-label">Selection Dock</p>
+                  <p style={{ marginTop: "6px", color: "var(--text-0)" }}>
+                    {selectedRepoIds.size} {selectedRepoIds.size === 1 ? "repository" : "repositories"} selected
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button className="btn" type="button" onClick={() => setSelectedRepoIds(new Set())}>
                     Clear
                   </button>
-                  <button
-                    onClick={() => setIsFamilyDialogOpen(true)}
-                    className="px-3 py-1 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded transition-colors"
-                  >
+                  <button className="btn btn-primary" type="button" onClick={() => setIsFamilyDialogOpen(true)}>
                     Create Family from Selected
                   </button>
                 </div>
               </div>
-            )}
-            <RepositoryCatalogTable
-              items={data.items}
-              selectedIds={selectedRepoIds}
-              onToggleSelection={(repoId) => {
-                const newSelected = new Set(selectedRepoIds);
-                if (newSelected.has(repoId)) {
-                  newSelected.delete(repoId);
-                } else {
-                  newSelected.add(repoId);
-                }
-                setSelectedRepoIds(newSelected);
-              }}
-              onToggleStar={(repositoryId, starred) => {
-                starMutation.mutate({ repositoryId, starred });
-              }}
-              togglingRepositoryId={starMutation.variables?.repositoryId ?? null}
-              onRowClick={(repositoryId) => {
-                startTransition(() => {
-                  router.push(`/repositories/${repositoryId}`);
-                });
-              }}
-            />
+            ) : null}
+
+            <div style={{ marginTop: "16px" }}>
+              <RepositoryCatalogTable
+                items={data.items}
+                selectedIds={selectedRepoIds}
+                onToggleSelection={(repoId) => {
+                  const next = new Set(selectedRepoIds);
+                  if (next.has(repoId)) {
+                    next.delete(repoId);
+                  } else {
+                    next.add(repoId);
+                  }
+                  setSelectedRepoIds(next);
+                }}
+                onToggleStar={(repositoryId, starred) => {
+                  starMutation.mutate({ repositoryId, starred });
+                }}
+                togglingRepositoryId={starMutation.variables?.repositoryId ?? null}
+                onRowClick={(repositoryId) => {
+                  startTransition(() => {
+                    router.push(`/repositories/${repositoryId}`);
+                  });
+                }}
+              />
+            </div>
+
             <CatalogPagination
               page={data.page}
               totalPages={data.total_pages}
@@ -444,6 +434,6 @@ export function RepositoriesCatalogClient() {
         family={null}
         onSubmit={handleCreateFamilyFromSelected}
       />
-    </main>
+    </>
   );
 }

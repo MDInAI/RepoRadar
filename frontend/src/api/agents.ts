@@ -28,6 +28,11 @@ export interface AgentRunEvent {
   items_succeeded: number | null;
   items_failed: number | null;
   error_summary: string | null;
+  provider_name: string | null;
+  model_name: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
 }
 
 export interface AgentRunDetailResponse extends AgentRunEvent {
@@ -48,6 +53,19 @@ export interface SystemEventPayload {
 
 export interface AgentStatusEntry {
   agent_name: AgentName;
+  display_name: string;
+  role_label: string;
+  description: string;
+  implementation_status: string;
+  runtime_kind: string;
+  uses_github_token: boolean;
+  uses_model: boolean;
+  configured_provider: string | null;
+  configured_model: string | null;
+  notes: string[];
+  token_usage_24h: number;
+  input_tokens_24h: number;
+  output_tokens_24h: number;
   has_run: boolean;
   latest_run: AgentRunEvent | null;
 }
@@ -191,7 +209,12 @@ export function isAgentRunEvent(value: unknown): value is AgentRunEvent {
     isNullableNumber(value.items_processed) &&
     isNullableNumber(value.items_succeeded) &&
     isNullableNumber(value.items_failed) &&
-    isNullableString(value.error_summary)
+    isNullableString(value.error_summary) &&
+    isNullableString(value.provider_name) &&
+    isNullableString(value.model_name) &&
+    isNullableNumber(value.input_tokens) &&
+    isNullableNumber(value.output_tokens) &&
+    isNullableNumber(value.total_tokens)
   );
 }
 
@@ -223,6 +246,20 @@ function isAgentStatusEntry(value: unknown): value is AgentStatusEntry {
   return (
     isRecord(value) &&
     isAgentName(value.agent_name) &&
+    typeof value.display_name === "string" &&
+    typeof value.role_label === "string" &&
+    typeof value.description === "string" &&
+    typeof value.implementation_status === "string" &&
+    typeof value.runtime_kind === "string" &&
+    typeof value.uses_github_token === "boolean" &&
+    typeof value.uses_model === "boolean" &&
+    isNullableString(value.configured_provider) &&
+    isNullableString(value.configured_model) &&
+    Array.isArray(value.notes) &&
+    value.notes.every(note => typeof note === "string") &&
+    typeof value.token_usage_24h === "number" &&
+    typeof value.input_tokens_24h === "number" &&
+    typeof value.output_tokens_24h === "number" &&
     typeof value.has_run === "boolean" &&
     (value.latest_run === null || isAgentRunEvent(value.latest_run))
   );

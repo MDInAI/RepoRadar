@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 import time
 from typing import Protocol
@@ -7,19 +8,46 @@ from typing import Protocol
 from anthropic import Anthropic
 
 
+@dataclass(frozen=True, slots=True)
+class CombinerSynthesisResult:
+    output_text: str
+    provider_name: str
+    model_name: str | None
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+
+
 class CombinerProvider(Protocol):
-    def synthesize(self, readme_contents: list[dict], previous_insights: str | None = None) -> str: ...
+    def synthesize(
+        self,
+        readme_contents: list[dict],
+        previous_insights: str | None = None,
+    ) -> CombinerSynthesisResult: ...
 
 
 class AnthropicCombinerProvider:
     """LLM-backed combiner using Anthropic Claude."""
 
+    MODEL_NAME = "claude-3-5-sonnet-20241022"
+
     def __init__(self, api_key: str | None = None):
         self._client = Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
 
-    def synthesize(self, readme_contents: list[dict], previous_insights: str | None = None) -> str:
+    def synthesize(
+        self,
+        readme_contents: list[dict],
+        previous_insights: str | None = None,
+    ) -> CombinerSynthesisResult:
         if not readme_contents:
-            return "No repositories provided for synthesis."
+            return CombinerSynthesisResult(
+                output_text="No repositories provided for synthesis.",
+                provider_name="anthropic",
+                model_name=self.MODEL_NAME,
+                input_tokens=0,
+                output_tokens=0,
+                total_tokens=0,
+            )
 
         # Build prompt with README contents
         readme_sections = []
@@ -49,12 +77,21 @@ Provide a concise synthesis (200-400 words) covering:
 4. Next steps for validation"""
 
         message = self._client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model=self.MODEL_NAME,
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}]
         )
-
-        return message.content[0].text
+        usage = getattr(message, "usage", None)
+        input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        return CombinerSynthesisResult(
+            output_text=message.content[0].text,
+            provider_name="anthropic",
+            model_name=self.MODEL_NAME,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=input_tokens + output_tokens,
+        )
 
 
 class HeuristicCombinerProvider:
@@ -63,9 +100,20 @@ class HeuristicCombinerProvider:
     Uses pattern matching and heuristics to propose composite opportunities.
     """
 
-    def synthesize(self, readme_contents: list[dict], previous_insights: str | None = None) -> str:
+    def synthesize(
+        self,
+        readme_contents: list[dict],
+        previous_insights: str | None = None,
+    ) -> CombinerSynthesisResult:
         if not readme_contents:
-            return "No repositories provided for synthesis."
+            return CombinerSynthesisResult(
+                output_text="No repositories provided for synthesis.",
+                provider_name="heuristic-combiner",
+                model_name=None,
+                input_tokens=0,
+                output_tokens=0,
+                total_tokens=0,
+            )
 
         repo_names = [r["full_name"] for r in readme_contents]
         combined_text = "\n\n".join([r["content"] for r in readme_contents])
@@ -118,7 +166,14 @@ class HeuristicCombinerProvider:
             "- Define pricing and packaging strategy",
         ])
 
-        return "\n".join(lines)
+        return CombinerSynthesisResult(
+            output_text="\n".join(lines),
+            provider_name="heuristic-combiner",
+            model_name=None,
+            input_tokens=0,
+            output_tokens=0,
+            total_tokens=0,
+        )
 
 
 class RetryableCombinerProvider:
@@ -128,7 +183,11 @@ class RetryableCombinerProvider:
         self._provider = provider
         self._max_retries = max_retries
 
-    def synthesize(self, readme_contents: list[dict], previous_insights: str | None = None) -> str:
+    def synthesize(
+        self,
+        readme_contents: list[dict],
+        previous_insights: str | None = None,
+    ) -> CombinerSynthesisResult:
         last_error = None
 
         for attempt in range(self._max_retries):

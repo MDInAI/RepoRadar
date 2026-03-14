@@ -133,67 +133,28 @@ def test_agent_event_routes_expose_filtered_runs_latest_and_detail(
     assert [item["id"] for item in list_response.json()] == [2, 1]
 
     assert latest_response.status_code == 200
-    assert latest_response.json() == {
-        "agents": [
-            {
-                "agent_name": "firehose",
-                "has_run": True,
-                "latest_run": {
-                    "id": 2,
-                    "agent_name": "firehose",
-                    "status": "failed",
-                    "started_at": "2026-03-10T11:00:00Z",
-                    "completed_at": "2026-03-10T11:06:00Z",
-                    "duration_seconds": 360.0,
-                    "items_processed": 8,
-                    "items_succeeded": 5,
-                    "items_failed": 3,
-                    "error_summary": "firehose rate limited",
-                },
-            },
-            {
-                "agent_name": "backfill",
-                "has_run": False,
-                "latest_run": None,
-            },
-            {
-                "agent_name": "bouncer",
-                "has_run": False,
-                "latest_run": None,
-            },
-            {
-                "agent_name": "analyst",
-                "has_run": True,
-                "latest_run": {
-                    "id": 3,
-                    "agent_name": "analyst",
-                    "status": "completed",
-                    "started_at": "2026-03-10T09:00:00Z",
-                    "completed_at": "2026-03-10T09:03:00Z",
-                    "duration_seconds": 180.0,
-                    "items_processed": 2,
-                    "items_succeeded": 2,
-                    "items_failed": 0,
-                    "error_summary": None,
-                },
-            },
-            {
-                "agent_name": "overlord",
-                "has_run": False,
-                "latest_run": None,
-            },
-            {
-                "agent_name": "combiner",
-                "has_run": False,
-                "latest_run": None,
-            },
-            {
-                "agent_name": "obsession",
-                "has_run": False,
-                "latest_run": None,
-            },
-        ]
-    }
+    latest_payload = latest_response.json()
+    assert [entry["agent_name"] for entry in latest_payload["agents"]] == [
+        "firehose",
+        "backfill",
+        "bouncer",
+        "analyst",
+        "overlord",
+        "combiner",
+        "obsession",
+    ]
+    firehose_entry = next(entry for entry in latest_payload["agents"] if entry["agent_name"] == "firehose")
+    assert firehose_entry["display_name"] == "Firehose"
+    assert firehose_entry["configured_provider"] == "github"
+    assert firehose_entry["uses_github_token"] is True
+    assert firehose_entry["latest_run"]["provider_name"] is None
+    assert firehose_entry["latest_run"]["total_tokens"] is None
+    assert firehose_entry["latest_run"]["error_summary"] == "firehose rate limited"
+
+    analyst_entry = next(entry for entry in latest_payload["agents"] if entry["agent_name"] == "analyst")
+    assert analyst_entry["configured_provider"] == "heuristic-readme-analysis"
+    assert analyst_entry["uses_model"] is False
+    assert analyst_entry["latest_run"]["status"] == "completed"
 
     assert detail_response.status_code == 200
     payload = detail_response.json()

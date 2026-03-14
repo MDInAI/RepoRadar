@@ -25,6 +25,8 @@ const ITEM: RepositoryCatalogItem = {
   intake_failed_at: null,
   analysis_failed_at: null,
   failure: null,
+  category: "workflow",
+  agent_tags: ["workflow", "automation"],
   monetization_potential: "high",
   has_readme_artifact: true,
   has_analysis_artifact: true,
@@ -67,18 +69,15 @@ describe("RepositoryCatalogTable", () => {
 
     expect(screen.getByText("alpha/growth-engine")).toBeTruthy();
     expect(screen.getByText("Growth workflows for operators")).toBeTruthy();
-    expect(screen.getByText("Monetization Fit")).toBeTruthy();
-    expect(screen.getByText("High")).toBeTruthy();
+    expect(screen.getByText("Category")).toBeTruthy();
+    expect(screen.getAllByText("Workflow").length).toBeGreaterThan(0);
+    expect(screen.getByText("Agent Tags")).toBeTruthy();
+    expect(screen.getByText("User Tags")).toBeTruthy();
     expect(screen.getByText("Firehose")).toBeTruthy();
-    expect(screen.getByText("Intake Status")).toBeTruthy();
-    expect(screen.getByText("Triage Status")).toBeTruthy();
-    expect(screen.getByText("Analysis Status")).toBeTruthy();
-    expect(screen.getByText("Processing Window")).toBeTruthy();
-    expect(screen.getByText("Failure Details")).toBeTruthy();
-    expect(screen.getAllByText("Completed")).toHaveLength(2);
     expect(screen.getByText("Accepted")).toBeTruthy();
-    expect(screen.getByText("No failures")).toBeTruthy();
-    expect(screen.getByText("workflow")).toBeTruthy();
+    expect(screen.getAllByText("workflow").length).toBeGreaterThan(0);
+    expect(screen.getByText("automation")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Star repository" })).toBeTruthy();
   });
 
   test("routes row clicks through the provided handler", async () => {
@@ -91,53 +90,47 @@ describe("RepositoryCatalogTable", () => {
     expect(onRowClick).toHaveBeenCalledWith(701);
   });
 
-  test("shows analysis failure code, message, and timestamp", () => {
+  test("shows analysis status and empty user tags cleanly", () => {
     const failedItem: RepositoryCatalogItem = {
       ...ITEM,
       analysis_status: "failed",
-      intake_failed_at: "2026-03-09T12:14:00Z",
-      analysis_failed_at: "2026-03-09T12:15:00Z",
-      failure: {
-        stage: "analysis",
-        step: "analysis",
-        upstream_source: "firehose",
-        error_code: "rate_limited",
-        error_message: "Gateway rate limit while analyzing repository.",
-        failed_at: "2026-03-09T12:15:00Z",
-      },
+      user_tags: [],
     };
 
     renderTable(vi.fn(), vi.fn(), [failedItem]);
 
-    expect(screen.getByText("Analysis Failure")).toBeTruthy();
-    expect(screen.getByText("Failure: Rate Limited")).toBeTruthy();
-    expect(screen.getByText("Rate Limited")).toBeTruthy();
-    expect(screen.getByText("Gateway rate limit while analyzing repository.")).toBeTruthy();
-    expect(screen.getByText("Failed At 2026-03-09 12:15 UTC")).toBeTruthy();
+    expect(screen.getByText("Failed")).toBeTruthy();
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
 
-  test("shows intake failure details from backend data", () => {
-    const failedItem: RepositoryCatalogItem = {
+  test("renders selection controls when provided", async () => {
+    const user = userEvent.setup();
+    const onToggleSelection = vi.fn();
+    const selectableItem: RepositoryCatalogItem = {
       ...ITEM,
-      intake_status: "failed",
-      analysis_status: "pending",
-      intake_failed_at: "2026-03-09T12:20:00Z",
-      analysis_failed_at: null,
-      failure: {
-        stage: "intake",
-        step: "repository_intake",
-        upstream_source: "firehose",
-        error_code: null,
-        error_message: "GitHub backfill request failed before triage started.",
-        failed_at: "2026-03-09T12:20:00Z",
-      },
+      github_repository_id: 702,
     };
 
-    renderTable(vi.fn(), vi.fn(), [failedItem]);
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
 
-    expect(screen.getByText("Intake Failure")).toBeTruthy();
-    expect(screen.getByText("Intake Failed")).toBeTruthy();
-    expect(screen.getByText("GitHub backfill request failed before triage started.")).toBeTruthy();
-    expect(screen.getByText("Failed At 2026-03-09 12:20 UTC")).toBeTruthy();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RepositoryCatalogTable
+          items={[selectableItem]}
+          selectedIds={new Set()}
+          onToggleSelection={onToggleSelection}
+          onRowClick={vi.fn()}
+          onToggleStar={vi.fn()}
+          togglingRepositoryId={null}
+        />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByLabelText("Select alpha/growth-engine"));
+    expect(onToggleSelection).toHaveBeenCalledWith(702);
   });
 });

@@ -30,16 +30,50 @@ describe("agents api runtime validation", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       jsonResponse({
         agents: [
-          { agent_name: "obsession", has_run: false, latest_run: null },
-          { agent_name: "firehose", has_run: false, latest_run: null },
+          {
+            agent_name: "obsession",
+            display_name: "Obsession",
+            role_label: "Context tracking",
+            description: "Tracks obsession contexts.",
+            implementation_status: "partial",
+            runtime_kind: "workflow-state",
+            uses_github_token: false,
+            uses_model: false,
+            configured_provider: "workflow-state",
+            configured_model: null,
+            notes: [],
+            token_usage_24h: 0,
+            input_tokens_24h: 0,
+            output_tokens_24h: 0,
+            has_run: false,
+            latest_run: null,
+          },
+          {
+            agent_name: "firehose",
+            display_name: "Firehose",
+            role_label: "Repository intake",
+            description: "Discovers repositories.",
+            implementation_status: "live",
+            runtime_kind: "github-api-worker",
+            uses_github_token: true,
+            uses_model: false,
+            configured_provider: "github",
+            configured_model: null,
+            notes: [],
+            token_usage_24h: 0,
+            input_tokens_24h: 0,
+            output_tokens_24h: 0,
+            has_run: false,
+            latest_run: null,
+          },
         ],
       }),
     );
 
     await expect(fetchLatestAgentRuns()).resolves.toEqual({
       agents: [
-        { agent_name: "firehose", has_run: false, latest_run: null },
-        { agent_name: "obsession", has_run: false, latest_run: null },
+        expect.objectContaining({ agent_name: "firehose", has_run: false, latest_run: null }),
+        expect.objectContaining({ agent_name: "obsession", has_run: false, latest_run: null }),
       ],
     });
   });

@@ -76,6 +76,8 @@ class RepositoryExplorationService:
         if record.analysis_summary is not None:
             analysis_summary = RepositoryAnalysisSummaryResponse(
                 monetization_potential=record.analysis_summary.monetization_potential,
+                category=record.analysis_summary.category,
+                agent_tags=record.analysis_summary.agent_tags,
                 pros=record.analysis_summary.pros,
                 cons=record.analysis_summary.cons,
                 missing_feature_signals=record.analysis_summary.missing_feature_signals,
@@ -153,6 +155,8 @@ class RepositoryExplorationService:
             discovered_at=record.discovered_at,
             status_updated_at=record.status_updated_at,
             pushed_at=record.pushed_at,
+            category=record.category,
+            agent_tags=record.agent_tags,
             triage=RepositoryTriageContextResponse(
                 triage_status=record.triage.triage_status,
                 triaged_at=record.triage.triaged_at,
@@ -206,6 +210,8 @@ class RepositoryExplorationService:
                 triage_status=params.triage_status,
                 analysis_status=params.analysis_status,
                 has_failures=params.has_failures,
+                category=params.category,
+                agent_tag=params.agent_tag,
                 monetization_potential=params.monetization_potential,
                 min_stars=params.min_stars,
                 max_stars=params.max_stars,
@@ -234,10 +240,10 @@ class RepositoryExplorationService:
                     analysis_status=item.analysis_status,
                     queue_created_at=item.queue_created_at,
                     processing_started_at=item.processing_started_at,
-                    processing_completed_at=item.processing_completed_at,
-                    intake_failed_at=item.intake_failed_at,
-                    analysis_failed_at=item.analysis_failed_at,
-                    failure=(
+                processing_completed_at=item.processing_completed_at,
+                intake_failed_at=item.intake_failed_at,
+                analysis_failed_at=item.analysis_failed_at,
+                failure=(
                         RepositoryFailureContextResponse(
                             stage=item.failure.stage,
                             step=item.failure.step,
@@ -247,9 +253,11 @@ class RepositoryExplorationService:
                             failed_at=item.failure.failed_at,
                         )
                         if item.failure is not None
-                        else None
-                    ),
-                    monetization_potential=item.monetization_potential,
+                    else None
+                ),
+                category=item.category,
+                agent_tags=item.agent_tags,
+                monetization_potential=item.monetization_potential,
                     has_readme_artifact=item.has_readme_artifact,
                     has_analysis_artifact=item.has_analysis_artifact,
                     is_starred=item.is_starred,
