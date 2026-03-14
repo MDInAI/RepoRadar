@@ -17,19 +17,27 @@ else
   echo "  ⚠ frontend/ not found or missing package.json — skipping"
 fi
 
-# Backend
+# Backend (uses uv — same as dev.sh / migrate.sh)
 echo "[2/3] Installing backend dependencies..."
 if [ -f "$PROJECT_ROOT/backend/pyproject.toml" ]; then
-  (cd "$PROJECT_ROOT/backend" && pip install -e ".[dev]" 2>/dev/null || pip install -e .)
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "  ✗ uv is required for backend. Install: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    exit 1
+  fi
+  (cd "$PROJECT_ROOT/backend" && uv sync --extra dev)
   echo "  ✓ Backend dependencies installed"
 else
   echo "  ⚠ backend/pyproject.toml not found — skipping"
 fi
 
-# Workers
+# Workers (uses uv — same as dev.sh)
 echo "[3/3] Installing worker dependencies..."
 if [ -f "$PROJECT_ROOT/workers/pyproject.toml" ]; then
-  (cd "$PROJECT_ROOT/workers" && pip install -e ".[dev]" 2>/dev/null || pip install -e .)
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "  ✗ uv is required for workers. Install: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    exit 1
+  fi
+  (cd "$PROJECT_ROOT/workers" && uv sync --extra dev)
   echo "  ✓ Worker dependencies installed"
 else
   echo "  ⚠ workers/pyproject.toml not found — skipping"

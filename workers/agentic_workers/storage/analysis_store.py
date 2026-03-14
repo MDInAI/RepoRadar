@@ -179,6 +179,7 @@ def persist_analysis_failure(
     message: str,
     failed_at: datetime,
     started_at: datetime,
+    commit: bool = True,
 ) -> None:
     repository = session.get(RepositoryIntake, repository_id)
     if repository is None:
@@ -194,7 +195,8 @@ def persist_analysis_failure(
     repository.analysis_failure_code = failure_code
     repository.analysis_failure_message = message
     session.add(repository)
-    session.commit()
+    if commit:
+        session.commit()
 
 
 def _upsert_analysis_result(

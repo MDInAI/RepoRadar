@@ -11,7 +11,15 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.models import (  # noqa: E402
+    AGENT_NAMES,
+    AgentMemorySegment,
+    AgentPauseState,
+    AgentRun,
+    AgentRunStatus,
     BackfillProgress,
+    EventSeverity,
+    FailureClassification,
+    FailureSeverity,
     FirehoseProgress,
     RepositoryArtifact,
     RepositoryArtifactKind,
@@ -27,11 +35,22 @@ from app.models import (  # noqa: E402
     RepositoryTriageExplanationKind,
     RepositoryTriageStatus,
     SQLModel,
+    SynthesisRun,
+    SynthesisRunStatus,
+    SystemEvent,
     exhausted_backfill_boundary,
 )
 
 __all__ = [
+    "AGENT_NAMES",
+    "AgentMemorySegment",
+    "AgentPauseState",
+    "AgentRun",
+    "AgentRunStatus",
     "BackfillProgress",
+    "EventSeverity",
+    "FailureClassification",
+    "FailureSeverity",
     "FirehoseProgress",
     "RepositoryArtifact",
     "RepositoryArtifactKind",
@@ -47,5 +66,8 @@ __all__ = [
     "RepositoryTriageExplanationKind",
     "RepositoryTriageStatus",
     "SQLModel",
+    "SynthesisRun",
+    "SynthesisRunStatus",
+    "SystemEvent",
     "exhausted_backfill_boundary",
 ]

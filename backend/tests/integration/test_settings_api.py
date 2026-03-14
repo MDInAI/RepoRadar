@@ -110,6 +110,22 @@ def test_settings_summary_endpoint_accepts_json5_and_object_model_defaults(
     assert default_model["value"] == "openai/gpt-5-mini"
 
 
+def test_settings_runtime_endpoint_exposes_event_bridge_health_and_stream_limits() -> None:
+    with TestClient(app) as client:
+        app.state.event_bridge_health.record_success(None)
+        app.state.event_bridge_health.record_failure(RuntimeError("bridge stalled"))
+
+        response = client.get("/api/v1/settings/runtime")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["event_bridge"]["status"] == "degraded"
+    assert payload["event_bridge"]["consecutive_failures"] == 1
+    assert payload["event_bridge"]["last_error"] == "bridge stalled"
+    assert payload["event_stream"]["max_subscribers"] == 100
+    assert payload["event_stream"]["subscriber_queue_size"] == 100
+
+
 def test_settings_summary_endpoint_returns_structured_422_for_missing_config(
     tmp_path: Path,
 ) -> None:

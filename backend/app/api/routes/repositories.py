@@ -80,6 +80,7 @@ def get_repository_catalog_query_params(
     max_stars: int | None = Query(default=None),
     starred_only: bool = Query(default=False),
     user_tag: str | None = Query(default=None),
+    idea_family_id: int | None = Query(default=None),
     sort_by: str = Query(default=RepositoryCatalogSortBy.STARS.value),
     sort_order: str = Query(default=RepositoryCatalogSortOrder.DESC.value),
 ) -> RepositoryCatalogQueryParams:
@@ -160,6 +161,7 @@ def get_repository_catalog_query_params(
         max_stars=max_stars,
         starred_only=starred_only,
         user_tag=normalized_user_tag or None,
+        idea_family_id=idea_family_id,
         sort_by=_parse_repository_catalog_enum(sort_by, RepositoryCatalogSortBy, "sort_by")
         or RepositoryCatalogSortBy.STARS,
         sort_order=_parse_repository_catalog_enum(

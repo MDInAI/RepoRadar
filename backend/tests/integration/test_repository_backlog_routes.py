@@ -181,11 +181,25 @@ def test_repository_catalog_route_supports_backlog_status_filters(
     payload = failures_response.json()
 
     assert [item["github_repository_id"] for item in payload["items"]] == [703, 702]
-    assert payload["items"][0]["analysis_failure_code"] == "rate_limited"
-    assert payload["items"][0]["analysis_failure_message"] == (
-        "Gateway rate limit while analyzing repository."
-    )
     assert payload["items"][0]["processing_started_at"] == "2026-03-09T12:00:00Z"
     assert payload["items"][0]["processing_completed_at"] == "2026-03-09T12:00:00Z"
-    assert payload["items"][0]["last_failed_at"] == "2026-03-09T12:00:00Z"
-    assert payload["items"][1]["last_failed_at"] == "2026-03-09T12:00:00Z"
+    assert payload["items"][0]["intake_failed_at"] == "2026-03-09T11:57:00Z"
+    assert payload["items"][0]["analysis_failed_at"] == "2026-03-09T12:00:00Z"
+    assert payload["items"][0]["failure"] == {
+        "stage": "analysis",
+        "step": "analysis",
+        "upstream_source": "firehose",
+        "error_code": "rate_limited",
+        "error_message": "Gateway rate limit while analyzing repository.",
+        "failed_at": "2026-03-09T12:00:00Z",
+    }
+    assert payload["items"][1]["intake_failed_at"] == "2026-03-09T12:00:00Z"
+    assert payload["items"][1]["analysis_failed_at"] is None
+    assert payload["items"][1]["failure"] == {
+        "stage": "intake",
+        "step": "repository_intake",
+        "upstream_source": "backfill",
+        "error_code": None,
+        "error_message": "Repository intake failed before triage or analysis completed.",
+        "failed_at": "2026-03-09T12:00:00Z",
+    }

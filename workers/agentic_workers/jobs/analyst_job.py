@@ -4,12 +4,21 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
 import json
+import logging
 from pathlib import Path
 from typing import Callable
 
 from pydantic import ValidationError
 from sqlmodel import Session
 
+from agentic_workers.core.events import emit_failure_event
+from agentic_workers.core.failure_detector import (
+    classify_github_error,
+    classify_llm_error,
+    determine_severity,
+)
+from agentic_workers.core.pause_manager import execute_pause, is_agent_paused
+from agentic_workers.core.pause_policy import evaluate_pause_policy
 from agentic_workers.providers.github_provider import (
     GitHubPayloadError,
     GitHubProviderError,
@@ -30,15 +39,21 @@ from agentic_workers.storage.analysis_store import (
     persist_analysis_success,
 )
 from agentic_workers.storage.backend_models import (
+    FailureClassification,
+    FailureSeverity,
     RepositoryAnalysisFailureCode,
     RepositoryAnalysisStatus,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AnalystRunStatus(StrEnum):
     SUCCESS = "success"
     PARTIAL_FAILURE = "partial_failure"
     FAILED = "failed"
+    SKIPPED = "skipped"
+    SKIPPED_PAUSED = "skipped_paused"
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,13 +88,26 @@ def run_analyst_job(
     analysis_provider: ReadmeAnalysisProvider | None = None,
     should_stop: Callable[[], bool] | None = None,
     write_artifact: ArtifactWriter | None = None,
+    agent_run_id: int | None = None,
 ) -> AnalystRunResult:
+    # Check if agent is paused
+    if is_agent_paused(session, "analyst"):
+        logger.info("Analyst is paused, skipping run")
+        return AnalystRunResult(
+            status=AnalystRunStatus.SKIPPED_PAUSED,
+            outcomes=[],
+            artifact_path=None,
+        )
+
     effective_analysis_provider = analysis_provider or HeuristicReadmeAnalysisProvider()
     artifact_writer = write_artifact or _write_run_artifact
 
     outcomes: list[AnalystRepositoryOutcome] = []
+    interrupted = False
+    consecutive_failures = 0
     for repository in list_pending_analysis_targets(session):
         if should_stop is not None and should_stop():
+            interrupted = True
             break
 
         started_at = datetime.now(timezone.utc)
@@ -99,10 +127,57 @@ def run_analyst_job(
                     message="README content was empty after normalization.",
                 )
 
-            raw_analysis = effective_analysis_provider.analyze(
-                repository_full_name=repository.full_name,
-                readme=normalized,
-            )
+            try:
+                raw_analysis = effective_analysis_provider.analyze(
+                    repository_full_name=repository.full_name,
+                    readme=normalized,
+                )
+            except Exception as exc:
+                consecutive_failures += 1
+                classification = classify_llm_error(exc)
+                failure_code = _analysis_failure_code_for_llm(classification)
+                recovery_error = _record_failure(
+                    session=session,
+                    repository_id=repository.github_repository_id,
+                    failure_code=failure_code,
+                    message=str(exc),
+                    failed_at=datetime.now(timezone.utc),
+                    started_at=started_at,
+                    commit=True,
+                )
+                failure_message = _join_messages(str(exc), recovery_error) or str(exc)
+                outcomes.append(
+                    AnalystRepositoryOutcome(
+                        github_repository_id=repository.github_repository_id,
+                        full_name=repository.full_name,
+                        analysis_status=RepositoryAnalysisStatus.FAILED,
+                        failure_code=failure_code,
+                        failure_message=failure_message,
+                        monetization_potential=None,
+                        runtime_readme_artifact_path=readme_artifact_path,
+                        runtime_analysis_artifact_path=analysis_artifact_path,
+                    )
+                )
+                if recovery_error is None:
+                    _emit_analysis_failure_event(
+                        session,
+                        agent_run_id=agent_run_id,
+                        repository_id=repository.github_repository_id,
+                        full_name=repository.full_name,
+                        failure_code=failure_code,
+                        message=failure_message,
+                        classification=classification,
+                        failure_severity=determine_severity(
+                            classification,
+                            consecutive_failures,
+                        ),
+                        consecutive_failures=consecutive_failures,
+                        upstream_provider="llm",
+                        http_status_code=_extract_http_status_code(exc),
+                        retry_after_seconds=_extract_retry_after_seconds(exc),
+                    )
+                    session.commit()
+                continue
             analysis = ReadmeBusinessAnalysis.model_validate_json(raw_analysis)
             completed_at = datetime.now(timezone.utc)
 
@@ -124,6 +199,7 @@ def run_analyst_job(
             )
             readme_artifact_path = persisted.readme_artifact.runtime_relative_path
             analysis_artifact_path = persisted.analysis_artifact.runtime_relative_path
+            consecutive_failures = 0
             outcomes.append(
                 AnalystRepositoryOutcome(
                     github_repository_id=repository.github_repository_id,
@@ -137,6 +213,7 @@ def run_analyst_job(
                 )
             )
         except _AnalystFailure as exc:
+            consecutive_failures += 1
             failure = exc
             recovery_error = _record_failure(
                 session=session,
@@ -145,6 +222,7 @@ def run_analyst_job(
                 message=failure.message,
                 failed_at=datetime.now(timezone.utc),
                 started_at=started_at,
+                commit=True,
             )
             outcomes.append(
                 AnalystRepositoryOutcome(
@@ -158,7 +236,25 @@ def run_analyst_job(
                     runtime_analysis_artifact_path=analysis_artifact_path,
                 )
             )
+            if recovery_error is None:
+                _emit_analysis_failure_event(
+                    session,
+                    agent_run_id=agent_run_id,
+                    repository_id=repository.github_repository_id,
+                    full_name=repository.full_name,
+                    failure_code=failure.code,
+                    message=_join_messages(failure.message, recovery_error) or failure.message,
+                    classification=FailureClassification.BLOCKING,
+                    failure_severity=determine_severity(
+                        FailureClassification.BLOCKING,
+                        consecutive_failures,
+                    ),
+                    consecutive_failures=consecutive_failures,
+                    upstream_provider=None,
+                )
+                session.commit()
         except GitHubReadmeNotFoundError as exc:
+            consecutive_failures += 1
             recovery_error = _record_failure(
                 session=session,
                 repository_id=repository.github_repository_id,
@@ -166,6 +262,7 @@ def run_analyst_job(
                 message=str(exc),
                 failed_at=datetime.now(timezone.utc),
                 started_at=started_at,
+                commit=True,
             )
             outcomes.append(
                 AnalystRepositoryOutcome(
@@ -179,7 +276,23 @@ def run_analyst_job(
                     runtime_analysis_artifact_path=analysis_artifact_path,
                 )
             )
+            if recovery_error is None:
+                classification = classify_github_error(exc)
+                _emit_analysis_failure_event(
+                    session,
+                    agent_run_id=agent_run_id,
+                    repository_id=repository.github_repository_id,
+                    full_name=repository.full_name,
+                    failure_code=RepositoryAnalysisFailureCode.MISSING_README,
+                    message=_join_messages(str(exc), recovery_error) or str(exc),
+                    classification=classification,
+                    failure_severity=determine_severity(classification, consecutive_failures),
+                    consecutive_failures=consecutive_failures,
+                    upstream_provider="github",
+                )
+                session.commit()
         except GitHubRateLimitError as exc:
+            consecutive_failures += 1
             recovery_error = _record_failure(
                 session=session,
                 repository_id=repository.github_repository_id,
@@ -187,6 +300,7 @@ def run_analyst_job(
                 message=str(exc),
                 failed_at=datetime.now(timezone.utc),
                 started_at=started_at,
+                commit=True,
             )
             outcomes.append(
                 AnalystRepositoryOutcome(
@@ -200,7 +314,25 @@ def run_analyst_job(
                     runtime_analysis_artifact_path=analysis_artifact_path,
                 )
             )
+            if recovery_error is None:
+                classification = classify_github_error(exc)
+                _emit_analysis_failure_event(
+                    session,
+                    agent_run_id=agent_run_id,
+                    repository_id=repository.github_repository_id,
+                    full_name=repository.full_name,
+                    failure_code=RepositoryAnalysisFailureCode.RATE_LIMITED,
+                    message=_join_messages(str(exc), recovery_error) or str(exc),
+                    classification=classification,
+                    failure_severity=determine_severity(classification, consecutive_failures),
+                    consecutive_failures=consecutive_failures,
+                    upstream_provider="github",
+                    http_status_code=exc.status_code,
+                    retry_after_seconds=exc.retry_after_seconds,
+                )
+                session.commit()
         except GitHubPayloadError as exc:
+            consecutive_failures += 1
             recovery_error = _record_failure(
                 session=session,
                 repository_id=repository.github_repository_id,
@@ -208,6 +340,7 @@ def run_analyst_job(
                 message=str(exc),
                 failed_at=datetime.now(timezone.utc),
                 started_at=started_at,
+                commit=True,
             )
             outcomes.append(
                 AnalystRepositoryOutcome(
@@ -221,7 +354,23 @@ def run_analyst_job(
                     runtime_analysis_artifact_path=analysis_artifact_path,
                 )
             )
+            if recovery_error is None:
+                classification = classify_github_error(exc)
+                _emit_analysis_failure_event(
+                    session,
+                    agent_run_id=agent_run_id,
+                    repository_id=repository.github_repository_id,
+                    full_name=repository.full_name,
+                    failure_code=RepositoryAnalysisFailureCode.INVALID_README_PAYLOAD,
+                    message=_join_messages(str(exc), recovery_error) or str(exc),
+                    classification=classification,
+                    failure_severity=determine_severity(classification, consecutive_failures),
+                    consecutive_failures=consecutive_failures,
+                    upstream_provider="github",
+                )
+                session.commit()
         except ValidationError as exc:
+            consecutive_failures += 1
             recovery_error = _record_failure(
                 session=session,
                 repository_id=repository.github_repository_id,
@@ -229,6 +378,7 @@ def run_analyst_job(
                 message=str(exc),
                 failed_at=datetime.now(timezone.utc),
                 started_at=started_at,
+                commit=True,
             )
             outcomes.append(
                 AnalystRepositoryOutcome(
@@ -242,7 +392,25 @@ def run_analyst_job(
                     runtime_analysis_artifact_path=analysis_artifact_path,
                 )
             )
+            if recovery_error is None:
+                _emit_analysis_failure_event(
+                    session,
+                    agent_run_id=agent_run_id,
+                    repository_id=repository.github_repository_id,
+                    full_name=repository.full_name,
+                    failure_code=RepositoryAnalysisFailureCode.INVALID_ANALYSIS_OUTPUT,
+                    message=_join_messages(str(exc), recovery_error) or str(exc),
+                    classification=FailureClassification.BLOCKING,
+                    failure_severity=determine_severity(
+                        FailureClassification.BLOCKING,
+                        consecutive_failures,
+                    ),
+                    consecutive_failures=consecutive_failures,
+                    upstream_provider="llm",
+                )
+                session.commit()
         except GitHubProviderError as exc:
+            consecutive_failures += 1
             recovery_error = _record_failure(
                 session=session,
                 repository_id=repository.github_repository_id,
@@ -250,6 +418,7 @@ def run_analyst_job(
                 message=str(exc),
                 failed_at=datetime.now(timezone.utc),
                 started_at=started_at,
+                commit=True,
             )
             outcomes.append(
                 AnalystRepositoryOutcome(
@@ -263,7 +432,23 @@ def run_analyst_job(
                     runtime_analysis_artifact_path=analysis_artifact_path,
                 )
             )
+            if recovery_error is None:
+                classification = classify_github_error(exc)
+                _emit_analysis_failure_event(
+                    session,
+                    agent_run_id=agent_run_id,
+                    repository_id=repository.github_repository_id,
+                    full_name=repository.full_name,
+                    failure_code=RepositoryAnalysisFailureCode.TRANSPORT_ERROR,
+                    message=_join_messages(str(exc), recovery_error) or str(exc),
+                    classification=classification,
+                    failure_severity=determine_severity(classification, consecutive_failures),
+                    consecutive_failures=consecutive_failures,
+                    upstream_provider="github",
+                )
+                session.commit()
         except Exception as exc:
+            consecutive_failures += 1
             rollback_error = _rollback_after_failure(session)
             recovery_error = _record_failure(
                 session=session,
@@ -272,6 +457,7 @@ def run_analyst_job(
                 message=str(exc),
                 failed_at=datetime.now(timezone.utc),
                 started_at=started_at,
+                commit=True,
             )
             outcomes.append(
                 AnalystRepositoryOutcome(
@@ -285,8 +471,28 @@ def run_analyst_job(
                     runtime_analysis_artifact_path=analysis_artifact_path,
                 )
             )
+            if recovery_error is None:
+                _emit_analysis_failure_event(
+                    session,
+                    agent_run_id=agent_run_id,
+                    repository_id=repository.github_repository_id,
+                    full_name=repository.full_name,
+                    failure_code=RepositoryAnalysisFailureCode.PERSISTENCE_ERROR,
+                    message=_join_messages(str(exc), rollback_error, recovery_error) or str(exc),
+                    classification=FailureClassification.RETRYABLE,
+                    failure_severity=determine_severity(
+                        FailureClassification.RETRYABLE,
+                        consecutive_failures,
+                    ),
+                    consecutive_failures=consecutive_failures,
+                    upstream_provider=None,
+                )
+                session.commit()
 
-    status = _determine_status(outcomes)
+    status = _determine_status(
+        outcomes,
+        interrupted=interrupted,
+    )
     artifact_path: Path | None = None
     artifact_error: str | None = None
     try:
@@ -330,6 +536,7 @@ def _record_failure(
     message: str,
     failed_at: datetime,
     started_at: datetime,
+    commit: bool = True,
 ) -> str | None:
     rollback_error = _rollback_after_failure(session)
     try:
@@ -340,6 +547,7 @@ def _record_failure(
             message=message,
             failed_at=failed_at,
             started_at=started_at,
+            commit=commit,
         )
     except Exception as exc:
         _rollback_after_failure(session)
@@ -354,8 +562,107 @@ def _join_messages(*messages: str | None) -> str | None:
     return " | ".join(parts)
 
 
-def _determine_status(outcomes: list[AnalystRepositoryOutcome]) -> AnalystRunStatus:
+def _emit_analysis_failure_event(
+    session: Session,
+    *,
+    agent_run_id: int | None,
+    repository_id: int,
+    full_name: str,
+    failure_code: RepositoryAnalysisFailureCode,
+    message: str,
+    classification: FailureClassification,
+    failure_severity: FailureSeverity,
+    upstream_provider: str | None,
+    consecutive_failures: int = 1,
+    http_status_code: int | None = None,
+    retry_after_seconds: int | None = None,
+) -> None:
+    try:
+        event_id = emit_failure_event(
+            session,
+            event_type="repository_analysis_failed",
+            agent_name="analyst",
+            message=message,
+            classification=classification,
+            failure_severity=failure_severity,
+            http_status_code=http_status_code,
+            retry_after_seconds=retry_after_seconds,
+            affected_repository_id=repository_id,
+            upstream_provider=upstream_provider,
+            context_json=json.dumps(
+                {
+                    "github_repository_id": repository_id,
+                    "full_name": full_name,
+                    "failure_code": failure_code.value,
+                },
+                sort_keys=True,
+            ),
+            agent_run_id=agent_run_id,
+        )
+        decision = evaluate_pause_policy("analyst", classification, failure_severity, consecutive_failures, upstream_provider)
+        if decision.should_pause:
+            execute_pause(session, decision, event_id)
+            pause_context = json.dumps({
+                "pause_reason": decision.reason,
+                "resume_condition": decision.resume_condition,
+                "is_paused": True,
+            })
+            emit_failure_event(
+                session,
+                event_type="agent_paused",
+                agent_name="analyst",
+                message=f"analyst paused: {decision.reason}",
+                classification=classification,
+                failure_severity="critical",
+                upstream_provider=upstream_provider,
+                context_json=pause_context,
+                agent_run_id=agent_run_id,
+            )
+    except Exception:
+        session.rollback()
+        logger.warning(
+            "Failed to emit repository_analysis_failed event for %s (run_id=%s)",
+            full_name,
+            agent_run_id,
+            exc_info=True,
+        )
+
+
+def _analysis_failure_code_for_llm(
+    classification: FailureClassification,
+) -> RepositoryAnalysisFailureCode:
+    if classification is FailureClassification.RATE_LIMITED:
+        return RepositoryAnalysisFailureCode.RATE_LIMITED
+    return RepositoryAnalysisFailureCode.TRANSPORT_ERROR
+
+
+def _extract_http_status_code(error: Exception) -> int | None:
+    for attribute_name in ("status_code", "status", "http_status"):
+        value = getattr(error, attribute_name, None)
+        if isinstance(value, int):
+            return value
+    return None
+
+
+def _extract_retry_after_seconds(error: Exception) -> int | None:
+    for attr in ("retry_after_seconds", "retry_after", "ratelimit_reset", "reset_timestamp"):
+        value = getattr(error, attr, None)
+        if isinstance(value, int):
+            if attr == "reset_timestamp":
+                import time
+                return max(0, value - int(time.time()))
+            return value
+    return None
+
+
+def _determine_status(
+    outcomes: list[AnalystRepositoryOutcome],
+    *,
+    interrupted: bool = False,
+) -> AnalystRunStatus:
     has_error = any(outcome.failure_code is not None or outcome.artifact_error for outcome in outcomes)
+    if interrupted and not has_error:
+        return AnalystRunStatus.SKIPPED
     has_success = any(outcome.failure_code is None for outcome in outcomes)
     if has_error and has_success:
         return AnalystRunStatus.PARTIAL_FAILURE

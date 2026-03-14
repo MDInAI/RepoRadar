@@ -178,6 +178,7 @@ def test_list_repository_catalog_returns_default_sort_and_pagination(tmp_path: P
     assert page.page_size == 2
     assert page.total_pages == 1
     assert [item.github_repository_id for item in page.items] == [101]
+    assert page.items[0].intake_status is RepositoryQueueStatus.COMPLETED
     assert page.items[0].monetization_potential is RepositoryMonetizationPotential.HIGH
     assert page.items[0].has_readme_artifact is True
     assert page.items[0].has_analysis_artifact is True
@@ -311,6 +312,66 @@ def test_filter_by_star_range(tmp_path: Path) -> None:
         page = repo.list_repository_catalog(_default_params(min_stars=400, max_stars=600))
     assert page.total == 1
     assert page.items[0].github_repository_id == 101
+
+
+def test_get_repository_exploration_preserves_failed_analysis_with_artifact_records(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 3, 9, 14, 30, tzinfo=timezone.utc)
+
+    with _make_session(tmp_path) as session:
+        session.add(
+            RepositoryIntake(
+                github_repository_id=404,
+                owner_login="ops",
+                repository_name="rate-limited",
+                full_name="ops/rate-limited",
+                repository_description="Repository with partial analysis artifacts",
+                stargazers_count=42,
+                forks_count=7,
+                pushed_at=now,
+                discovery_source=RepositoryDiscoverySource.BACKFILL,
+                queue_status=RepositoryQueueStatus.COMPLETED,
+                triage_status=RepositoryTriageStatus.ACCEPTED,
+                analysis_status=RepositoryAnalysisStatus.FAILED,
+                discovered_at=now,
+                queue_created_at=now,
+                processing_started_at=now,
+                processing_completed_at=now,
+                status_updated_at=now,
+                triaged_at=now,
+                analysis_started_at=now,
+                analysis_last_attempted_at=now,
+                analysis_last_failed_at=now,
+                analysis_failure_message="Gateway rate limit while analyzing repository.",
+            )
+        )
+        session.add(
+            RepositoryArtifact(
+                github_repository_id=404,
+                artifact_kind=RepositoryArtifactKind.ANALYSIS_RESULT,
+                runtime_relative_path="analyses/404.json",
+                content_sha256="e" * 64,
+                byte_size=144,
+                content_type="application/json",
+                source_kind="repository_analysis",
+                generated_at=now,
+            )
+        )
+        session.commit()
+
+        repo = RepositoryExplorationRepository(session)
+        record = repo.get_repository_exploration(404)
+
+    assert record is not None
+    assert record.intake_status is RepositoryQueueStatus.COMPLETED
+    assert record.analysis_status is RepositoryAnalysisStatus.FAILED
+    assert record.processing.failure is not None
+    assert record.processing.failure.stage == "analysis"
+    assert record.processing.failure.failed_at == now
+    assert record.processing.failure.error_message == (
+        "Gateway rate limit while analyzing repository."
+    )
 
 
 def test_search_escapes_like_special_characters(tmp_path: Path) -> None:

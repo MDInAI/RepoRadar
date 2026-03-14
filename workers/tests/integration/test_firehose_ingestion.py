@@ -11,6 +11,7 @@ import agentic_workers.storage.firehose_progress as firehose_progress_module
 from agentic_workers.jobs.firehose_job import FirehoseRunStatus, run_firehose_job
 from agentic_workers.providers.github_provider import DiscoveredRepository, FirehoseMode
 from agentic_workers.storage.backend_models import (
+    AgentPauseState,
     FirehoseProgress,
     RepositoryDiscoverySource,
     RepositoryFirehoseMode,
@@ -158,7 +159,7 @@ def test_firehose_job_resumes_saved_mode_page_with_frozen_anchor_after_interrupt
             today=date(2026, 3, 20),
         )
 
-    assert first_result.status is FirehoseRunStatus.SUCCESS
+    assert first_result.status is FirehoseRunStatus.SKIPPED
     assert resume_required is True
     assert active_mode == "trending"
     assert trending_anchor_date == date(2026, 3, 1)
@@ -217,6 +218,9 @@ def test_firehose_job_retries_same_page_after_checkpoint_failure_without_duplica
             ),
         )
         rows_after_failure = session.exec(select(RepositoryIntake)).all()
+        pause_state_after_failure = session.exec(
+            select(AgentPauseState).where(AgentPauseState.agent_name == "firehose")
+        ).first()
         second_result = run_firehose_job(
             session=session,
             provider=provider,
@@ -232,11 +236,12 @@ def test_firehose_job_retries_same_page_after_checkpoint_failure_without_duplica
     assert first_result.status is FirehoseRunStatus.FAILED
     assert first_result.outcomes[0].error == "checkpoint write failed"
     assert len(rows_after_failure) == 0
+    assert pause_state_after_failure is not None
+    assert pause_state_after_failure.is_paused is True
 
-    assert second_result.status is FirehoseRunStatus.SUCCESS
-    assert second_result.outcomes[0].inserted_count == 1
-    assert second_result.outcomes[0].skipped_count == 0
-    assert len(rows_after_retry) == 1
+    assert second_result.status is FirehoseRunStatus.SKIPPED_PAUSED
+    assert second_result.outcomes == []
+    assert len(rows_after_retry) == 0
 
 
 def test_firehose_progress_save_updates_existing_row_without_duplicates(

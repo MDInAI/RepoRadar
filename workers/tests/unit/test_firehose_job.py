@@ -1,17 +1,21 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone, timedelta
+from datetime import date, datetime, timezone
 import json
 from pathlib import Path
 
+import agentic_workers.jobs.firehose_job as firehose_job_module
 from sqlmodel import Session, create_engine, select
 
 from agentic_workers.jobs.firehose_job import FirehoseRunResult, FirehoseRunStatus, run_firehose_job
 from agentic_workers.providers.github_provider import (
     DiscoveredRepository,
     FirehoseMode,
+    GitHubProviderError,
     GitHubRateLimitError,
 )
+from agentic_workers.core.pause_policy import PauseDecision
+from agentic_workers.storage.backend_models import FailureClassification
 from agentic_workers.storage.backend_models import RepositoryIntake, SQLModel
 from agentic_workers.storage.firehose_progress import FirehoseCheckpointState
 from agentic_workers.storage.repository_intake import IntakePersistenceResult
@@ -50,6 +54,15 @@ class StubSession:
 
     def rollback(self) -> None:
         self.rollbacks += 1
+
+    def add(self, _value: object) -> None:
+        return None
+
+    def flush(self) -> None:
+        return None
+
+    def exec(self, _statement: object) -> None:
+        return None
 
 
 def _repository(mode: FirehoseMode, repository_id: int) -> DiscoveredRepository:
@@ -110,6 +123,7 @@ def test_firehose_job_paces_between_requests_and_records_page_outcomes(tmp_path:
         load_progress=lambda _session: None,
         persist_batch=_persist_batch,
         save_progress=_save_progress,
+        today=date(2026, 3, 10),
     )
 
     assert result.status is FirehoseRunStatus.SUCCESS
@@ -119,8 +133,8 @@ def test_firehose_job_paces_between_requests_and_records_page_outcomes(tmp_path:
     ]
     assert [outcome.inserted_count for outcome in result.outcomes] == [1, 1]
     assert provider.calls == [
-        (FirehoseMode.NEW, date.today() - timedelta(days=1), 5, 1),
-        (FirehoseMode.TRENDING, date.today() - timedelta(days=7), 5, 1),
+        (FirehoseMode.NEW, date(2026, 3, 9), 5, 1),
+        (FirehoseMode.TRENDING, date(2026, 3, 3), 5, 1),
     ]
     assert sleep_calls == [7]
 
@@ -217,7 +231,106 @@ def test_firehose_job_stops_after_error_and_rolls_back(tmp_path: Path) -> None:
     assert len(result.outcomes) == 1
     assert result.outcomes[0].error == "first page write failed"
     assert session.rollbacks == 1
+    assert session.commits == 1
+
+
+def test_firehose_job_unexpected_runtime_failures_pause_the_agent(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    provider = StubProvider(
+        {
+            (FirehoseMode.NEW, 1): RuntimeError("unexpected firehose crash"),
+        }
+    )
+    session = StubSession()
+    emitted_events: list[dict[str, object]] = []
+    pause_calls: list[tuple[PauseDecision, int | None]] = []
+
+    def fake_emit_failure_event(_session: object, **kwargs: object) -> int:
+        emitted_events.append(kwargs)
+        return len(emitted_events)
+
+    monkeypatch.setattr(firehose_job_module, "emit_failure_event", fake_emit_failure_event)
+    monkeypatch.setattr(
+        firehose_job_module,
+        "execute_pause",
+        lambda _session, decision, event_id: pause_calls.append((decision, event_id)),
+    )
+
+    result = run_firehose_job(
+        session=session,  # type: ignore[arg-type]
+        provider=provider,
+        runtime_dir=tmp_path,
+        pacing_seconds=1,
+        modes=(FirehoseMode.NEW,),
+        sleep_fn=lambda _seconds: None,
+        per_page=5,
+        load_progress=lambda _session: _fresh_checkpoint(),
+    )
+
+    assert result.status is FirehoseRunStatus.FAILED
+    assert [event["event_type"] for event in emitted_events] == [
+        "repository_discovery_failed",
+        "agent_paused",
+    ]
+    assert emitted_events[0]["classification"] is FailureClassification.BLOCKING
+    assert pause_calls
+    assert pause_calls[0][0].affected_agents == ["firehose"]
+    assert pause_calls[0][1] == 1
+    assert session.rollbacks == 1
+    assert session.commits == 1
+
+
+def test_firehose_job_rolls_back_when_pause_emission_fails_for_provider_errors(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    provider = StubProvider(
+        {
+            (FirehoseMode.NEW, 1): GitHubProviderError("github transport failed"),
+        }
+    )
+    session = StubSession()
+
+    monkeypatch.setattr(
+        firehose_job_module,
+        "emit_failure_event",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("event sink failed")),
+    )
+
+    result = run_firehose_job(
+        session=session,  # type: ignore[arg-type]
+        provider=provider,
+        runtime_dir=tmp_path,
+        pacing_seconds=1,
+        modes=(FirehoseMode.NEW,),
+        sleep_fn=lambda _seconds: None,
+        per_page=5,
+        load_progress=lambda _session: _fresh_checkpoint(),
+    )
+
+    assert result.status is FirehoseRunStatus.FAILED
+    assert session.rollbacks == 2
     assert session.commits == 0
+
+
+def test_firehose_job_returns_skipped_paused_when_agent_is_paused(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(firehose_job_module, "is_agent_paused", lambda *_args, **_kwargs: True)
+
+    result = run_firehose_job(
+        session=StubSession(),  # type: ignore[arg-type]
+        provider=StubProvider({}),
+        runtime_dir=tmp_path,
+        pacing_seconds=1,
+        sleep_fn=lambda _seconds: None,
+    )
+
+    assert result.status is FirehoseRunStatus.SKIPPED_PAUSED
+    assert result.outcomes == []
 
 
 def test_firehose_job_sleeps_for_rate_limit_backoff_before_stopping(tmp_path: Path) -> None:
@@ -245,7 +358,7 @@ def test_firehose_job_sleeps_for_rate_limit_backoff_before_stopping(tmp_path: Pa
     assert result.outcomes[0].error == "GitHub rate limit exceeded with status 429; retry after 120s"
     assert sleep_calls == [120]
     assert session.rollbacks == 1
-    assert session.commits == 0
+    assert session.commits == 1
 
 
 def test_firehose_job_resumes_from_stored_mode_page_and_anchor(tmp_path: Path) -> None:

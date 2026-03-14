@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     GITHUB_REQUESTS_PER_MINUTE: int = 60
     INTAKE_PACING_SECONDS: int = 30
     BACKFILL_INTERVAL_SECONDS: int = 21600
+    EVENT_BRIDGE_POLL_INTERVAL_SECONDS: float = 2.0
+    EVENT_STREAM_PING_INTERVAL_SECONDS: float = 15.0
+    EVENT_STREAM_MAX_SUBSCRIBERS: int = 100
+    EVENT_STREAM_SUBSCRIBER_QUEUE_SIZE: int = 100
     BACKFILL_PER_PAGE: int = 100
     BACKFILL_PAGES: int = 2
     BACKFILL_WINDOW_DAYS: int = 30
@@ -92,12 +96,16 @@ class Settings(BaseSettings):
         "GITHUB_REQUESTS_PER_MINUTE",
         "INTAKE_PACING_SECONDS",
         "BACKFILL_INTERVAL_SECONDS",
+        "EVENT_BRIDGE_POLL_INTERVAL_SECONDS",
+        "EVENT_STREAM_PING_INTERVAL_SECONDS",
+        "EVENT_STREAM_MAX_SUBSCRIBERS",
+        "EVENT_STREAM_SUBSCRIBER_QUEUE_SIZE",
         "BACKFILL_PER_PAGE",
         "BACKFILL_PAGES",
         "BACKFILL_WINDOW_DAYS",
     )
     @classmethod
-    def _require_positive_numbers(cls, value: int) -> int:
+    def _require_positive_numbers(cls, value: int | float) -> int | float:
         if value <= 0:
             raise ValueError("must be greater than zero")
         return value

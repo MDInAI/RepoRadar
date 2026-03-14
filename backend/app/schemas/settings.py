@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -53,3 +54,28 @@ class SettingsSummaryResponse(BaseModel):
     worker_settings: list[MaskedSettingSummary] = Field(default_factory=list)
     openclaw_settings: list[MaskedSettingSummary] = Field(default_factory=list)
     validation: ConfigurationValidationResult
+
+
+RuntimeHealthStatus = Literal["healthy", "degraded"]
+
+
+class EventBridgeRuntimeHealthResponse(BaseModel):
+    status: RuntimeHealthStatus
+    consecutive_failures: int
+    last_error: str | None = None
+    last_failure_at: datetime | None = None
+    last_success_at: datetime | None = None
+    last_event_id: int | None = None
+    poll_interval_seconds: float
+
+
+class EventStreamRuntimeResponse(BaseModel):
+    current_subscribers: int
+    max_subscribers: int
+    subscriber_queue_size: int
+    ping_interval_seconds: float
+
+
+class SettingsRuntimeResponse(BaseModel):
+    event_bridge: EventBridgeRuntimeHealthResponse
+    event_stream: EventStreamRuntimeResponse

@@ -4,13 +4,19 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from enum import StrEnum
 import json
+import logging
 from pathlib import Path
 from typing import Callable, Protocol
 
 from sqlmodel import Session
 
+from agentic_workers.core.events import emit_event, emit_failure_event, pause_event_run_id
+from agentic_workers.core.failure_detector import classify_github_error, determine_severity
+from agentic_workers.core.pause_manager import execute_pause, is_agent_paused
+from agentic_workers.core.pause_policy import evaluate_pause_policy
 from agentic_workers.providers.github_provider import (
     DiscoveredRepository,
+    GitHubProviderError,
     GitHubRateLimitError,
 )
 from agentic_workers.storage.backfill_progress import (
@@ -23,16 +29,21 @@ from agentic_workers.storage.backfill_progress import (
 from agentic_workers.storage.intake_progress_snapshots import (
     write_backfill_progress_snapshot,
 )
+from agentic_workers.storage.backend_models import FailureClassification
 from agentic_workers.storage.repository_intake import (
     IntakePersistenceResult,
     persist_backfill_batch,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class BackfillRunStatus(StrEnum):
     SUCCESS = "success"
     PARTIAL_FAILURE = "partial_failure"
     FAILED = "failed"
+    SKIPPED = "skipped"
+    SKIPPED_PAUSED = "skipped_paused"
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,32 +104,53 @@ def run_backfill_job(
     save_progress: SaveCheckpointFn | None = None,
     write_artifact: ArtifactWriter | None = None,
     today: date | None = None,
+    agent_run_id: int | None = None,
 ) -> BackfillRunResult:
     if window_days <= 0:
         raise ValueError("window_days must be greater than zero")
 
     checkpoint_loader = load_progress or _load_checkpoint
+    active_today = today or _utc_today()
+
+    # Check if agent is paused
+    if is_agent_paused(session, "backfill"):
+        logger.info("Backfill is paused, skipping run")
+        return BackfillRunResult(
+            status=BackfillRunStatus.SKIPPED_PAUSED,
+            outcomes=[],
+            checkpoint=checkpoint_loader(session)
+            or initialize_backfill_progress(
+                today=active_today,
+                window_days=window_days,
+                min_created_date=min_created_date,
+            ),
+            artifact_path=None,
+        )
+
     checkpoint_saver = save_progress or _save_checkpoint
     persistence = persist_batch or _persist_batch
     artifact_writer = write_artifact or _write_run_artifact
-    active_today = today or _utc_today()
     checkpoint = checkpoint_loader(session) or initialize_backfill_progress(
         today=active_today,
         window_days=window_days,
         min_created_date=min_created_date,
     )
     outcomes: list[BackfillPageOutcome] = []
+    interrupted = False
     snapshot_errors: list[str] = []
+    consecutive_failures = 0
     remaining_pages = max(0, pages - checkpoint.pages_processed_in_run)
 
     for page_index in range(remaining_pages):
         if checkpoint.exhausted:
             break
         if should_stop is not None and should_stop():
+            interrupted = True
             break
         if page_index > 0:
             sleep_fn(pacing_seconds)
             if should_stop is not None and should_stop():
+                interrupted = True
                 break
 
         repositories: list[DiscoveredRepository] = []
@@ -167,15 +199,35 @@ def run_backfill_job(
                     exhausted_after=next_checkpoint.exhausted,
                 )
             )
+            if agent_run_id is not None and next_checkpoint.exhausted:
+                try:
+                    emit_event(
+                        session,
+                        event_type="window_exhausted",
+                        agent_name="backfill",
+                        severity="info",
+                        message="backfill exhausted the current discovery window.",
+                        context_json=json.dumps(
+                            {
+                                "window_start_date": checkpoint.window_start_date.isoformat(),
+                                "created_before_boundary": checkpoint.created_before_boundary.isoformat(),
+                                "page": requested_page,
+                            },
+                            sort_keys=True,
+                        ),
+                        agent_run_id=agent_run_id,
+                    )
+                except Exception:
+                    logger.warning("Failed to emit window_exhausted event for backfill", exc_info=True)
+            consecutive_failures = 0
             checkpoint = next_checkpoint
         except GitHubRateLimitError as exc:
+            consecutive_failures += 1
             session.rollback()
             backoff_seconds = max(
                 pacing_seconds * 2,
                 exc.retry_after_seconds or 0,
             )
-            if backoff_seconds > 0 and (should_stop is None or not should_stop()):
-                sleep_fn(backoff_seconds)
             outcomes.append(
                 BackfillPageOutcome(
                     window_start_date=checkpoint.window_start_date,
@@ -190,8 +242,78 @@ def run_backfill_job(
                     rate_limit_backoff_seconds=backoff_seconds,
                 )
             )
+            # Persist pause state BEFORE sleeping so a crash during backoff cannot
+            # lose the cross-run protection that Story 4.4 guarantees.
+            try:
+                classification = classify_github_error(exc)
+                failure_sev = determine_severity(classification, consecutive_failures)
+                event_id = emit_failure_event(
+                    session,
+                    event_type="rate_limit_hit",
+                    agent_name="backfill",
+                    message="backfill hit the GitHub rate limit and backed off.",
+                    classification=classification,
+                    failure_severity=failure_sev,
+                    http_status_code=exc.status_code,
+                    retry_after_seconds=exc.retry_after_seconds,
+                    upstream_provider="github",
+                    context_json=json.dumps(
+                        {
+                            "page": requested_page,
+                            "window_start_date": checkpoint.window_start_date.isoformat(),
+                            "created_before_boundary": checkpoint.created_before_boundary.isoformat(),
+                            "retry_after_seconds": exc.retry_after_seconds,
+                            "backoff_seconds": backoff_seconds,
+                        },
+                        sort_keys=True,
+                    ),
+                    agent_run_id=agent_run_id,
+                    commit=False,
+                )
+                decision = evaluate_pause_policy("backfill", classification, failure_sev, consecutive_failures)
+                if decision.should_pause:
+                    execute_pause(session, decision, event_id)
+                    # Update the failure event with pause metadata so operators see complete context
+                    from app.models import SystemEvent
+                    failure_event = session.get(SystemEvent, event_id)
+                    if failure_event and failure_event.context_json:
+                        ctx = json.loads(failure_event.context_json)
+                        ctx["pause_reason"] = decision.reason
+                        ctx["resume_condition"] = decision.resume_condition
+                        ctx["is_paused"] = True
+                        failure_event.context_json = json.dumps(ctx, sort_keys=True)
+                    for affected_agent in decision.affected_agents:
+                        pause_context = json.dumps({
+                            "pause_reason": decision.reason,
+                            "resume_condition": decision.resume_condition,
+                            "is_paused": True,
+                        })
+                        emit_failure_event(
+                            session,
+                            event_type="agent_paused",
+                            agent_name=affected_agent,
+                            message=f"{affected_agent} paused: {decision.reason}",
+                            classification=classification,
+                            failure_severity="critical",
+                            upstream_provider="github",
+                            context_json=pause_context,
+                            agent_run_id=pause_event_run_id(
+                                triggering_agent_name="backfill",
+                                affected_agent_name=affected_agent,
+                                triggering_run_id=agent_run_id,
+                            ),
+                            commit=False,
+                        )
+                session.commit()
+            except Exception:
+                session.rollback()
+                logger.warning("Failed to emit rate_limit_hit event for backfill", exc_info=True)
+            # Sleep after committing so pause state survives a shutdown during backoff.
+            if backoff_seconds > 0 and (should_stop is None or not should_stop()):
+                sleep_fn(backoff_seconds)
             break
-        except Exception as exc:
+        except GitHubProviderError as exc:
+            consecutive_failures += 1
             session.rollback()
             outcomes.append(
                 BackfillPageOutcome(
@@ -206,12 +328,131 @@ def run_backfill_job(
                     error=str(exc),
                 )
             )
+            try:
+                classification = classify_github_error(exc)
+                failure_sev = determine_severity(classification, consecutive_failures)
+                event_id = emit_failure_event(
+                    session,
+                    event_type="repository_discovery_failed",
+                    agent_name="backfill",
+                    message="backfill failed while discovering repositories from GitHub.",
+                    classification=classification,
+                    failure_severity=failure_sev,
+                    upstream_provider="github",
+                    context_json=json.dumps(
+                        {
+                            "page": requested_page,
+                            "window_start_date": checkpoint.window_start_date.isoformat(),
+                            "created_before_boundary": checkpoint.created_before_boundary.isoformat(),
+                            "error": str(exc),
+                        },
+                        sort_keys=True,
+                    ),
+                    agent_run_id=agent_run_id,
+                    commit=False,
+                )
+                decision = evaluate_pause_policy("backfill", classification, failure_sev, consecutive_failures)
+                if decision.should_pause:
+                    execute_pause(session, decision, event_id)
+                    for affected_agent in decision.affected_agents:
+                        pause_context = json.dumps({
+                            "pause_reason": decision.reason,
+                            "resume_condition": decision.resume_condition,
+                            "is_paused": True,
+                        })
+                        emit_failure_event(
+                            session,
+                            event_type="agent_paused",
+                            agent_name=affected_agent,
+                            message=f"{affected_agent} paused: {decision.reason}",
+                            classification=classification,
+                            failure_severity="critical",
+                            upstream_provider="github",
+                            context_json=pause_context,
+                            agent_run_id=pause_event_run_id(
+                                triggering_agent_name="backfill",
+                                affected_agent_name=affected_agent,
+                                triggering_run_id=agent_run_id,
+                            ),
+                            commit=False,
+                        )
+                session.commit()
+            except Exception:
+                session.rollback()
+                logger.warning(
+                    "Failed to emit repository_discovery_failed event for backfill",
+                    exc_info=True,
+                    )
+            break
+        except Exception as exc:
+            consecutive_failures += 1
+            session.rollback()
+            outcomes.append(
+                BackfillPageOutcome(
+                    window_start_date=checkpoint.window_start_date,
+                    created_before_boundary=checkpoint.created_before_boundary,
+                    created_before_cursor=checkpoint.created_before_cursor,
+                    page=requested_page,
+                    fetched_count=len(repositories),
+                    inserted_count=0,
+                    skipped_count=0,
+                    exhausted_after=checkpoint.exhausted,
+                    error=str(exc),
+                )
+            )
+            try:
+                classification = FailureClassification.BLOCKING
+                failure_sev = determine_severity(classification, consecutive_failures)
+                event_id = emit_failure_event(
+                    session,
+                    event_type="repository_discovery_failed",
+                    agent_name="backfill",
+                    message="backfill encountered an unexpected runtime failure.",
+                    classification=classification,
+                    failure_severity=failure_sev,
+                    context_json=json.dumps(
+                        {
+                            "page": requested_page,
+                            "window_start_date": checkpoint.window_start_date.isoformat(),
+                            "created_before_boundary": checkpoint.created_before_boundary.isoformat(),
+                            "error": str(exc),
+                        },
+                        sort_keys=True,
+                    ),
+                    agent_run_id=agent_run_id,
+                    commit=False,
+                )
+                decision = evaluate_pause_policy("backfill", classification, failure_sev, consecutive_failures)
+                if decision.should_pause:
+                    execute_pause(session, decision, event_id)
+                    for affected_agent in decision.affected_agents:
+                        emit_failure_event(
+                            session,
+                            event_type="agent_paused",
+                            agent_name=affected_agent,
+                            message=f"{affected_agent} paused: {decision.reason}",
+                            classification=classification,
+                            failure_severity="critical",
+                            agent_run_id=pause_event_run_id(
+                                triggering_agent_name="backfill",
+                                affected_agent_name=affected_agent,
+                                triggering_run_id=agent_run_id,
+                            ),
+                            commit=False,
+                        )
+                session.commit()
+            except Exception:
+                session.rollback()
+                logger.warning(
+                    "Failed to emit unexpected runtime failure event for backfill",
+                    exc_info=True,
+                )
             break
 
     # Clear resume_required when the cycle completes without error or interruption,
     # so the next invocation gets a fresh page budget instead of a reduced one.
     cycle_had_errors = any(outcome.error for outcome in outcomes)
-    cycle_was_interrupted = should_stop is not None and should_stop()
+    cycle_was_interrupted = interrupted
     
     # Write snapshot after the loop has completed. It'll represent either the last page successfully
     # processed or an error state if the loop aborted early.
@@ -247,7 +488,7 @@ def run_backfill_job(
         except OSError as exc:
             snapshot_errors.append(f"snapshot write failed: {exc}")
 
-    status = _determine_status(outcomes)
+    status = _determine_status(outcomes, interrupted=cycle_was_interrupted)
     artifact_path: Path | None = None
     artifact_errors: list[str] = list(snapshot_errors)
     try:
@@ -286,8 +527,14 @@ def _save_checkpoint(session: Session, checkpoint: BackfillCheckpointState) -> N
     save_backfill_progress(session, checkpoint, commit=False)
 
 
-def _determine_status(outcomes: list[BackfillPageOutcome]) -> BackfillRunStatus:
+def _determine_status(
+    outcomes: list[BackfillPageOutcome],
+    *,
+    interrupted: bool = False,
+) -> BackfillRunStatus:
     has_error = any(outcome.error for outcome in outcomes)
+    if interrupted and not has_error:
+        return BackfillRunStatus.SKIPPED
     has_success = any(outcome.error is None for outcome in outcomes)
     if has_error and has_success:
         return BackfillRunStatus.PARTIAL_FAILURE

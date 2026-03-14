@@ -8,7 +8,7 @@ dependencies = [
     "pydantic>=2.7.0",
     "pydantic-settings>=2.2.1",
     "sqlmodel>=0.0.16",
-    # Additional background work dependencies (httpx, openai, etc) to be added in future stories
+    "anthropic>=0.18.0",
 ]
 
 [project.optional-dependencies]

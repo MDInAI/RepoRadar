@@ -17,6 +17,8 @@ from app.schemas.repository_exploration import (
     RepositoryCatalogItemResponse,
     RepositoryCatalogPageResponse,
     RepositoryCatalogQueryParams,
+    RepositoryFailureContextResponse,
+    RepositoryProcessingContextResponse,
     RepositoryProcessingAnalysisSummaryResponse,
     RepositoryProcessingQueueSummaryResponse,
     RepositoryProcessingTriageSummaryResponse,
@@ -143,7 +145,7 @@ class RepositoryExplorationService:
             full_name=record.full_name,
             repository_description=record.repository_description,
             discovery_source=record.discovery_source,
-            queue_status=record.queue_status,
+            intake_status=record.intake_status,
             triage_status=record.triage_status,
             analysis_status=record.analysis_status,
             stargazers_count=record.stargazers_count,
@@ -160,10 +162,34 @@ class RepositoryExplorationService:
             readme_snapshot=readme_snapshot,
             analysis_artifact=analysis_artifact_response,
             artifacts=artifact_responses,
+            processing=RepositoryProcessingContextResponse(
+                intake_created_at=record.processing.intake_created_at,
+                intake_started_at=record.processing.intake_started_at,
+                intake_completed_at=record.processing.intake_completed_at,
+                intake_failed_at=record.processing.intake_failed_at,
+                triaged_at=record.processing.triaged_at,
+                analysis_started_at=record.processing.analysis_started_at,
+                analysis_completed_at=record.processing.analysis_completed_at,
+                analysis_last_attempted_at=record.processing.analysis_last_attempted_at,
+                analysis_failed_at=record.processing.analysis_failed_at,
+                failure=(
+                    RepositoryFailureContextResponse(
+                        stage=record.processing.failure.stage,
+                        step=record.processing.failure.step,
+                        upstream_source=record.processing.failure.upstream_source,
+                        error_code=record.processing.failure.error_code,
+                        error_message=record.processing.failure.error_message,
+                        failed_at=record.processing.failure.failed_at,
+                    )
+                    if record.processing.failure is not None
+                    else None
+                ),
+            ),
             has_readme_artifact=RepositoryArtifactKind.README_SNAPSHOT in artifact_kinds,
             has_analysis_artifact=RepositoryArtifactKind.ANALYSIS_RESULT in artifact_kinds,
             is_starred=record.is_starred,
             user_tags=record.user_tags,
+            idea_family_ids=record.idea_family_ids,
         )
 
     def list_repository_catalog(
@@ -185,6 +211,7 @@ class RepositoryExplorationService:
                 max_stars=params.max_stars,
                 starred_only=params.starred_only,
                 user_tag=params.user_tag,
+                idea_family_id=params.idea_family_id,
                 sort_by=params.sort_by.value,
                 sort_order=params.sort_order.value,
             )
@@ -202,20 +229,32 @@ class RepositoryExplorationService:
                     forks_count=item.forks_count,
                     pushed_at=item.pushed_at,
                     discovery_source=item.discovery_source,
-                    queue_status=item.queue_status,
+                    intake_status=item.intake_status,
                     triage_status=item.triage_status,
                     analysis_status=item.analysis_status,
                     queue_created_at=item.queue_created_at,
                     processing_started_at=item.processing_started_at,
                     processing_completed_at=item.processing_completed_at,
-                    last_failed_at=item.last_failed_at,
-                    analysis_failure_code=item.analysis_failure_code,
-                    analysis_failure_message=item.analysis_failure_message,
+                    intake_failed_at=item.intake_failed_at,
+                    analysis_failed_at=item.analysis_failed_at,
+                    failure=(
+                        RepositoryFailureContextResponse(
+                            stage=item.failure.stage,
+                            step=item.failure.step,
+                            upstream_source=item.failure.upstream_source,
+                            error_code=item.failure.error_code,
+                            error_message=item.failure.error_message,
+                            failed_at=item.failure.failed_at,
+                        )
+                        if item.failure is not None
+                        else None
+                    ),
                     monetization_potential=item.monetization_potential,
                     has_readme_artifact=item.has_readme_artifact,
                     has_analysis_artifact=item.has_analysis_artifact,
                     is_starred=item.is_starred,
                     user_tags=item.user_tags,
+                    idea_family_ids=item.idea_family_ids,
                 )
                 for item in page.items
             ],

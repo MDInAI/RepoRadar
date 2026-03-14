@@ -1,0 +1,14 @@
+{
+  "active_mode": null,
+  "anchors": {
+    "new": null,
+    "trending": null
+  },
+  "generated_at": "2026-03-10T23:52:34.026298+00:00",
+  "last_checkpointed_at": "2026-03-10T23:52:34.022314+00:00",
+  "next_page": 1,
+  "pages_processed_in_run": 0,
+  "resume_required": false,
+  "run_started_at": null,
+  "source_provider": "github"
+}

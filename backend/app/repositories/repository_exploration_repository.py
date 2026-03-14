@@ -9,6 +9,7 @@ from sqlalchemy import case, exists, func, or_
 from sqlmodel import Session, select
 
 from app.models import (
+    IdeaFamilyMembership,
     RepositoryAnalysisResult,
     RepositoryAnalysisStatus,
     RepositoryArtifact,
@@ -73,7 +74,7 @@ class RepositoryExplorationRecord:
     full_name: str
     repository_description: str | None
     discovery_source: RepositoryDiscoverySource
-    queue_status: RepositoryQueueStatus
+    intake_status: RepositoryQueueStatus
     triage_status: RepositoryTriageStatus
     analysis_status: RepositoryAnalysisStatus
     stargazers_count: int
@@ -84,8 +85,10 @@ class RepositoryExplorationRecord:
     triage: RepositoryTriageRecord
     analysis_summary: RepositoryAnalysisSummaryRecord | None
     artifacts: list[RepositoryArtifactRefRecord]
+    processing: "RepositoryProcessingRecord"
     is_starred: bool
     user_tags: list[str]
+    idea_family_ids: list[int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,8 +106,9 @@ class RepositoryCatalogListParams:
     max_stars: int | None
     starred_only: bool
     user_tag: str | None
-    sort_by: str
-    sort_order: str
+    idea_family_id: int | None = None
+    sort_by: str = "stars"
+    sort_order: str = "desc"
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,20 +122,21 @@ class RepositoryCatalogItemRecord:
     forks_count: int
     pushed_at: datetime | None
     discovery_source: RepositoryDiscoverySource
-    queue_status: RepositoryQueueStatus
+    intake_status: RepositoryQueueStatus
     triage_status: RepositoryTriageStatus
     analysis_status: RepositoryAnalysisStatus
     queue_created_at: datetime | None
     processing_started_at: datetime | None
     processing_completed_at: datetime | None
-    last_failed_at: datetime | None
-    analysis_failure_code: str | None
-    analysis_failure_message: str | None
+    intake_failed_at: datetime | None
+    analysis_failed_at: datetime | None
+    failure: "RepositoryFailureContextRecord | None"
     monetization_potential: RepositoryMonetizationPotential | None
     has_readme_artifact: bool
     has_analysis_artifact: bool
     is_starred: bool
     user_tags: list[str]
+    idea_family_ids: list[int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +155,30 @@ class RepositoryBacklogSummaryRecord:
     analysis: dict[str, int]
 
 
+@dataclass(frozen=True, slots=True)
+class RepositoryFailureContextRecord:
+    stage: str
+    step: str
+    upstream_source: str
+    error_code: str | None
+    error_message: str | None
+    failed_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryProcessingRecord:
+    intake_created_at: datetime | None
+    intake_started_at: datetime | None
+    intake_completed_at: datetime | None
+    intake_failed_at: datetime | None
+    triaged_at: datetime | None
+    analysis_started_at: datetime | None
+    analysis_completed_at: datetime | None
+    analysis_last_attempted_at: datetime | None
+    analysis_failed_at: datetime | None
+    failure: RepositoryFailureContextRecord | None
+
+
 class RepositoryExplorationRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -166,6 +195,10 @@ class RepositoryExplorationRepository:
             select(RepositoryUserTag)
             .where(RepositoryUserTag.github_repository_id == github_repository_id)
             .order_by(RepositoryUserTag.created_at.asc(), RepositoryUserTag.id.asc())
+        ).all()
+        family_rows = self.session.exec(
+            select(IdeaFamilyMembership)
+            .where(IdeaFamilyMembership.github_repository_id == github_repository_id)
         ).all()
 
         analysis_row = self.session.get(RepositoryAnalysisResult, github_repository_id)
@@ -223,7 +256,7 @@ class RepositoryExplorationRepository:
             full_name=intake.full_name,
             repository_description=intake.repository_description,
             discovery_source=intake.discovery_source,
-            queue_status=intake.queue_status,
+            intake_status=intake.queue_status,
             triage_status=intake.triage_status,
             analysis_status=intake.analysis_status,
             stargazers_count=intake.stargazers_count,
@@ -238,8 +271,25 @@ class RepositoryExplorationRepository:
             ),
             analysis_summary=analysis_summary,
             artifacts=artifacts,
+            processing=RepositoryProcessingRecord(
+                intake_created_at=intake.queue_created_at,
+                intake_started_at=intake.processing_started_at,
+                intake_completed_at=intake.processing_completed_at,
+                intake_failed_at=(
+                    intake.last_failed_at
+                    if intake.queue_status is RepositoryQueueStatus.FAILED
+                    else None
+                ),
+                triaged_at=intake.triaged_at,
+                analysis_started_at=intake.analysis_started_at,
+                analysis_completed_at=intake.analysis_completed_at,
+                analysis_last_attempted_at=intake.analysis_last_attempted_at,
+                analysis_failed_at=intake.analysis_last_failed_at,
+                failure=self._build_failure_context(intake),
+            ),
             is_starred=curation_row.is_starred if curation_row is not None else False,
             user_tags=[row.tag_label for row in tag_rows],
+            idea_family_ids=[row.idea_family_id for row in family_rows],
         )
 
     def list_repository_catalog(
@@ -287,6 +337,16 @@ class RepositoryExplorationRepository:
                         RepositoryUserTag.github_repository_id
                         == RepositoryIntake.github_repository_id,
                         RepositoryUserTag.tag_label == params.user_tag,
+                    )
+                )
+            )
+        if params.idea_family_id:
+            filters.append(
+                exists(
+                    select(IdeaFamilyMembership.id).where(
+                        IdeaFamilyMembership.github_repository_id
+                        == RepositoryIntake.github_repository_id,
+                        IdeaFamilyMembership.idea_family_id == params.idea_family_id,
                     )
                 )
             )
@@ -369,10 +429,8 @@ class RepositoryExplorationRepository:
                     RepositoryIntake.analysis_completed_at,
                     RepositoryIntake.processing_completed_at,
                 ).label("processing_completed_at"),
-                func.coalesce(
-                    RepositoryIntake.analysis_last_failed_at,
-                    RepositoryIntake.last_failed_at,
-                ).label("last_failed_at"),
+                RepositoryIntake.last_failed_at.label("intake_failed_at"),
+                RepositoryIntake.analysis_last_failed_at.label("analysis_failed_at"),
                 RepositoryIntake.analysis_failure_code,
                 RepositoryIntake.analysis_failure_message,
                 RepositoryAnalysisResult.monetization_potential,
@@ -393,6 +451,7 @@ class RepositoryExplorationRepository:
         rows = self.session.exec(query).all()
         repository_ids = [row.github_repository_id for row in rows]
         user_tags_by_repository_id: dict[int, list[str]] = defaultdict(list)
+        idea_family_ids_by_repository_id: dict[int, list[int]] = defaultdict(list)
         if repository_ids:
             tag_rows = self.session.exec(
                 select(RepositoryUserTag)
@@ -405,6 +464,14 @@ class RepositoryExplorationRepository:
             ).all()
             for tag_row in tag_rows:
                 user_tags_by_repository_id[tag_row.github_repository_id].append(tag_row.tag_label)
+
+            family_rows = self.session.exec(
+                select(IdeaFamilyMembership)
+                .where(IdeaFamilyMembership.github_repository_id.in_(repository_ids))
+                .order_by(IdeaFamilyMembership.github_repository_id.asc())
+            ).all()
+            for family_row in family_rows:
+                idea_family_ids_by_repository_id[family_row.github_repository_id].append(family_row.idea_family_id)
         items = [
             RepositoryCatalogItemRecord(
                 github_repository_id=row.github_repository_id,
@@ -416,24 +483,33 @@ class RepositoryExplorationRepository:
                 forks_count=row.forks_count,
                 pushed_at=row.pushed_at,
                 discovery_source=row.discovery_source,
-                queue_status=row.queue_status,
+                intake_status=row.queue_status,
                 triage_status=row.triage_status,
                 analysis_status=row.analysis_status,
                 queue_created_at=row.queue_created_at,
                 processing_started_at=row.processing_started_at,
                 processing_completed_at=row.processing_completed_at,
-                last_failed_at=row.last_failed_at,
-                analysis_failure_code=(
-                    row.analysis_failure_code.value
-                    if row.analysis_failure_code is not None
-                    else None
+                intake_failed_at=row.intake_failed_at,
+                analysis_failed_at=row.analysis_failed_at,
+                failure=self._build_catalog_failure_context(
+                    intake_status=row.queue_status,
+                    analysis_status=row.analysis_status,
+                    discovery_source=row.discovery_source,
+                    analysis_failure_code=(
+                        row.analysis_failure_code.value
+                        if row.analysis_failure_code is not None
+                        else None
+                    ),
+                    analysis_failure_message=row.analysis_failure_message,
+                    intake_failed_at=row.intake_failed_at,
+                    analysis_failed_at=row.analysis_failed_at,
                 ),
-                analysis_failure_message=row.analysis_failure_message,
                 monetization_potential=row.monetization_potential,
                 has_readme_artifact=bool(row.has_readme_artifact),
                 has_analysis_artifact=bool(row.has_analysis_artifact),
                 is_starred=bool(row.is_starred),
                 user_tags=user_tags_by_repository_id.get(row.github_repository_id, []),
+                idea_family_ids=idea_family_ids_by_repository_id.get(row.github_repository_id, []),
             )
             for row in rows
         ]
@@ -503,3 +579,55 @@ class RepositoryExplorationRepository:
             label = f"{prefix}_{status.value}"
             counts[status.value] = int(getattr(row, label))
         return counts
+
+    @staticmethod
+    def _build_failure_context(intake: RepositoryIntake) -> RepositoryFailureContextRecord | None:
+        return RepositoryExplorationRepository._build_catalog_failure_context(
+            intake_status=intake.queue_status,
+            analysis_status=intake.analysis_status,
+            discovery_source=intake.discovery_source,
+            analysis_failure_code=(
+                intake.analysis_failure_code.value
+                if intake.analysis_failure_code is not None
+                else None
+            ),
+            analysis_failure_message=intake.analysis_failure_message,
+            intake_failed_at=intake.last_failed_at,
+            analysis_failed_at=intake.analysis_last_failed_at,
+        )
+
+    @staticmethod
+    def _build_catalog_failure_context(
+        *,
+        intake_status: RepositoryQueueStatus,
+        analysis_status: RepositoryAnalysisStatus,
+        discovery_source: RepositoryDiscoverySource,
+        analysis_failure_code: str | None,
+        analysis_failure_message: str | None,
+        intake_failed_at: datetime | None,
+        analysis_failed_at: datetime | None,
+    ) -> RepositoryFailureContextRecord | None:
+        if analysis_status is RepositoryAnalysisStatus.FAILED:
+            return RepositoryFailureContextRecord(
+                stage="analysis",
+                step="analysis",
+                upstream_source=discovery_source.value,
+                error_code=analysis_failure_code,
+                error_message=(
+                    analysis_failure_message
+                    or "Analysis failed without a recorded error message."
+                ),
+                failed_at=analysis_failed_at,
+            )
+
+        if intake_status is RepositoryQueueStatus.FAILED:
+            return RepositoryFailureContextRecord(
+                stage="intake",
+                step="repository_intake",
+                upstream_source=discovery_source.value,
+                error_code=None,
+                error_message="Repository intake failed before triage or analysis completed.",
+                failed_at=intake_failed_at,
+            )
+
+        return None

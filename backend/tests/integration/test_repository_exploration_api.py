@@ -221,6 +221,7 @@ def test_get_repository_exploration_success(
         analyzed_at=datetime(2026, 3, 9, 12, 5, tzinfo=timezone.utc),
     )
     db_session.add(analysis)
+    base_repository.queue_created_at = now
     base_repository.triaged_at = now
     db_session.add(base_repository)
     db_session.add(
@@ -272,6 +273,7 @@ def test_get_repository_exploration_success(
     assert data["full_name"] == "testowner/testrepo"
     assert data["owner_login"] == "testowner"
     assert data["repository_name"] == "testrepo"
+    assert data["intake_status"] == "completed"
     assert data["triage_status"] == "accepted"
     assert data["stargazers_count"] == 100
     assert data["has_readme_artifact"] is True
@@ -287,6 +289,8 @@ def test_get_repository_exploration_success(
     assert data["analysis_artifact"]["payload"]["analysis"]["missing_feature_signals"] == [
         "Missing SSO"
     ]
+    assert data["processing"]["intake_created_at"] == "2026-03-09T12:00:00Z"
+    assert data["processing"]["failure"] is None
     assert data["is_starred"] is False
     assert data["user_tags"] == []
 
@@ -315,11 +319,63 @@ def test_list_repository_catalog_returns_paginated_results(
     assert data["total_pages"] == 1
     assert [item["github_repository_id"] for item in data["items"]] == [701]
     assert data["items"][0]["full_name"] == "alpha/growth-engine"
+    assert data["items"][0]["intake_status"] == "completed"
     assert data["items"][0]["monetization_potential"] == "high"
     assert data["items"][0]["has_readme_artifact"] is True
     assert data["items"][0]["has_analysis_artifact"] is False
     assert data["items"][0]["is_starred"] is False
     assert data["items"][0]["user_tags"] == []
+
+
+def test_get_repository_exploration_surfaces_failure_context(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    now = datetime(2026, 3, 9, 16, 0, tzinfo=timezone.utc)
+    db_session.add(
+        RepositoryIntake(
+            github_repository_id=703,
+            source_provider="github",
+            owner_login="gamma",
+            repository_name="failure-repo",
+            full_name="gamma/failure-repo",
+            repository_description="Repository with failed analysis",
+            discovery_source=RepositoryDiscoverySource.FIREHOSE,
+            firehose_discovery_mode=RepositoryFirehoseMode.TRENDING,
+            queue_status=RepositoryQueueStatus.COMPLETED,
+            triage_status=RepositoryTriageStatus.ACCEPTED,
+            analysis_status=RepositoryAnalysisStatus.FAILED,
+            stargazers_count=88,
+            forks_count=14,
+            discovered_at=now,
+            queue_created_at=now,
+            processing_started_at=now,
+            processing_completed_at=now,
+            status_updated_at=now,
+            triaged_at=now,
+            analysis_started_at=now,
+            analysis_last_attempted_at=now,
+            analysis_last_failed_at=now,
+            pushed_at=now,
+            analysis_failure_message="Gateway rate limit while analyzing repository.",
+        )
+    )
+    db_session.commit()
+
+    response = client.get("/api/v1/repositories/703")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["analysis_status"] == "failed"
+    assert data["processing"]["analysis_failed_at"] == "2026-03-09T16:00:00Z"
+    assert data["processing"]["failure"] == {
+        "stage": "analysis",
+        "step": "analysis",
+        "upstream_source": "firehose",
+        "error_code": None,
+        "error_message": "Gateway rate limit while analyzing repository.",
+        "failed_at": "2026-03-09T16:00:00Z",
+    }
 
 
 def test_list_repository_catalog_supports_filters_and_search(
