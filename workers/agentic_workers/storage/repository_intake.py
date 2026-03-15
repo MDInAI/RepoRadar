@@ -138,6 +138,7 @@ def _insert_repository(
             repository_description=repository.description,
             stargazers_count=repository.stargazers_count,
             forks_count=repository.forks_count,
+            github_created_at=repository.created_at,
             pushed_at=repository.pushed_at,
             discovery_source=discovery_source,
             firehose_discovery_mode=(
@@ -169,6 +170,7 @@ def _refresh_repository_metadata(
             repository_description=repository.description,
             stargazers_count=repository.stargazers_count,
             forks_count=repository.forks_count,
+            github_created_at=repository.created_at,
             pushed_at=repository.pushed_at,
         )
     )

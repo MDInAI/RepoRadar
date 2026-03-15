@@ -12,7 +12,7 @@ import {
   type RepositoryDetailResponse,
 } from "@/api/repositories";
 
-type RepositoryTab = "overview" | "readme" | "analysis" | "history";
+type RepositoryTab = "overview" | "readme" | "analysis" | "related" | "history";
 type RepositoryActionKey = "family-assignment" | "combiner-draft" | "similar-project-scan";
 
 interface RepositoryActionDefinition {
@@ -27,6 +27,7 @@ const TABS: Array<{ key: RepositoryTab; label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "readme", label: "README Intelligence" },
   { key: "analysis", label: "Analyst Output" },
+  { key: "related", label: "Related Repos" },
   { key: "history", label: "History" },
 ];
 
@@ -84,6 +85,23 @@ function formatRelativeDate(value: string | null | undefined): string {
   return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
 }
 
+function renderTimestampStat(
+  value: string | null | undefined,
+  label: string,
+) {
+  return (
+    <div className="repo-hero-stat" style={{ display: "flex", flexDirection: "column" }}>
+      <span className="repo-hero-stat-value" style={{ fontSize: "13px", lineHeight: 1.4 }}>
+        {formatTimestamp(value)}
+      </span>
+      <span className="repo-hero-stat-label">{label}</span>
+      <span style={{ marginTop: "4px", color: "var(--text-3)", fontSize: "11px" }}>
+        {formatRelativeDate(value)}
+      </span>
+    </div>
+  );
+}
+
 function titleCase(value: string): string {
   return value
     .split("_")
@@ -132,6 +150,11 @@ function buildDecisionRows(detail: RepositoryDetailResponse) {
 
 function buildHistoryRows(detail: RepositoryDetailResponse) {
   return [
+    [
+      "Firehose feed",
+      detail.firehose_discovery_mode ? titleCase(detail.firehose_discovery_mode) : "Not firehose",
+    ],
+    ["GitHub created", formatTimestamp(detail.github_created_at)],
     ["Discovered", formatTimestamp(detail.discovered_at)],
     ["Status updated", formatTimestamp(detail.status_updated_at)],
     ["Triage completed", formatTimestamp(detail.triage.triaged_at)],
@@ -149,10 +172,52 @@ function buildCategorySignals(detail: RepositoryDetailResponse): string[] {
   if (detail.discovery_source) {
     signals.add(titleCase(detail.discovery_source));
   }
+  if (detail.firehose_discovery_mode) {
+    signals.add(`${titleCase(detail.firehose_discovery_mode)} feed`);
+  }
   if (detail.analysis_summary?.monetization_potential) {
     signals.add(`${titleCase(detail.analysis_summary.monetization_potential)} fit`);
   }
   return [...signals];
+}
+
+function buildSummaryParagraph(detail: RepositoryDetailResponse): string {
+  if (detail.analysis_summary?.pros?.length) {
+    return detail.analysis_summary.pros.join(" ");
+  }
+  if (detail.repository_description) {
+    return detail.repository_description;
+  }
+  return "Analysis output is not available yet. Once Analyst completes, this card will summarize fit, product signals, and missing commercial gaps.";
+}
+
+function buildEvidenceNotes(detail: RepositoryDetailResponse): string[] {
+  const notes = [
+    ...(detail.analysis_summary?.cons ?? []),
+    ...(detail.analysis_summary?.missing_feature_signals ?? []),
+  ].filter((value) => value.trim().length > 0);
+
+  if (notes.length > 0) {
+    return notes;
+  }
+
+  return ["No risk notes or missing-feature evidence are stored for this repository yet."];
+}
+
+function buildActionReason(detail: RepositoryDetailResponse, action: RepositoryActionDefinition): string {
+  if (action.key === "family-assignment") {
+    return detail.category
+      ? `${titleCase(detail.category)} classification is ready for family placement`
+      : "Analyst fit is ready for operator family curation";
+  }
+  if (action.key === "combiner-draft") {
+    return detail.analysis_summary?.monetization_potential === "high"
+      ? "High-fit analysis is ready for synthesis"
+      : "Use the current dossier summary as Combiner input";
+  }
+  return detail.agent_tags && detail.agent_tags.length > 0
+    ? `Use ${detail.agent_tags.slice(0, 2).join(" + ")} tags as the similarity seed`
+    : "Use repository metadata and README signals as the similarity seed";
 }
 
 export function RepositoryDetailClient({ repositoryId }: { repositoryId: number }) {
@@ -290,7 +355,10 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
   if (detailQuery.isError || !detail) {
     return (
       <main className="repo-detail-page">
-        <section className="card" style={{ borderColor: "rgba(217, 79, 79, 0.28)", background: "var(--red-dim)" }}>
+        <section
+          className="card"
+          style={{ borderColor: "rgba(217, 79, 79, 0.28)", background: "var(--red-dim)" }}
+        >
           <p className="card-label" style={{ color: "var(--red)" }}>
             Dossier Error
           </p>
@@ -308,6 +376,11 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
   }
 
   const failureContext = detail.processing.failure;
+  const evidenceNotes = buildEvidenceNotes(detail);
+  const summaryParagraph = buildSummaryParagraph(detail);
+  const recommendedAction =
+    decisionRows.find((row) => row.label === "Recommended action")?.value ?? "Review dossier";
+  const familyCount = 0;
 
   return (
     <>
@@ -326,15 +399,30 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
             <p style={{ marginTop: "10px", color: "var(--text-2)", maxWidth: "780px", fontSize: "15px" }}>
               {detail.repository_description || "No description is stored for this repository yet."}
             </p>
-            <div className="repo-hero-metrics">
-              <span>{detail.stargazers_count.toLocaleString()} stars</span>
-              <span>{detail.forks_count.toLocaleString()} forks</span>
-              <span>Discovered {formatRelativeDate(detail.discovered_at)}</span>
-              <span>Last commit: {formatRelativeDate(detail.pushed_at)}</span>
+            <div className="repo-hero-stats">
+              <div className="repo-hero-stat" style={{ display: "flex", flexDirection: "column" }}>
+                <span className="repo-hero-stat-value">{detail.stargazers_count.toLocaleString()}</span>
+                <span className="repo-hero-stat-label">Stars</span>
+              </div>
+              <div className="repo-hero-stat" style={{ display: "flex", flexDirection: "column" }}>
+                <span className="repo-hero-stat-value">{detail.forks_count.toLocaleString()}</span>
+                <span className="repo-hero-stat-label">Forks</span>
+              </div>
+              {renderTimestampStat(detail.github_created_at, "Created")}
+              {renderTimestampStat(detail.discovered_at, "Discovered")}
+              {renderTimestampStat(detail.pushed_at, "Last Commit")}
             </div>
           </div>
 
           <div className="repo-hero-badges">
+            <a
+              className="btn"
+              href={`https://github.com/${detail.owner_login}/${detail.repository_name}`}
+              rel="noreferrer"
+              target="_blank"
+            >
+              ↗ Open on GitHub
+            </a>
             <button
               aria-label={detail.is_starred ? "Unstar repository" : "Star repository"}
               className={`btn ${detail.is_starred ? "btn-primary" : ""}`}
@@ -361,7 +449,7 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
               type="button"
               onClick={() => setActiveTab(tab.key)}
             >
-              {tab.label}
+              <span className="repo-tab-label">{tab.label}</span>
             </button>
           ))}
         </div>
@@ -383,28 +471,69 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                       </span>
                     ) : null}
                   </div>
-                  <p style={{ color: "var(--text-1)", fontSize: "15px", lineHeight: 1.7 }}>
-                    {detail.analysis_summary?.pros?.length
-                      ? detail.analysis_summary.pros.join(" ")
-                      : "Analysis output is not available yet. Once Analyst completes, this card will summarize fit, product signals, and gaps."}
-                  </p>
+                  <p className="repo-summary-copy">{summaryParagraph}</p>
+                  <div className="repo-insight-grid">
+                    <div className="repo-inline-card">
+                      <p className="card-label">Discovery Route</p>
+                      <p className="repo-inline-card-value">{titleCase(detail.discovery_source)}</p>
+                    </div>
+                    <div className="repo-inline-card">
+                      <p className="card-label">Triage</p>
+                      <p className="repo-inline-card-value">{titleCase(detail.triage_status)}</p>
+                    </div>
+                    <div className="repo-inline-card">
+                      <p className="card-label">Analysis</p>
+                      <p className="repo-inline-card-value">{titleCase(detail.analysis_status)}</p>
+                    </div>
+                  </div>
                 </section>
 
-                <section className="card">
-                  <div className="card-header">
-                    <h2 className="card-title" style={{ fontSize: "18px" }}>
-                      Decision Summary
-                    </h2>
-                  </div>
-                  <div className="repo-key-value-list">
-                    {decisionRows.map((row) => (
-                      <div key={row.label} className="repo-key-value-row">
-                        <span className="card-label">{row.label}</span>
-                        <span>{row.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
+                <div className="repo-paired-grid">
+                  <section className="card">
+                    <div className="card-header">
+                      <h2 className="card-title" style={{ fontSize: "18px" }}>
+                        Decision Summary
+                      </h2>
+                    </div>
+                    <div className="repo-key-value-list">
+                      {decisionRows.map((row) => (
+                        <div key={row.label} className="repo-key-value-row">
+                          <span className="card-label">{row.label}</span>
+                          <span>{row.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="card">
+                    <div className="card-header">
+                      <h2 className="card-title" style={{ fontSize: "18px" }}>
+                        Triage Context
+                      </h2>
+                    </div>
+                    <div className="repo-note-list">
+                      <p>
+                        Status: <strong>{titleCase(detail.triage_status)}</strong>
+                      </p>
+                      <p>
+                        {detail.triage.explanation?.summary ??
+                          "No triage explanation has been stored yet."}
+                      </p>
+                      <p>
+                        Include rules:{" "}
+                        {detail.triage.explanation?.matched_include_rules?.length
+                          ? detail.triage.explanation.matched_include_rules.join(", ")
+                          : "None"}
+                      </p>
+                      <p>
+                        Exclude rules:{" "}
+                        {detail.triage.explanation?.matched_exclude_rules?.length
+                          ? detail.triage.explanation.matched_exclude_rules.join(", ")
+                          : "None"}
+                      </p>
+                    </div>
+                  </section>
+                </div>
 
                 <section className="card">
                   <div className="card-header">
@@ -416,11 +545,8 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                     </button>
                   </div>
                   <div className="repo-note-list">
-                    {(detail.analysis_summary?.cons ?? ["No risk notes are stored yet."]).map((note) => (
+                    {evidenceNotes.map((note) => (
                       <p key={note}>{note}</p>
-                    ))}
-                    {(detail.analysis_summary?.missing_feature_signals ?? []).map((signal) => (
-                      <p key={signal}>{signal}</p>
                     ))}
                   </div>
                 </section>
@@ -520,6 +646,78 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
               </section>
             ) : null}
 
+            {activeTab === "related" ? (
+              <div className="repo-paired-grid">
+                <section className="card">
+                  <div className="card-header">
+                    <div>
+                      <h2 className="card-title" style={{ fontSize: "18px" }}>
+                        Similar Project Scan
+                      </h2>
+                      <p style={{ marginTop: "6px", color: "var(--text-2)" }}>
+                        Seed similarity using the current category, tags, and README themes.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="repo-key-value-list">
+                    <div className="repo-key-value-row">
+                      <span className="card-label">Seed</span>
+                      <span>{detail.repository_name}</span>
+                    </div>
+                    <div className="repo-key-value-row">
+                      <span className="card-label">Basis</span>
+                      <span>
+                        {detail.category ? titleCase(detail.category) : "Repository metadata"} + tags
+                      </span>
+                    </div>
+                    <div className="repo-key-value-row">
+                      <span className="card-label">Depth</span>
+                      <span>Top 20 similar repos</span>
+                    </div>
+                    <div className="repo-key-value-row">
+                      <span className="card-label">Destination</span>
+                      <span>Repositories (filtered)</span>
+                    </div>
+                  </div>
+                  <button
+                    className="btn"
+                    style={{ marginTop: "14px" }}
+                    type="button"
+                    onClick={() => setSelectedAction(ACTIONS[2])}
+                  >
+                    Scan repos similar to {detail.repository_name}
+                  </button>
+                </section>
+
+                <section className="card">
+                  <div className="card-header">
+                    <div>
+                      <h2 className="card-title" style={{ fontSize: "18px" }}>
+                        Family Links
+                      </h2>
+                      <p style={{ marginTop: "6px", color: "var(--text-2)" }}>
+                        Track whether this dossier is already tied to an ideas family.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="repo-key-value-list">
+                    <div className="repo-key-value-row">
+                      <span className="card-label">Linked families</span>
+                      <span>{familyCount > 0 ? familyCount.toString() : "None yet"}</span>
+                    </div>
+                    <div className="repo-key-value-row">
+                      <span className="card-label">Recommended action</span>
+                      <span>{recommendedAction}</span>
+                    </div>
+                    <div className="repo-key-value-row">
+                      <span className="card-label">User curation</span>
+                      <span>{detail.user_tags.length > 0 ? detail.user_tags.join(", ") : "No user tags"}</span>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            ) : null}
+
             {activeTab === "history" ? (
               <section className="card">
                 <div className="card-header">
@@ -534,7 +732,10 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                 </div>
 
                 {failureContext ? (
-                  <div className="card" style={{ padding: "14px", borderColor: "rgba(217, 79, 79, 0.28)", background: "var(--red-dim)" }}>
+                  <div
+                    className="card"
+                    style={{ padding: "14px", borderColor: "rgba(217, 79, 79, 0.28)", background: "var(--red-dim)" }}
+                  >
                     <p className="card-label" style={{ color: "var(--red)" }}>
                       Active failure context
                     </p>
@@ -549,7 +750,10 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                     </p>
                   </div>
                 ) : (
-                  <div className="card" style={{ padding: "14px", borderColor: "rgba(61, 186, 106, 0.24)", background: "var(--green-dim)" }}>
+                  <div
+                    className="card"
+                    style={{ padding: "14px", borderColor: "rgba(61, 186, 106, 0.24)", background: "var(--green-dim)" }}
+                  >
                     <p className="card-label" style={{ color: "var(--green)" }}>
                       Operational state
                     </p>
@@ -583,7 +787,10 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
               </div>
 
               {curationError ? (
-                <p className="card" style={{ padding: "12px", marginBottom: "12px", borderColor: "rgba(217, 79, 79, 0.28)", background: "var(--red-dim)" }}>
+                <p
+                  className="card"
+                  style={{ padding: "12px", marginBottom: "12px", borderColor: "rgba(217, 79, 79, 0.28)", background: "var(--red-dim)" }}
+                >
                   {curationError}
                 </p>
               ) : null}
@@ -647,32 +854,27 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
               </div>
             </section>
 
-            {ACTIONS.map((action) => (
-              <section key={action.key} className="card">
-                <div className="card-header">
-                  <h2 className="card-title" style={{ fontSize: "18px" }}>
-                    {action.title}
-                  </h2>
-                </div>
-                <div className="repo-key-value-list">
-                  <div className="repo-key-value-row">
-                    <span className="card-label">Object</span>
-                    <span>{detail.repository_name}</span>
-                  </div>
-                  <div className="repo-key-value-row">
-                    <span className="card-label">Destination</span>
-                    <span>{action.destination}</span>
-                  </div>
-                  <div className="repo-key-value-row">
-                    <span className="card-label">Result</span>
-                    <span>{action.expectedResult}</span>
-                  </div>
-                </div>
-                <button className="btn btn-primary" style={{ marginTop: "14px", width: "100%" }} type="button" onClick={() => setSelectedAction(action)}>
-                  {action.buttonLabel}
-                </button>
-              </section>
-            ))}
+            <section className="card">
+              <div className="card-header">
+                <h2 className="card-title" style={{ fontSize: "18px" }}>
+                  Action Launcher
+                </h2>
+              </div>
+              <div className="repo-rail-actions">
+                {ACTIONS.map((action) => (
+                  <button
+                    aria-label={action.buttonLabel}
+                    key={action.key}
+                    className={`repo-action-card ${selectedAction?.key === action.key ? "active" : ""}`}
+                    type="button"
+                    onClick={() => setSelectedAction(action)}
+                  >
+                    <span className="repo-action-title">{action.title}</span>
+                    <span className="repo-action-meta">{buildActionReason(detail, action)}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
 
             <section className="card">
               <div className="card-header">
@@ -681,25 +883,60 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                 </h2>
               </div>
               {selectedAction ? (
-                <div className="repo-key-value-list">
-                  <div className="repo-key-value-row">
-                    <span className="card-label">Selected</span>
-                    <span>{selectedAction.title}</span>
+                <>
+                  <div className="repo-key-value-list">
+                    <div className="repo-key-value-row">
+                      <span className="card-label">Selected</span>
+                      <span>{selectedAction.title}</span>
+                    </div>
+                    <div className="repo-key-value-row">
+                      <span className="card-label">Reason</span>
+                      <span>{buildActionReason(detail, selectedAction)}</span>
+                    </div>
+                    <div className="repo-key-value-row">
+                      <span className="card-label">Destination</span>
+                      <span>{selectedAction.destination}</span>
+                    </div>
+                    <div className="repo-key-value-row">
+                      <span className="card-label">Expected Result</span>
+                      <span>{selectedAction.expectedResult}</span>
+                    </div>
                   </div>
-                  <div className="repo-key-value-row">
-                    <span className="card-label">Destination</span>
-                    <span>{selectedAction.destination}</span>
-                  </div>
-                  <div className="repo-key-value-row">
-                    <span className="card-label">Expected Result</span>
-                    <span>{selectedAction.expectedResult}</span>
-                  </div>
-                </div>
+                  <button className="btn btn-primary" style={{ marginTop: "14px", width: "100%" }} type="button">
+                    {selectedAction.buttonLabel}
+                  </button>
+                </>
               ) : (
                 <p style={{ color: "var(--text-2)" }}>
                   Choose an action from the rail to preview what the next workflow will do.
                 </p>
               )}
+            </section>
+
+            <section className="card">
+              <div className="card-header">
+                <h2 className="card-title" style={{ fontSize: "18px" }}>
+                  Processing Monitor
+                </h2>
+              </div>
+              <div className="repo-key-value-list">
+                <div className="repo-key-value-row">
+                  <span className="card-label">Intake</span>
+                  <span>{titleCase(detail.intake_status)}</span>
+                </div>
+                <div className="repo-key-value-row">
+                  <span className="card-label">Triage</span>
+                  <span>{titleCase(detail.triage_status)}</span>
+                </div>
+                <div className="repo-key-value-row">
+                  <span className="card-label">Analysis</span>
+                  <span>{titleCase(detail.analysis_status)}</span>
+                </div>
+                <div className="repo-key-value-row">
+                  <span className="card-label">Last Updated</span>
+                  <span>{formatTimestamp(detail.status_updated_at)}</span>
+                </div>
+              </div>
             </section>
           </aside>
         </div>

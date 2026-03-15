@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -11,7 +12,10 @@ from app.schemas.settings import (
     ConfigurationValidationIssue,
     MaskedSettingSummary,
 )
-from app.services.settings.common import _calculate_effective_backfill_interval
+from app.services.settings.common import (
+    _calculate_effective_backfill_interval,
+    _calculate_effective_firehose_interval,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +28,16 @@ class WorkerSettingsProjection:
     github_provider_token_configured: bool
     github_requests_per_minute: int
     intake_pacing_seconds: int
+    firehose_interval_seconds: int
+    firehose_per_page: int
     firehose_pages: int
     backfill_interval_seconds: int
     backfill_per_page: int
     backfill_pages: int
     backfill_window_days: int
     backfill_min_created_date: date
+    bouncer_include_rules: tuple[str, ...]
+    bouncer_exclude_rules: tuple[str, ...]
     source: str
     overrides_loaded: bool
 
@@ -186,6 +194,39 @@ def _date_override(
     return parsed
 
 
+def _tuple_override(
+    overrides: dict[str, str],
+    key: str,
+    fallback: tuple[str, ...],
+    *,
+    applied_override_keys: set[str],
+) -> tuple[str, ...]:
+    raw_value = overrides.get(key)
+    if raw_value is None or key in os.environ:
+        return fallback
+
+    candidate = raw_value.strip()
+    if not candidate:
+        logger.debug("Worker override applied: %s=<empty>", key)
+        applied_override_keys.add(key)
+        return ()
+
+    if candidate.startswith("["):
+        try:
+            parsed = json.loads(candidate)
+            normalized = tuple(str(part).strip() for part in parsed if str(part).strip())
+            logger.debug("Worker override applied: %s=%s", key, normalized)
+            applied_override_keys.add(key)
+            return normalized
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    normalized = tuple(part.strip() for part in candidate.split(",") if part.strip())
+    logger.debug("Worker override applied: %s=%s", key, normalized)
+    applied_override_keys.add(key)
+    return normalized
+
+
 def _process_env_int(key: str, *, default: int) -> int:
     import os as _os
 
@@ -322,6 +363,30 @@ def _detect_worker_drift(
             "Worker intake pacing interval differs from the backend process view.",
         ),
         (
+            "workers.FIREHOSE_INTERVAL_SECONDS",
+            "agentic-workflow",
+            str(worker.firehose_interval_seconds),
+            str(app_settings.FIREHOSE_INTERVAL_SECONDS),
+            "worker_firehose_interval_seconds_differs",
+            "Worker firehose interval differs from the backend process view.",
+        ),
+        (
+            "workers.FIREHOSE_PER_PAGE",
+            "agentic-workflow",
+            str(worker.firehose_per_page),
+            str(app_settings.FIREHOSE_PER_PAGE),
+            "worker_firehose_per_page_differs",
+            "Worker firehose page size differs from the backend process view.",
+        ),
+        (
+            "workers.FIREHOSE_PAGES",
+            "agentic-workflow",
+            str(worker.firehose_pages),
+            str(app_settings.FIREHOSE_PAGES),
+            "worker_firehose_pages_differs",
+            "Worker firehose pages-per-mode differs from the backend process view.",
+        ),
+        (
             "workers.BACKFILL_INTERVAL_SECONDS",
             "agentic-workflow",
             str(worker.backfill_interval_seconds),
@@ -435,6 +500,20 @@ def build_worker_projection(
         issues=issues,
         applied_override_keys=applied_override_keys,
     )
+    firehose_interval_seconds = _int_override(
+        overrides,
+        "FIREHOSE_INTERVAL_SECONDS",
+        app_settings.FIREHOSE_INTERVAL_SECONDS,
+        issues=issues,
+        applied_override_keys=applied_override_keys,
+    )
+    firehose_per_page = _int_override(
+        overrides,
+        "FIREHOSE_PER_PAGE",
+        app_settings.FIREHOSE_PER_PAGE,
+        issues=issues,
+        applied_override_keys=applied_override_keys,
+    )
     firehose_pages = _int_override(
         overrides,
         "FIREHOSE_PAGES",
@@ -477,6 +556,18 @@ def build_worker_projection(
         issues=issues,
         applied_override_keys=applied_override_keys,
     )
+    bouncer_include_rules = _tuple_override(
+        overrides,
+        "BOUNCER_INCLUDE_RULES",
+        app_settings.BOUNCER_INCLUDE_RULES,
+        applied_override_keys=applied_override_keys,
+    )
+    bouncer_exclude_rules = _tuple_override(
+        overrides,
+        "BOUNCER_EXCLUDE_RULES",
+        app_settings.BOUNCER_EXCLUDE_RULES,
+        applied_override_keys=applied_override_keys,
+    )
     source = "workers-env" if applied_override_keys else "shared-project-env"
 
     projection = WorkerSettingsProjection(
@@ -486,12 +577,16 @@ def build_worker_projection(
         github_provider_token_configured=bool(github_token),
         github_requests_per_minute=requests_per_minute,
         intake_pacing_seconds=intake_pacing_seconds,
+        firehose_interval_seconds=firehose_interval_seconds,
+        firehose_per_page=firehose_per_page,
         firehose_pages=firehose_pages,
         backfill_interval_seconds=backfill_interval_seconds,
         backfill_per_page=backfill_per_page,
         backfill_pages=backfill_pages,
         backfill_window_days=backfill_window_days,
         backfill_min_created_date=backfill_min_created_date,
+        bouncer_include_rules=bouncer_include_rules,
+        bouncer_exclude_rules=bouncer_exclude_rules,
         source=source,
         overrides_loaded=bool(applied_override_keys),
     )
@@ -518,6 +613,13 @@ def worker_setting_summaries(
     )
     workspace_value = str(worker.workspace_dir) if worker.workspace_dir else None
 
+    worker_effective_firehose_interval = _calculate_effective_firehose_interval(
+        worker.firehose_interval_seconds,
+        worker.github_requests_per_minute,
+        worker.intake_pacing_seconds,
+        worker.firehose_pages,
+        worker.backfill_pages,
+    )
     worker_effective_backfill_interval = _calculate_effective_backfill_interval(
         worker.backfill_interval_seconds,
         worker.github_requests_per_minute,
@@ -526,6 +628,12 @@ def worker_setting_summaries(
         worker.backfill_pages,
     )
 
+    if worker_effective_firehose_interval != worker.firehose_interval_seconds:
+        logger.warning(
+            "Worker firehose interval clamped: configured=%ds, effective=%ds",
+            worker.firehose_interval_seconds,
+            worker_effective_firehose_interval,
+        )
     if worker_effective_backfill_interval != worker.backfill_interval_seconds:
         logger.warning(
             "Worker backfill interval clamped: configured=%ds, effective=%ds",
@@ -602,6 +710,39 @@ def worker_setting_summaries(
             notes=[source_notes],
         ),
         MaskedSettingSummary(
+            key="workers.FIREHOSE_INTERVAL_SECONDS",
+            label="Worker firehose interval",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=True,
+            required=True,
+            value=str(worker_effective_firehose_interval),
+            notes=[
+                source_notes,
+                f"Configured: {worker.firehose_interval_seconds}s, Effective (clamped by budget): {worker_effective_firehose_interval}s",
+            ],
+        ),
+        MaskedSettingSummary(
+            key="workers.FIREHOSE_PER_PAGE",
+            label="Worker firehose page size",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=True,
+            required=True,
+            value=str(worker.firehose_per_page),
+            notes=[source_notes],
+        ),
+        MaskedSettingSummary(
+            key="workers.FIREHOSE_PAGES",
+            label="Worker firehose pages per mode",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=True,
+            required=True,
+            value=str(worker.firehose_pages),
+            notes=[source_notes],
+        ),
+        MaskedSettingSummary(
             key="workers.BACKFILL_INTERVAL_SECONDS",
             label="Worker backfill interval",
             owner="agentic-workflow",
@@ -652,6 +793,26 @@ def worker_setting_summaries(
             configured=True,
             required=True,
             value=worker.backfill_min_created_date.isoformat(),
+            notes=[source_notes],
+        ),
+        MaskedSettingSummary(
+            key="workers.BOUNCER_INCLUDE_RULES",
+            label="Worker bouncer include rules",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=True,
+            required=False,
+            value=", ".join(worker.bouncer_include_rules) if worker.bouncer_include_rules else "none",
+            notes=[source_notes],
+        ),
+        MaskedSettingSummary(
+            key="workers.BOUNCER_EXCLUDE_RULES",
+            label="Worker bouncer exclude rules",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=True,
+            required=False,
+            value=", ".join(worker.bouncer_exclude_rules) if worker.bouncer_exclude_rules else "none",
             notes=[source_notes],
         ),
     ]

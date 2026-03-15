@@ -1,0 +1,72 @@
+{
+  "checkpoint": {
+    "active_mode": null,
+    "anchors": {
+      "new": null,
+      "trending": null
+    },
+    "last_checkpointed_at": "2026-03-15T10:47:33.772182+00:00",
+    "next_page": 1,
+    "pages_processed_in_run": 0,
+    "resume_required": false,
+    "run_started_at": null
+  },
+  "generated_at": "2026-03-15T10:47:33.774857+00:00",
+  "outcomes": [
+    {
+      "anchor_date": "2026-03-14",
+      "error": null,
+      "fetched_count": 100,
+      "inserted_count": 25,
+      "mode": "new",
+      "page": 1,
+      "skipped_count": 75
+    },
+    {
+      "anchor_date": "2026-03-14",
+      "error": null,
+      "fetched_count": 100,
+      "inserted_count": 27,
+      "mode": "new",
+      "page": 2,
+      "skipped_count": 73
+    },
+    {
+      "anchor_date": "2026-03-14",
+      "error": null,
+      "fetched_count": 100,
+      "inserted_count": 39,
+      "mode": "new",
+      "page": 3,
+      "skipped_count": 61
+    },
+    {
+      "anchor_date": "2026-03-08",
+      "error": null,
+      "fetched_count": 100,
+      "inserted_count": 0,
+      "mode": "trending",
+      "page": 1,
+      "skipped_count": 100
+    },
+    {
+      "anchor_date": "2026-03-08",
+      "error": null,
+      "fetched_count": 100,
+      "inserted_count": 0,
+      "mode": "trending",
+      "page": 2,
+      "skipped_count": 100
+    },
+    {
+      "anchor_date": "2026-03-08",
+      "error": null,
+      "fetched_count": 100,
+      "inserted_count": 3,
+      "mode": "trending",
+      "page": 3,
+      "skipped_count": 97
+    }
+  ],
+  "status": "success"
+}

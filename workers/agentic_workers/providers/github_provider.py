@@ -311,23 +311,24 @@ class GitHubFirehoseProvider:
         if window_start_date >= created_before_boundary:
             raise ValueError("window_start_date must be before created_before_boundary")
 
-        operator = "<"
-        upper_bound = datetime.combine(
-            created_before_boundary,
-            time.min,
-            tzinfo=timezone.utc,
-        )
+        window_end_date = created_before_boundary - timedelta(days=1)
         if created_before_cursor is not None:
-            operator = "<="
-            upper_bound = created_before_cursor
+            query = (
+                f"created:>={window_start_date:%Y-%m-%d} "
+                f"created:<={_format_github_timestamp(created_before_cursor)} "
+                "archived:false is:public"
+            )
+        else:
+            # GitHub repository search is more reliable with a single created range than
+            # separate lower/upper created qualifiers for fresh window scans.
+            query = (
+                f"created:{window_start_date:%Y-%m-%d}..{window_end_date:%Y-%m-%d} "
+                "archived:false is:public"
+            )
         return {
             "page": str(page),
             "per_page": str(self._clamp_per_page(per_page, setting_name="BACKFILL_PER_PAGE")),
-            "q": (
-                f"created:>={window_start_date:%Y-%m-%d} "
-                f"created:{operator}{_format_github_timestamp(upper_bound)} "
-                "archived:false is:public"
-            ),
+            "q": query,
             "sort": "created",
             "order": "desc",
         }

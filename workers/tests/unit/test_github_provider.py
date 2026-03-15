@@ -259,7 +259,7 @@ def test_provider_builds_backfill_query_with_created_window_and_backfill_headers
     assert call["params"] == {
         "page": "2",
         "per_page": "75",
-        "q": "created:>=2026-02-01 created:<2026-03-01T00:00:00Z archived:false is:public",
+        "q": "created:2026-02-01..2026-02-28 archived:false is:public",
         "sort": "created",
         "order": "desc",
     }

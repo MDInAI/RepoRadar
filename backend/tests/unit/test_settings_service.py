@@ -46,7 +46,7 @@ def test_settings_service_returns_masked_configuration_summary(tmp_path: Path) -
         INTAKE_PACING_SECONDS=20,
     )
 
-    response = SettingsService(app_settings=app_settings).get_settings_summary()
+    response = SettingsService(app_settings=app_settings, project_root=tmp_path).get_settings_summary()
 
     assert response.contract_version == "1.0.0"
     assert response.validation.valid is True
@@ -65,6 +65,9 @@ def test_settings_service_returns_masked_configuration_summary(tmp_path: Path) -
     provider_token = next(
         item for item in response.project_settings if item.key == "GITHUB_PROVIDER_TOKEN"
     )
+    firehose_interval = next(
+        item for item in response.project_settings if item.key == "FIREHOSE_INTERVAL_SECONDS"
+    )
     backfill_interval = next(
         item for item in response.project_settings if item.key == "BACKFILL_INTERVAL_SECONDS"
     )
@@ -77,6 +80,7 @@ def test_settings_service_returns_masked_configuration_summary(tmp_path: Path) -
     assert gateway_token.secret is True
     assert provider_token.value == "configured"
     assert provider_token.secret is True
+    assert firehose_interval.value == "3600"
     assert backfill_interval.value == "21600"
     assert worker_backfill_window.value == "30"
     assert all(item.source == "shared-project-env" for item in response.worker_settings)
@@ -106,6 +110,7 @@ def test_settings_service_clamps_backfill_interval_with_effective_worker_inputs(
             [
                 "GITHUB_REQUESTS_PER_MINUTE=20",
                 "INTAKE_PACING_SECONDS=1",
+                "FIREHOSE_INTERVAL_SECONDS=2",
                 "FIREHOSE_PAGES=5",
                 "BACKFILL_INTERVAL_SECONDS=2",
                 "BACKFILL_PAGES=2",
@@ -121,6 +126,7 @@ def test_settings_service_clamps_backfill_interval_with_effective_worker_inputs(
             OPENCLAW_WORKSPACE_DIR=workspace_dir,
             GITHUB_REQUESTS_PER_MINUTE=20,
             INTAKE_PACING_SECONDS=1,
+            FIREHOSE_INTERVAL_SECONDS=2,
             BACKFILL_INTERVAL_SECONDS=2,
             BACKFILL_PAGES=2,
         ),
@@ -130,13 +136,23 @@ def test_settings_service_clamps_backfill_interval_with_effective_worker_inputs(
     project_backfill_interval = next(
         item for item in response.project_settings if item.key == "BACKFILL_INTERVAL_SECONDS"
     )
+    project_firehose_interval = next(
+        item for item in response.project_settings if item.key == "FIREHOSE_INTERVAL_SECONDS"
+    )
     worker_backfill_interval = next(
         item for item in response.worker_settings if item.key == "workers.BACKFILL_INTERVAL_SECONDS"
     )
+    worker_firehose_interval = next(
+        item for item in response.worker_settings if item.key == "workers.FIREHOSE_INTERVAL_SECONDS"
+    )
 
+    assert project_firehose_interval.value == "36"
     assert project_backfill_interval.value == "36"
+    assert worker_firehose_interval.value == "36"
     assert worker_backfill_interval.value == "36"
+    assert "Configured: 2s, Effective (clamped by budget): 36s" in project_firehose_interval.notes
     assert "Configured: 2s, Effective (clamped by budget): 36s" in project_backfill_interval.notes
+    assert "Configured: 2s, Effective (clamped by budget): 36s" in worker_firehose_interval.notes
     assert "Configured: 2s, Effective (clamped by budget): 36s" in worker_backfill_interval.notes
 
 
@@ -186,7 +202,7 @@ def test_settings_service_accepts_json5_style_openclaw_config(tmp_path: Path) ->
     assert app_settings.OPENCLAW_WORKSPACE_DIR is not None
     app_settings.OPENCLAW_WORKSPACE_DIR.mkdir()
 
-    response = SettingsService(app_settings=app_settings).get_settings_summary()
+    response = SettingsService(app_settings=app_settings, project_root=tmp_path).get_settings_summary()
 
     default_model = next(
         item for item in response.openclaw_settings if item.key == "agents.defaults.model"
@@ -206,7 +222,7 @@ def test_settings_service_raises_validation_error_for_missing_openclaw_config(
     )
 
     with pytest.raises(AppError) as exc_info:
-        SettingsService(app_settings=app_settings).get_settings_summary()
+        SettingsService(app_settings=app_settings, project_root=tmp_path).get_settings_summary()
 
     assert exc_info.value.code == "settings_validation_failed"
     assert exc_info.value.status_code == 422
@@ -235,7 +251,7 @@ def test_settings_service_reuses_gateway_url_validation_for_openclaw_config(
     )
 
     with pytest.raises(AppError) as exc_info:
-        SettingsService(app_settings=app_settings).get_settings_summary()
+        SettingsService(app_settings=app_settings, project_root=tmp_path).get_settings_summary()
 
     assert exc_info.value.code == "gateway_url_scheme_invalid"
     assert exc_info.value.status_code == 422
@@ -260,7 +276,8 @@ def test_settings_service_rejects_blank_project_owned_runtime_settings(tmp_path:
                 DATABASE_URL="   ",
                 OPENCLAW_CONFIG_PATH=config_path,
                 OPENCLAW_WORKSPACE_DIR=workspace_dir,
-            )
+            ),
+            project_root=tmp_path,
         ).get_settings_summary()
 
     assert exc_info.value.code == "settings_validation_failed"
@@ -290,7 +307,8 @@ def test_settings_service_rejects_blank_project_runtime_dir(tmp_path: Path) -> N
                 OPENCLAW_CONFIG_PATH=config_path,
                 OPENCLAW_WORKSPACE_DIR=workspace_dir,
                 AGENTIC_RUNTIME_DIR="   ",
-            )
+            ),
+            project_root=tmp_path,
         ).get_settings_summary()
 
     assert exc_info.value.code == "settings_validation_failed"
@@ -317,7 +335,8 @@ def test_settings_service_rejects_missing_workspace_dir(tmp_path: Path) -> None:
             app_settings=Settings(
                 OPENCLAW_CONFIG_PATH=config_path,
                 OPENCLAW_WORKSPACE_DIR=None,
-            )
+            ),
+            project_root=tmp_path,
         ).get_settings_summary()
 
     assert exc_info.value.code == "settings_validation_failed"
@@ -344,7 +363,8 @@ def test_settings_service_rejects_nonexistent_workspace_dir(tmp_path: Path) -> N
             app_settings=Settings(
                 OPENCLAW_CONFIG_PATH=config_path,
                 OPENCLAW_WORKSPACE_DIR=tmp_path / "missing-workspace",
-            )
+            ),
+            project_root=tmp_path,
         ).get_settings_summary()
 
     assert exc_info.value.code == "settings_validation_failed"
@@ -379,6 +399,9 @@ def test_settings_service_surfaces_worker_drift_warnings(tmp_path: Path) -> None
                 "GITHUB_PROVIDER_TOKEN=worker-provider-token",
                 "GITHUB_REQUESTS_PER_MINUTE=25",
                 "INTAKE_PACING_SECONDS=15",
+                "FIREHOSE_INTERVAL_SECONDS=900",
+                "FIREHOSE_PER_PAGE=40",
+                "FIREHOSE_PAGES=4",
                 "BACKFILL_INTERVAL_SECONDS=7200",
                 "BACKFILL_PER_PAGE=40",
                 "BACKFILL_PAGES=3",
@@ -393,6 +416,9 @@ def test_settings_service_surfaces_worker_drift_warnings(tmp_path: Path) -> None
         app_settings=Settings(
             OPENCLAW_CONFIG_PATH=config_path,
             OPENCLAW_WORKSPACE_DIR=backend_workspace,
+            GITHUB_PROVIDER_TOKEN="",
+            GITHUB_REQUESTS_PER_MINUTE=60,
+            INTAKE_PACING_SECONDS=30,
         ),
         project_root=tmp_path,
     ).get_settings_summary()
@@ -410,6 +436,16 @@ def test_settings_service_surfaces_worker_drift_warnings(tmp_path: Path) -> None
         issue.code == "worker_intake_pacing_seconds_differs" for issue in response.validation.issues
     )
     assert any(
+        issue.code == "worker_firehose_interval_seconds_differs"
+        for issue in response.validation.issues
+    )
+    assert any(
+        issue.code == "worker_firehose_per_page_differs" for issue in response.validation.issues
+    )
+    assert any(
+        issue.code == "worker_firehose_pages_differs" for issue in response.validation.issues
+    )
+    assert any(
         issue.code == "worker_backfill_interval_seconds_differs"
         for issue in response.validation.issues
     )
@@ -421,6 +457,10 @@ def test_settings_service_surfaces_worker_drift_warnings(tmp_path: Path) -> None
         item.key == "workers.OPENCLAW_WORKSPACE_DIR"
         and item.source == "workers-env"
         and item.value == str(worker_workspace)
+        for item in response.worker_settings
+    )
+    assert any(
+        item.key == "workers.FIREHOSE_PAGES" and item.value == "4"
         for item in response.worker_settings
     )
     assert any(
@@ -509,7 +549,7 @@ def test_settings_service_rejects_invalid_gateway_port_from_openclaw_config(
     )
 
     with pytest.raises(AppError) as exc_info:
-        SettingsService(app_settings=app_settings).get_settings_summary()
+        SettingsService(app_settings=app_settings, project_root=tmp_path).get_settings_summary()
 
     assert exc_info.value.code == "gateway_url_port_invalid"
     assert exc_info.value.status_code == 422
@@ -623,7 +663,8 @@ def test_settings_service_raises_validation_error_for_unreadable_openclaw_config
             app_settings=Settings(
                 OPENCLAW_CONFIG_PATH=config_path,
                 OPENCLAW_WORKSPACE_DIR=workspace_dir,
-            )
+            ),
+            project_root=tmp_path,
         ).get_settings_summary()
 
     assert exc_info.value.code == "settings_validation_failed"

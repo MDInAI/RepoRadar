@@ -16,6 +16,7 @@ from app.models import (
     RepositoryArtifactKind,
     RepositoryCategory,
     RepositoryDiscoverySource,
+    RepositoryFirehoseMode,
     RepositoryIntake,
     RepositoryQueueStatus,
     RepositoryUserCuration,
@@ -77,11 +78,13 @@ class RepositoryExplorationRecord:
     full_name: str
     repository_description: str | None
     discovery_source: RepositoryDiscoverySource
+    firehose_discovery_mode: RepositoryFirehoseMode | None
     intake_status: RepositoryQueueStatus
     triage_status: RepositoryTriageStatus
     analysis_status: RepositoryAnalysisStatus
     stargazers_count: int
     forks_count: int
+    github_created_at: datetime | None
     discovered_at: datetime
     status_updated_at: datetime
     pushed_at: datetime | None
@@ -129,6 +132,7 @@ class RepositoryCatalogItemRecord:
     forks_count: int
     pushed_at: datetime | None
     discovery_source: RepositoryDiscoverySource
+    firehose_discovery_mode: RepositoryFirehoseMode | None
     intake_status: RepositoryQueueStatus
     triage_status: RepositoryTriageStatus
     analysis_status: RepositoryAnalysisStatus
@@ -267,16 +271,22 @@ class RepositoryExplorationRepository:
             full_name=intake.full_name,
             repository_description=intake.repository_description,
             discovery_source=intake.discovery_source,
+            firehose_discovery_mode=intake.firehose_discovery_mode,
             intake_status=intake.queue_status,
             triage_status=intake.triage_status,
             analysis_status=intake.analysis_status,
             stargazers_count=intake.stargazers_count,
             forks_count=intake.forks_count,
+            github_created_at=intake.github_created_at,
             discovered_at=intake.discovered_at,
             status_updated_at=intake.status_updated_at,
             pushed_at=intake.pushed_at,
             category=analysis_row.category if analysis_row is not None else None,
-            agent_tags=list(analysis_row.agent_tags) if analysis_row is not None else [],
+            agent_tags=self._build_agent_tags(
+                analysis_row.agent_tags if analysis_row is not None else [],
+                discovery_source=intake.discovery_source,
+                firehose_discovery_mode=intake.firehose_discovery_mode,
+            ),
             triage=RepositoryTriageRecord(
                 triage_status=intake.triage_status,
                 triaged_at=intake.triaged_at,
@@ -336,15 +346,24 @@ class RepositoryExplorationRepository:
         if params.category is not None:
             filters.append(RepositoryAnalysisResult.category == params.category)
         if params.agent_tag:
+            normalized_agent_tag = params.agent_tag.strip().lower()
             escaped_agent_tag = (
-                params.agent_tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                normalized_agent_tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             )
-            filters.append(
-                RepositoryAnalysisResult.agent_tags.like(
-                    f'%"{escaped_agent_tag}"%',
-                    escape="\\",
+            agent_tag_filter = RepositoryAnalysisResult.agent_tags.like(
+                f'%"{escaped_agent_tag}"%',
+                escape="\\",
+            )
+            if normalized_agent_tag in {
+                RepositoryFirehoseMode.NEW.value,
+                RepositoryFirehoseMode.TRENDING.value,
+            }:
+                agent_tag_filter = or_(
+                    agent_tag_filter,
+                    RepositoryIntake.firehose_discovery_mode
+                    == RepositoryFirehoseMode(normalized_agent_tag),
                 )
-            )
+            filters.append(agent_tag_filter)
         if params.monetization_potential is not None:
             filters.append(
                 RepositoryAnalysisResult.monetization_potential == params.monetization_potential
@@ -442,6 +461,7 @@ class RepositoryExplorationRepository:
                 RepositoryIntake.forks_count,
                 RepositoryIntake.pushed_at,
                 RepositoryIntake.discovery_source,
+                RepositoryIntake.firehose_discovery_mode,
                 RepositoryIntake.queue_status,
                 RepositoryIntake.triage_status,
                 RepositoryIntake.analysis_status,
@@ -510,6 +530,7 @@ class RepositoryExplorationRepository:
                 forks_count=row.forks_count,
                 pushed_at=row.pushed_at,
                 discovery_source=row.discovery_source,
+                firehose_discovery_mode=row.firehose_discovery_mode,
                 intake_status=row.queue_status,
                 triage_status=row.triage_status,
                 analysis_status=row.analysis_status,
@@ -532,7 +553,11 @@ class RepositoryExplorationRepository:
                     analysis_failed_at=row.analysis_failed_at,
                 ),
                 category=row.category,
-                agent_tags=list(row.agent_tags or []),
+                agent_tags=self._build_agent_tags(
+                    row.agent_tags or [],
+                    discovery_source=row.discovery_source,
+                    firehose_discovery_mode=row.firehose_discovery_mode,
+                ),
                 monetization_potential=row.monetization_potential,
                 has_readme_artifact=bool(row.has_readme_artifact),
                 has_analysis_artifact=bool(row.has_analysis_artifact),
@@ -660,3 +685,22 @@ class RepositoryExplorationRepository:
             )
 
         return None
+
+    @staticmethod
+    def _build_agent_tags(
+        analysis_tags: list[str] | tuple[str, ...] | None,
+        *,
+        discovery_source: RepositoryDiscoverySource,
+        firehose_discovery_mode: RepositoryFirehoseMode | None,
+    ) -> list[str]:
+        tags = [str(tag) for tag in (analysis_tags or [])]
+        seen = {tag.lower() for tag in tags}
+
+        if (
+            discovery_source is RepositoryDiscoverySource.FIREHOSE
+            and firehose_discovery_mode is not None
+            and firehose_discovery_mode.value not in seen
+        ):
+            tags.insert(0, firehose_discovery_mode.value)
+
+        return tags

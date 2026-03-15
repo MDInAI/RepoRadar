@@ -68,6 +68,13 @@ export interface AgentStatusEntry {
   output_tokens_24h: number;
   has_run: boolean;
   latest_run: AgentRunEvent | null;
+  latest_intake_summary: {
+    fetched: number;
+    inserted: number;
+    skipped: number;
+    duplicates: number;
+    failed_outcomes: number;
+  } | null;
 }
 
 export interface AgentLatestRunsResponse {
@@ -100,6 +107,57 @@ export interface AgentPauseState {
   triggered_by_event_id: number | null;
   resumed_at: string | null;
   resumed_by: string | null;
+}
+
+export interface AgentManualRunTriggerResponse {
+  agent_name: AgentName;
+  accepted: boolean;
+  trigger_mode: string;
+  triggered_at: string;
+  message: string;
+}
+
+export type AgentConfigInputKind = "integer" | "date" | "csv";
+
+export interface AgentConfigField {
+  key: string;
+  label: string;
+  description: string;
+  input_kind: AgentConfigInputKind;
+  value: string;
+  unit: string | null;
+  min_value: number | null;
+  placeholder: string | null;
+}
+
+export interface AgentConfigResponse {
+  agent_name: AgentName;
+  display_name: string;
+  editable: boolean;
+  summary: string;
+  apply_notes: string[];
+  fields: AgentConfigField[];
+}
+
+export interface AgentConfigUpdateResponse extends AgentConfigResponse {
+  message: string;
+}
+
+export interface BackfillTimelineResponse {
+  agent_name: "backfill";
+  oldest_date_in_window: string;
+  newest_boundary_exclusive: string;
+  current_cursor: string | null;
+  next_page: number;
+  exhausted: boolean;
+  resume_required: boolean;
+  last_checkpointed_at: string | null;
+  summary: string;
+  notes: string[];
+}
+
+export interface BackfillTimelineUpdateResponse extends BackfillTimelineResponse {
+  message: string;
 }
 
 interface AgentErrorEnvelope {
@@ -197,6 +255,74 @@ function isAgentPauseState(value: unknown): value is AgentPauseState {
   );
 }
 
+function isAgentManualRunTriggerResponse(value: unknown): value is AgentManualRunTriggerResponse {
+  return (
+    isRecord(value) &&
+    isAgentName(value.agent_name) &&
+    typeof value.accepted === "boolean" &&
+    typeof value.trigger_mode === "string" &&
+    typeof value.triggered_at === "string" &&
+    typeof value.message === "string"
+  );
+}
+
+function isAgentConfigInputKind(value: unknown): value is AgentConfigInputKind {
+  return value === "integer" || value === "date" || value === "csv";
+}
+
+function isAgentConfigField(value: unknown): value is AgentConfigField {
+  return (
+    isRecord(value) &&
+    typeof value.key === "string" &&
+    typeof value.label === "string" &&
+    typeof value.description === "string" &&
+    isAgentConfigInputKind(value.input_kind) &&
+    typeof value.value === "string" &&
+    (typeof value.unit === "string" || value.unit === null) &&
+    (typeof value.min_value === "number" || value.min_value === null) &&
+    (typeof value.placeholder === "string" || value.placeholder === null)
+  );
+}
+
+function isAgentConfigResponse(value: unknown): value is AgentConfigResponse {
+  return (
+    isRecord(value) &&
+    isAgentName(value.agent_name) &&
+    typeof value.display_name === "string" &&
+    typeof value.editable === "boolean" &&
+    typeof value.summary === "string" &&
+    Array.isArray(value.apply_notes) &&
+    value.apply_notes.every((note) => typeof note === "string") &&
+    Array.isArray(value.fields) &&
+    value.fields.every(isAgentConfigField)
+  );
+}
+
+function isAgentConfigUpdateResponse(value: unknown): value is AgentConfigUpdateResponse {
+  return isAgentConfigResponse(value) && isRecord(value) && typeof value.message === "string";
+}
+
+function isBackfillTimelineResponse(value: unknown): value is BackfillTimelineResponse {
+  return (
+    isRecord(value) &&
+    value.agent_name === "backfill" &&
+    typeof value.oldest_date_in_window === "string" &&
+    typeof value.newest_boundary_exclusive === "string" &&
+    isNullableString(value.current_cursor) &&
+    typeof value.next_page === "number" &&
+    typeof value.exhausted === "boolean" &&
+    typeof value.resume_required === "boolean" &&
+    isNullableString(value.last_checkpointed_at) &&
+    typeof value.summary === "string" &&
+    Array.isArray(value.notes) &&
+    value.notes.every((note) => typeof note === "string")
+  );
+}
+
+function isBackfillTimelineUpdateResponse(value: unknown): value is BackfillTimelineUpdateResponse {
+  return isBackfillTimelineResponse(value) && isRecord(value) && typeof value.message === "string";
+}
+
 export function isAgentRunEvent(value: unknown): value is AgentRunEvent {
   return (
     isRecord(value) &&
@@ -261,7 +387,14 @@ function isAgentStatusEntry(value: unknown): value is AgentStatusEntry {
     typeof value.input_tokens_24h === "number" &&
     typeof value.output_tokens_24h === "number" &&
     typeof value.has_run === "boolean" &&
-    (value.latest_run === null || isAgentRunEvent(value.latest_run))
+    (value.latest_run === null || isAgentRunEvent(value.latest_run)) &&
+    (value.latest_intake_summary === null ||
+      (isRecord(value.latest_intake_summary) &&
+        typeof value.latest_intake_summary.fetched === "number" &&
+        typeof value.latest_intake_summary.inserted === "number" &&
+        typeof value.latest_intake_summary.skipped === "number" &&
+        typeof value.latest_intake_summary.duplicates === "number" &&
+        typeof value.latest_intake_summary.failed_outcomes === "number"))
   );
 }
 
@@ -371,7 +504,11 @@ async function requestJson<T>(
   }
 }
 
-async function mutateJson<T>(path: string, method: "POST" | "PUT" | "DELETE", body?: unknown): Promise<T> {
+async function mutateJson<T>(
+  path: string,
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
+  body?: unknown,
+): Promise<T> {
   const controller = new AbortController();
   const timeoutId = globalThis.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
@@ -460,6 +597,14 @@ export function getSystemEventsQueryKey(params: SystemEventListParams) {
 
 export function getAgentPauseStatesQueryKey() {
   return ["agents", "pause-states"] as const;
+}
+
+export function getAgentConfigQueryKey(agentName: AgentName) {
+  return ["agents", "config", agentName] as const;
+}
+
+export function getBackfillTimelineQueryKey() {
+  return ["agents", "backfill", "timeline"] as const;
 }
 
 export function sortAgentStatusEntries(entries: AgentStatusEntry[]): AgentStatusEntry[] {
@@ -568,5 +713,58 @@ export async function resumeAgent(agentName: AgentName): Promise<AgentPauseState
     isAgentPauseState,
     "Resume agent response has unexpected shape",
     "resume_agent_shape_invalid",
+  );
+}
+
+export async function triggerAgentRun(
+  agentName: AgentName,
+): Promise<AgentManualRunTriggerResponse> {
+  return parseExpectedResponse(
+    await mutateJson<unknown>(`/api/v1/agents/${agentName}/run`, "POST"),
+    isAgentManualRunTriggerResponse,
+    "Manual agent trigger response has unexpected shape",
+    "manual_agent_trigger_shape_invalid",
+  );
+}
+
+export async function fetchAgentConfig(agentName: AgentName): Promise<AgentConfigResponse> {
+  return parseExpectedResponse(
+    await requestJson<unknown>(`/api/v1/agents/${agentName}/config`),
+    isAgentConfigResponse,
+    "Agent config response has unexpected shape",
+    "agent_config_shape_invalid",
+  );
+}
+
+export async function updateAgentConfig(
+  agentName: AgentName,
+  values: Record<string, string>,
+): Promise<AgentConfigUpdateResponse> {
+  return parseExpectedResponse(
+    await mutateJson<unknown>(`/api/v1/agents/${agentName}/config`, "PATCH", { values }),
+    isAgentConfigUpdateResponse,
+    "Agent config update response has unexpected shape",
+    "agent_config_update_shape_invalid",
+  );
+}
+
+export async function fetchBackfillTimeline(): Promise<BackfillTimelineResponse> {
+  return parseExpectedResponse(
+    await requestJson<unknown>("/api/v1/agents/backfill/timeline"),
+    isBackfillTimelineResponse,
+    "Backfill timeline response has unexpected shape",
+    "backfill_timeline_shape_invalid",
+  );
+}
+
+export async function updateBackfillTimeline(values: {
+  oldest_date_in_window: string;
+  newest_boundary_exclusive: string;
+}): Promise<BackfillTimelineUpdateResponse> {
+  return parseExpectedResponse(
+    await mutateJson<unknown>("/api/v1/agents/backfill/timeline", "PATCH", values),
+    isBackfillTimelineUpdateResponse,
+    "Backfill timeline update response has unexpected shape",
+    "backfill_timeline_update_shape_invalid",
   );
 }

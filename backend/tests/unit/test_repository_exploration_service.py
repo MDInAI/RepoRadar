@@ -176,6 +176,8 @@ def test_repository_exploration_service_returns_joined_metadata_summary_and_arti
     assert response.processing.intake_started_at is None
     assert response.processing.intake_completed_at is None
     assert response.processing.failure is None
+    assert response.firehose_discovery_mode is RepositoryFirehoseMode.NEW
+    assert response.agent_tags == ["new"]
     assert response.has_readme_artifact is True
     assert response.has_analysis_artifact is True
     assert response.is_starred is False
@@ -258,6 +260,8 @@ def test_repository_exploration_service_lists_catalog_page(
     assert response.page == 1
     assert response.page_size == 30
     assert response.total_pages == 1
+    assert response.items[0].firehose_discovery_mode is RepositoryFirehoseMode.NEW
+    assert response.items[0].agent_tags == ["new"]
     assert len(response.items) == 1
     assert response.items[0].github_repository_id == 707
     assert response.items[0].intake_status is RepositoryQueueStatus.COMPLETED

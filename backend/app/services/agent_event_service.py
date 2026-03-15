@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func
@@ -59,9 +60,11 @@ class AgentEventService:
         self,
         repository: AgentEventRepository,
         broadcaster: EventBroadcaster | None = None,
+        runtime_dir: Path | None = None,
     ) -> None:
         self.repository = repository
         self.broadcaster = broadcaster
+        self.runtime_dir = runtime_dir
 
     def list_agent_runs(self, params: AgentRunListParams) -> list[AgentRunResponse]:
         return [
@@ -102,10 +105,85 @@ class AgentEventService:
                     output_tokens_24h=usage_by_name.get(name, {}).get("output_tokens", 0),
                     has_run=name in runs_by_name,
                     latest_run=runs_by_name.get(name),
+                    latest_intake_summary=self._load_latest_intake_summary(
+                        name,
+                        runs_by_name.get(name),
+                    ),
                 )
                 for name in AGENT_NAMES
             ]
         )
+
+    def _load_latest_intake_summary(
+        self,
+        agent_name: str,
+        latest_run: AgentRunResponse | None,
+    ) -> dict[str, int] | None:
+        if self.runtime_dir is None or agent_name not in {"firehose", "backfill"} or latest_run is None:
+            return None
+
+        artifact_dir = self.runtime_dir / agent_name / "ingestion-runs"
+        if not artifact_dir.exists() or not artifact_dir.is_dir():
+            return None
+
+        try:
+            artifact_paths = sorted(
+                artifact_dir.glob("*.json"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            return None
+
+        latest_completed_at = latest_run.completed_at
+        latest_completed_ts = latest_completed_at.timestamp() if latest_completed_at is not None else None
+
+        for artifact_path in artifact_paths[:5]:
+            try:
+                payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+
+            generated_at_raw = payload.get("generated_at")
+            if not isinstance(generated_at_raw, str):
+                continue
+
+            try:
+                generated_at = datetime.fromisoformat(generated_at_raw)
+            except ValueError:
+                continue
+
+            if latest_completed_ts is not None and abs(generated_at.timestamp() - latest_completed_ts) > 300:
+                continue
+
+            outcomes = payload.get("outcomes")
+            if not isinstance(outcomes, list):
+                continue
+
+            fetched = 0
+            inserted = 0
+            skipped = 0
+            failed = 0
+            duplicates = 0
+            for outcome in outcomes:
+                if not isinstance(outcome, dict):
+                    continue
+                fetched += int(outcome.get("fetched_count") or 0)
+                inserted += int(outcome.get("inserted_count") or 0)
+                skipped += int(outcome.get("skipped_count") or 0)
+                if outcome.get("error"):
+                    failed += 1
+
+            duplicates = skipped
+            return {
+                "fetched": fetched,
+                "inserted": inserted,
+                "skipped": skipped,
+                "duplicates": duplicates,
+                "failed_outcomes": failed,
+            }
+
+        return None
 
     def get_agent_run_detail(self, run_id: int) -> AgentRunDetailResponse:
         record = self.repository.get_agent_run(run_id)

@@ -59,6 +59,7 @@ class BackfillIntakeRuntimeRecord:
     created_before_boundary: date | None
     created_before_cursor: datetime | None
     next_page: int
+    resume_required: bool | None
     exhausted: bool | None
     last_checkpointed_at: datetime | None
     mirror_snapshot_generated_at: datetime | None
@@ -107,6 +108,7 @@ class IntakeRuntimeRepository:
             created_before_boundary=progress.created_before_boundary if progress else None,
             created_before_cursor=progress.created_before_cursor if progress else None,
             next_page=progress.next_page if progress else 1,
+            resume_required=progress.resume_required if progress else None,
             exhausted=progress.exhausted if progress else None,
             last_checkpointed_at=progress.last_checkpointed_at if progress else None,
             mirror_snapshot_generated_at=snapshot_state.generated_at,

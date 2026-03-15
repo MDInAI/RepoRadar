@@ -1,0 +1,109 @@
+{
+  "exclude_rules": [],
+  "generated_at": "2026-03-14T23:37:23.059840+00:00",
+  "include_rules": [],
+  "outcomes": [
+    {
+      "error": null,
+      "explained_at": "2026-03-14T23:37:23.045328+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "robotcoolboy/mega-elite-cloud-access",
+      "github_repository_id": 1181589825,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T23:37:23.048405+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "chedyeniceri45/onedrive-ultimate-cloud-suite",
+      "github_repository_id": 1181597399,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T23:37:23.049950+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "midassashayezhov4/ccleaner-professional-premium-edition",
+      "github_repository_id": 1181602611,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T23:37:23.051404+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "obeygoblin405/driver-booster-ultimate-driver-suite",
+      "github_repository_id": 1181606970,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T23:37:23.053694+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "SaFo-Lab/seclaw",
+      "github_repository_id": 1180433661,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T23:37:23.055406+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "Null-Phnix/claude-voice",
+      "github_repository_id": 1181446462,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T23:37:23.057026+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "Abdowaer098/Wa3r-OffSec-Kit",
+      "github_repository_id": 1181913463,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-14T23:37:23.058693+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "mat-1/slopcheck",
+      "github_repository_id": 1181984869,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    }
+  ],
+  "status": "success",
+  "summary": {
+    "accepted": 8,
+    "failed": 0,
+    "rejected": 0
+  }
+}

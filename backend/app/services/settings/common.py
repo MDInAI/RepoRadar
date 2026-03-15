@@ -67,6 +67,25 @@ def _calculate_effective_backfill_interval(
     return max(configured_interval, min_cycle)
 
 
+def _calculate_effective_firehose_interval(
+    configured_interval: int,
+    github_requests_per_minute: int,
+    intake_pacing_seconds: int,
+    firehose_pages: int,
+    backfill_pages: int,
+) -> int:
+    if configured_interval <= 0:
+        raise ValueError("firehose_interval_seconds must be greater than zero")
+
+    effective_pacing = _calculate_effective_intake_pacing(
+        github_requests_per_minute,
+        intake_pacing_seconds,
+    )
+    firehose_requests = _FIREHOSE_MODE_COUNT * firehose_pages
+    min_cycle = (firehose_requests + backfill_pages) * effective_pacing
+    return max(configured_interval, min_cycle)
+
+
 def _raise_validation_error(
     issues: list[ConfigurationValidationIssue],
 ) -> None:

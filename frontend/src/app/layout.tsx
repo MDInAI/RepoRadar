@@ -19,7 +19,7 @@ export default function RootLayout({
         <AppProviders>
           <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr', height: '100vh' }}>
             <IconRail />
-            <main style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <main style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
               {children}
             </main>
           </div>

@@ -62,11 +62,11 @@ def run_combiner_job(
     ).limit(1)
 
     run = session.exec(stmt).first()
-        if not run:
-            logger.debug("No pending combiner runs found")
-            return CombinerRunResult(
-                status=CombinerRunStatus.SUCCESS,
-                run_id=None,
+    if not run:
+        logger.debug("No pending combiner runs found")
+        return CombinerRunResult(
+            status=CombinerRunStatus.SUCCESS,
+            run_id=None,
         )
 
     try:

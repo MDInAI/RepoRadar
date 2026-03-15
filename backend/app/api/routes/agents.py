@@ -4,11 +4,23 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import get_agent_event_service
+from app.api.deps import (
+    get_agent_config_service,
+    get_backfill_timeline_service,
+    get_agent_event_service,
+    get_agent_operator_service,
+)
 from app.core.errors import AppError
+from app.schemas.agent_config import (
+    AgentName,
+    AgentConfigResponse,
+    AgentConfigUpdateRequest,
+    AgentConfigUpdateResponse,
+)
 from app.models import AgentRunStatus, EventSeverity, FailureClassification, FailureSeverity
 from app.schemas.agent_event import (
     AgentLatestRunsResponse,
+    AgentManualRunTriggerResponse,
     AgentPauseStateResponse,
     AgentRunDetailResponse,
     AgentRunListParams,
@@ -18,12 +30,23 @@ from app.schemas.agent_event import (
     SystemEventListParams,
     SystemEventResponse,
 )
+from app.schemas.agent_timeline import (
+    BackfillTimelineResponse,
+    BackfillTimelineUpdateRequest,
+    BackfillTimelineUpdateResponse,
+)
 from app.services.agent_event_service import AgentEventService
+from app.services.agent_config_service import AgentConfigService
+from app.services.agent_operator_service import AgentOperatorService
+from app.services.backfill_timeline_service import BackfillTimelineService
 
 router = APIRouter()
 
 
 AgentEventServiceDep = Depends(get_agent_event_service)
+AgentOperatorServiceDep = Depends(get_agent_operator_service)
+AgentConfigServiceDep = Depends(get_agent_config_service)
+BackfillTimelineServiceDep = Depends(get_backfill_timeline_service)
 
 
 def get_agent_run_list_params(
@@ -171,3 +194,43 @@ def pause_agent(
 ) -> AgentPauseStateResponse:
     """Pause an active agent."""
     return service.pause_agent(agent_name, request.pause_reason, request.resume_condition)
+
+
+@router.post("/agents/{agent_name}/run", response_model=AgentManualRunTriggerResponse, status_code=202)
+def trigger_agent_run(
+    agent_name: str,
+    service: AgentOperatorService = AgentOperatorServiceDep,
+) -> AgentManualRunTriggerResponse:
+    return service.trigger_agent_run(agent_name)
+
+
+@router.get("/agents/{agent_name}/config", response_model=AgentConfigResponse)
+def get_agent_config(
+    agent_name: AgentName,
+    service: AgentConfigService = AgentConfigServiceDep,
+) -> AgentConfigResponse:
+    return service.get_agent_config(agent_name)
+
+
+@router.patch("/agents/{agent_name}/config", response_model=AgentConfigUpdateResponse)
+def update_agent_config(
+    agent_name: AgentName,
+    request: AgentConfigUpdateRequest,
+    service: AgentConfigService = AgentConfigServiceDep,
+) -> AgentConfigUpdateResponse:
+    return service.update_agent_config(agent_name, request)
+
+
+@router.get("/agents/backfill/timeline", response_model=BackfillTimelineResponse)
+def get_backfill_timeline(
+    service: BackfillTimelineService = BackfillTimelineServiceDep,
+) -> BackfillTimelineResponse:
+    return service.get_timeline()
+
+
+@router.patch("/agents/backfill/timeline", response_model=BackfillTimelineUpdateResponse)
+def update_backfill_timeline(
+    request: BackfillTimelineUpdateRequest,
+    service: BackfillTimelineService = BackfillTimelineServiceDep,
+) -> BackfillTimelineUpdateResponse:
+    return service.update_timeline(request)

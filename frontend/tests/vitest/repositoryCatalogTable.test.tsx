@@ -16,6 +16,7 @@ const ITEM: RepositoryCatalogItem = {
   forks_count: 90,
   pushed_at: "2026-03-09T12:00:00Z",
   discovery_source: "firehose",
+  firehose_discovery_mode: "trending",
   intake_status: "completed",
   triage_status: "accepted",
   analysis_status: "completed",
