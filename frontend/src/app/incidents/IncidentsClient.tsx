@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { fetchIncidents, getIncidentsQueryKey, type Incident } from "@/api/incidents";
+import { fetchOverviewSummary, getOverviewSummaryQueryKey } from "@/api/overview";
 
 export default function IncidentsClient() {
   const [selected, setSelected] = useState<Incident | null>(null);
@@ -12,11 +13,20 @@ export default function IncidentsClient() {
     queryFn: () => fetchIncidents({ limit: 50 }),
     refetchInterval: 30000,
   });
+  const overviewQuery = useQuery({
+    queryKey: getOverviewSummaryQueryKey(),
+    queryFn: fetchOverviewSummary,
+    refetchInterval: 30000,
+  });
 
   const incidents = data ?? [];
-  const critical = incidents.filter((i) => i.severity === "critical").length;
-  const error = incidents.filter((i) => i.severity === "error").length;
-  const warning = incidents.filter((i) => i.severity === "warning").length;
+  const pausedAgents = overviewQuery.data?.agents.filter((agent) => agent.is_paused).length ?? 0;
+  const failedAgents =
+    overviewQuery.data?.agents.filter((agent) => !agent.is_paused && agent.status === "failed").length ?? 0;
+  const activeWarnings = 0;
+  const recentCriticalEvents = incidents.filter((i) => i.severity === "critical").length;
+  const recentErrorEvents = incidents.filter((i) => i.severity === "error").length;
+  const recentWarningEvents = incidents.filter((i) => i.severity === "warning").length;
 
   return (
     <>
@@ -28,23 +38,36 @@ export default function IncidentsClient() {
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '20px' }}>
         <div className="grid g3 mb-16">
           <SeverityCard
-            label="Critical"
-            count={critical}
+            label="Active Critical"
+            count={pausedAgents}
             color="var(--red)"
-            desc="System failures requiring immediate attention"
+            desc="Agents currently paused and needing operator attention"
           />
           <SeverityCard
-            label="Error"
-            count={error}
+            label="Active Error"
+            count={failedAgents}
             color="var(--yellow)"
-            desc="Operation failures that may need intervention"
+            desc="Agents whose latest run failed and are not currently paused"
           />
           <SeverityCard
-            label="Warning"
-            count={warning}
+            label="Active Warning"
+            count={activeWarnings}
             color="var(--blue)"
-            desc="Non-critical issues to be aware of"
+            desc="Current warning-level active incidents are not yet tracked separately"
           />
+        </div>
+
+        <div className="card mb-16">
+          <div className="card-label" style={{ marginBottom: "8px" }}>Recent Incident Events</div>
+          <div style={{ fontSize: "12px", color: "var(--text-2)", lineHeight: 1.6 }}>
+            This list is a historical event stream, not a deduplicated list of currently open incidents.
+          </div>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+            <span className="badge badge-red">{recentCriticalEvents} Critical events</span>
+            <span className="badge badge-yellow">{recentErrorEvents} Error events</span>
+            <span className="badge badge-blue">{recentWarningEvents} Warning events</span>
+            <span className="badge badge-muted">{incidents.length} Rows shown</span>
+          </div>
         </div>
 
         <div style={{
@@ -122,7 +145,17 @@ export default function IncidentsClient() {
   );
 }
 
-function SeverityCard({ label, count, color, desc }: any) {
+function SeverityCard({
+  label,
+  count,
+  color,
+  desc,
+}: {
+  label: string;
+  count: number;
+  color: string;
+  desc: string;
+}) {
   return (
     <div className="card">
       <div className="card-label" style={{ marginBottom: '8px' }}>{label}</div>
@@ -132,7 +165,7 @@ function SeverityCard({ label, count, color, desc }: any) {
   );
 }
 
-function SeverityBadge({ severity }: any) {
+function SeverityBadge({ severity }: { severity: Incident["severity"] }) {
   const colors = {
     critical: 'var(--red)',
     error: 'var(--yellow)',

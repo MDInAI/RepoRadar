@@ -30,8 +30,10 @@ export default function OverviewPage() {
   const healthyAgents = data?.agents.filter(a => !a.is_paused && a.status !== 'failed').length || 0;
   const reposDiscovered24h = data?.ingestion.discovered_last_24h || 0;
   const acceptedRepos = data?.triage.accepted || 0;
-  const criticalIncidents = data?.failures.critical_failures || 0;
-  const totalFailures = data?.failures.total_failures || 0;
+  const pausedAgents = data?.agents.filter((agent) => agent.is_paused).length || 0;
+  const failedAgents = data?.agents.filter((agent) => !agent.is_paused && agent.status === "failed").length || 0;
+  const openIncidents = pausedAgents + failedAgents;
+  const historicalFailureEvents = data?.failures.total_failures || 0;
   const tokenBurn24h = data?.token_usage.total_tokens_24h || 0;
   const topTokenAgent = data?.agents.find(
     (agent) => agent.agent_name === data?.token_usage.top_consumer_agent_name,
@@ -82,8 +84,8 @@ export default function OverviewPage() {
                 <div className="card-label">Healthy Agents</div>
                 <div className="card-metric">{healthyAgents}<span style={{ fontSize: '16px', color: 'var(--text-2)' }}>/{data.agents.length}</span></div>
                 <div className="flex items-center gap-8 mt-8">
-                  <span className={`badge ${totalFailures > 0 ? "badge-yellow" : "badge-green"}`}>
-                    ● {totalFailures > 0 ? "Attention" : "Stable"}
+                  <span className={`badge ${openIncidents > 0 ? "badge-yellow" : "badge-green"}`}>
+                    ● {openIncidents > 0 ? "Attention" : "Stable"}
                   </span>
                 </div>
                 <div className="progress mt-8">
@@ -92,11 +94,13 @@ export default function OverviewPage() {
               </div>
               <div className="card metric-card">
                 <div className="card-label">Open Incidents</div>
-                <div className="card-metric">{totalFailures}</div>
+                <div className="card-metric">{openIncidents}</div>
                 <div className="flex items-center gap-8 mt-8">
-                  {criticalIncidents > 0 && <span className="badge badge-red">{criticalIncidents} Critical</span>}
-                  <span className="badge badge-yellow">{totalFailures - criticalIncidents} Warning</span>
+                  {pausedAgents > 0 && <span className="badge badge-red">{pausedAgents} Paused agents</span>}
+                  {failedAgents > 0 && <span className="badge badge-yellow">{failedAgents} Failed agents</span>}
+                  {openIncidents === 0 && <span className="badge badge-green">No active incidents</span>}
                 </div>
+                <div className="card-sub">{historicalFailureEvents} historical failure events recorded</div>
               </div>
               <div className="card metric-card">
                 <div className="card-label">Repos Discovered (24h)</div>
