@@ -27,10 +27,8 @@ from agentic_workers.providers.github_provider import (
     GitHubFirehoseProvider,
 )
 from agentic_workers.providers.readme_analyst import (
-    HeuristicReadmeAnalysisProvider,
     LLMReadmeBusinessAnalysis,
     ReadmeAnalysisProvider,
-    ReadmeBusinessAnalysis,
     create_analysis_provider,
     normalize_readme,
 )
@@ -77,6 +75,11 @@ class AnalystRunResult:
     outcomes: list[AnalystRepositoryOutcome]
     artifact_path: Path | None
     artifact_error: str | None = None
+    provider_name: str | None = None
+    model_name: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
 
 
 ArtifactWriter = Callable[..., Path | None]
@@ -114,6 +117,8 @@ def run_analyst_job(
             settings.GEMINI_BASE_URL,
             settings.GEMINI_MODEL_NAME
         )
+    provider_name = getattr(effective_analysis_provider, "provider_name", None)
+    model_name = getattr(effective_analysis_provider, "model_name", None)
     artifact_writer = write_artifact or _write_run_artifact
 
     outcomes: list[AnalystRepositoryOutcome] = []
@@ -208,7 +213,8 @@ def run_analyst_job(
                 normalized_character_count=normalized.normalized_character_count,
                 removed_line_count=normalized.removed_line_count,
                 analysis=analysis,
-                analysis_provider_name=effective_analysis_provider.__class__.__name__,
+                analysis_provider_name=provider_name or effective_analysis_provider.__class__.__name__,
+                analysis_model_name=model_name,
                 completed_at=completed_at,
             )
             readme_artifact_path = persisted.readme_artifact.runtime_relative_path
@@ -535,6 +541,8 @@ def run_analyst_job(
         outcomes=outcomes,
         artifact_path=artifact_path,
         artifact_error=artifact_error,
+        provider_name=provider_name,
+        model_name=model_name,
     )
 
 

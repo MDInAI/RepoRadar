@@ -161,14 +161,32 @@ def test_repository_intake_migration_creates_schema_and_enforces_identity(
         "source_kind",
         "source_metadata",
         "monetization_potential",
+        "category",
+        "category_confidence_score",
+        "agent_tags",
+        "suggested_new_categories",
+        "suggested_new_tags",
         "pros",
         "cons",
         "missing_feature_signals",
+        "problem_statement",
+        "target_customer",
+        "product_type",
+        "business_model_guess",
+        "technical_stack",
+        "target_audience",
+        "open_problems",
+        "competitors",
+        "confidence_score",
+        "recommended_action",
         "analyzed_at",
     } <= set(analysis_columns)
     assert not analysis_columns["source_provider"]["nullable"]
     assert not analysis_columns["source_kind"]["nullable"]
     assert not analysis_columns["source_metadata"]["nullable"]
+    assert not analysis_columns["agent_tags"]["nullable"]
+    assert not analysis_columns["suggested_new_categories"]["nullable"]
+    assert not analysis_columns["suggested_new_tags"]["nullable"]
 
     analysis_foreign_keys = inspector.get_foreign_keys("repository_analysis_result")
     assert len(analysis_foreign_keys) == 1

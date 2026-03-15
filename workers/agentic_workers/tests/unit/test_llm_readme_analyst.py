@@ -108,6 +108,8 @@ def test_create_analysis_provider_llm():
     """Test factory creates LLM provider when specified."""
     provider = create_analysis_provider("llm", "test-key", "test-model")
     assert isinstance(provider, LLMReadmeAnalysisProvider)
+    assert provider.provider_name == "anthropic"
+    assert provider.model_name == "test-model"
 
 
 def test_create_analysis_provider_heuristic():
@@ -115,3 +117,21 @@ def test_create_analysis_provider_heuristic():
     from agentic_workers.providers.readme_analyst import HeuristicReadmeAnalysisProvider
     provider = create_analysis_provider("heuristic")
     assert isinstance(provider, HeuristicReadmeAnalysisProvider)
+    assert provider.provider_name == "heuristic-readme-analysis"
+    assert provider.model_name is None
+
+
+def test_invalid_category_outside_controlled_vocabulary_raises_validation_error(sample_readme):
+    """Test that uncontrolled categories are rejected instead of silently persisted."""
+    mock_response = Mock()
+    mock_response.content = [Mock(text='{"category": "blockchain", "confidence_score": 80, "monetization_potential": "medium"}')]
+
+    with patch("agentic_workers.providers.readme_analyst.Anthropic") as mock_anthropic:
+        mock_client = Mock()
+        mock_client.messages.create.return_value = mock_response
+        mock_anthropic.return_value = mock_client
+
+        provider = LLMReadmeAnalysisProvider(api_key="test-key")
+
+        with pytest.raises(ValidationError):
+            provider.analyze(repository_full_name="test/repo", readme=sample_readme)

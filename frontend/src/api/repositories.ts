@@ -103,10 +103,23 @@ export interface RepositoryArtifactRef {
 export interface RepositoryAnalysisSummary {
   monetization_potential: RepositoryMonetizationPotential;
   category?: RepositoryCategory | null;
+  category_confidence_score?: number | null;
   agent_tags?: string[];
+  suggested_new_categories: string[];
+  suggested_new_tags: string[];
   pros: string[];
   cons: string[];
   missing_feature_signals: string[];
+  problem_statement?: string | null;
+  target_customer?: string | null;
+  product_type?: string | null;
+  business_model_guess?: string | null;
+  technical_stack?: string | null;
+  target_audience?: string | null;
+  open_problems?: string | null;
+  competitors?: string | null;
+  confidence_score?: number | null;
+  recommended_action?: string | null;
   source_metadata: Record<string, unknown>;
   analyzed_at: string;
 }
@@ -137,6 +150,7 @@ export interface RepositoryReadmeSnapshot {
 export interface RepositoryAnalysisArtifact {
   artifact: RepositoryArtifactRef | null;
   provider_name: string | null;
+  model_name: string | null;
   source_metadata: Record<string, unknown>;
   payload: Record<string, unknown> | null;
 }

@@ -45,10 +45,23 @@ class RepositoryArtifactRefRecord:
 class RepositoryAnalysisSummaryRecord:
     monetization_potential: RepositoryMonetizationPotential
     category: RepositoryCategory | None
+    category_confidence_score: int | None
     agent_tags: list[str]
+    suggested_new_categories: list[str]
+    suggested_new_tags: list[str]
     pros: list[str]
     cons: list[str]
     missing_feature_signals: list[str]
+    problem_statement: str | None
+    target_customer: str | None
+    product_type: str | None
+    business_model_guess: str | None
+    technical_stack: str | None
+    target_audience: str | None
+    open_problems: str | None
+    competitors: str | None
+    confidence_score: int | None
+    recommended_action: str | None
     source_metadata: dict[str, object]
     analyzed_at: datetime
 
@@ -220,10 +233,23 @@ class RepositoryExplorationRepository:
             analysis_summary = RepositoryAnalysisSummaryRecord(
                 monetization_potential=analysis_row.monetization_potential,
                 category=analysis_row.category,
+                category_confidence_score=analysis_row.category_confidence_score,
                 agent_tags=list(analysis_row.agent_tags),
+                suggested_new_categories=list(analysis_row.suggested_new_categories),
+                suggested_new_tags=list(analysis_row.suggested_new_tags),
                 pros=list(analysis_row.pros),
                 cons=list(analysis_row.cons),
                 missing_feature_signals=list(analysis_row.missing_feature_signals),
+                problem_statement=analysis_row.problem_statement,
+                target_customer=analysis_row.target_customer,
+                product_type=analysis_row.product_type,
+                business_model_guess=analysis_row.business_model_guess,
+                technical_stack=analysis_row.technical_stack,
+                target_audience=analysis_row.target_audience,
+                open_problems=analysis_row.open_problems,
+                competitors=analysis_row.competitors,
+                confidence_score=analysis_row.confidence_score,
+                recommended_action=analysis_row.recommended_action,
                 source_metadata=dict(analysis_row.source_metadata),
                 analyzed_at=analysis_row.analyzed_at,
             )

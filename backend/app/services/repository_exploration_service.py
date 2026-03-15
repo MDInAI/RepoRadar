@@ -78,10 +78,23 @@ class RepositoryExplorationService:
             analysis_summary = RepositoryAnalysisSummaryResponse(
                 monetization_potential=record.analysis_summary.monetization_potential,
                 category=record.analysis_summary.category,
+                category_confidence_score=record.analysis_summary.category_confidence_score,
                 agent_tags=record.analysis_summary.agent_tags,
+                suggested_new_categories=record.analysis_summary.suggested_new_categories,
+                suggested_new_tags=record.analysis_summary.suggested_new_tags,
                 pros=record.analysis_summary.pros,
                 cons=record.analysis_summary.cons,
                 missing_feature_signals=record.analysis_summary.missing_feature_signals,
+                problem_statement=record.analysis_summary.problem_statement,
+                target_customer=record.analysis_summary.target_customer,
+                product_type=record.analysis_summary.product_type,
+                business_model_guess=record.analysis_summary.business_model_guess,
+                technical_stack=record.analysis_summary.technical_stack,
+                target_audience=record.analysis_summary.target_audience,
+                open_problems=record.analysis_summary.open_problems,
+                competitors=record.analysis_summary.competitors,
+                confidence_score=record.analysis_summary.confidence_score,
+                recommended_action=record.analysis_summary.recommended_action,
                 source_metadata=record.analysis_summary.source_metadata,
                 analyzed_at=record.analysis_summary.analyzed_at,
             )
@@ -138,6 +151,11 @@ class RepositoryExplorationService:
             or self._get_str_metadata(
                 analysis_artifact.provenance_metadata if analysis_artifact is not None else {},
                 "analysis_provider",
+            ),
+            model_name=self._get_str_metadata(readme_source_metadata, "analysis_model_name")
+            or self._get_str_metadata(
+                analysis_artifact.provenance_metadata if analysis_artifact is not None else {},
+                "analysis_model_name",
             ),
             source_metadata=readme_source_metadata,
             payload=(
@@ -256,10 +274,10 @@ class RepositoryExplorationService:
                     analysis_status=item.analysis_status,
                     queue_created_at=item.queue_created_at,
                     processing_started_at=item.processing_started_at,
-                processing_completed_at=item.processing_completed_at,
-                intake_failed_at=item.intake_failed_at,
-                analysis_failed_at=item.analysis_failed_at,
-                failure=(
+                    processing_completed_at=item.processing_completed_at,
+                    intake_failed_at=item.intake_failed_at,
+                    analysis_failed_at=item.analysis_failed_at,
+                    failure=(
                         RepositoryFailureContextResponse(
                             stage=item.failure.stage,
                             step=item.failure.step,
@@ -269,11 +287,11 @@ class RepositoryExplorationService:
                             failed_at=item.failure.failed_at,
                         )
                         if item.failure is not None
-                    else None
-                ),
-                category=item.category,
-                agent_tags=item.agent_tags,
-                monetization_potential=item.monetization_potential,
+                        else None
+                    ),
+                    category=item.category,
+                    agent_tags=item.agent_tags,
+                    monetization_potential=item.monetization_potential,
                     has_readme_artifact=item.has_readme_artifact,
                     has_analysis_artifact=item.has_analysis_artifact,
                     is_starred=item.is_starred,

@@ -13,7 +13,7 @@ from app.repositories.repository_artifact_payload_repository import (
     RepositoryArtifactPayloadRepository,
 )
 from agentic_workers.core.config import settings
-from agentic_workers.providers.readme_analyst import LLMReadmeBusinessAnalysis, ReadmeBusinessAnalysis
+from agentic_workers.providers.readme_analyst import LLMReadmeBusinessAnalysis
 from agentic_workers.storage.artifact_store import (
     RepositoryArtifactPayload,
     activate_repository_artifacts,
@@ -81,6 +81,7 @@ def persist_analysis_success(
     removed_line_count: int,
     analysis: LLMReadmeBusinessAnalysis,
     analysis_provider_name: str,
+    analysis_model_name: str | None,
     completed_at: datetime,
 ) -> PersistedAnalysisArtifacts:
     repository = session.get(RepositoryIntake, repository_id)
@@ -115,12 +116,14 @@ def persist_analysis_success(
                 "readme_artifact_sha256": readme_artifact.content_sha256,
             },
             "analysis_provider": analysis_provider_name,
+            "analysis_model_name": analysis_model_name,
             "analysis": analysis.model_dump(mode="json"),
         },
         source_kind="repository_analysis",
         source_url=readme_source_url,
         provenance_metadata={
             "analysis_provider": analysis_provider_name,
+            "analysis_model_name": analysis_model_name,
             "source_kind": "repository_readme",
         },
         generated_at=completed_at,
@@ -155,6 +158,7 @@ def persist_analysis_success(
                 "analysis_artifact_path": analysis_artifact.runtime_relative_path,
                 "analysis_artifact_sha256": analysis_artifact.content_sha256,
                 "analysis_provider": analysis_provider_name,
+                "analysis_model_name": analysis_model_name,
             },
             analyzed_at=completed_at,
         )
@@ -237,6 +241,8 @@ def _upsert_analysis_result(
         "category": analysis.category,
         "category_confidence_score": analysis.category_confidence_score,
         "agent_tags": list(analysis.agent_tags),
+        "suggested_new_categories": list(analysis.suggested_new_categories),
+        "suggested_new_tags": list(analysis.suggested_new_tags),
         "pros": list(analysis.pros) if hasattr(analysis, 'pros') else [],
         "cons": list(analysis.cons) if hasattr(analysis, 'cons') else [],
         "missing_feature_signals": list(analysis.missing_feature_signals) if hasattr(analysis, 'missing_feature_signals') else [],
@@ -248,6 +254,8 @@ def _upsert_analysis_result(
         "target_audience": analysis.target_audience,
         "open_problems": analysis.open_problems,
         "competitors": analysis.competitors,
+        "confidence_score": analysis.confidence_score,
+        "recommended_action": analysis.recommended_action,
         "analyzed_at": analyzed_at,
     }
     update_values = {key: value for key, value in values.items() if key != "github_repository_id"}
@@ -276,7 +284,36 @@ def _upsert_analysis_result(
 
     result = session.get(RepositoryAnalysisResult, repository_id)
     if result is None:
-        result = RepositoryAnalysisResult(**values)
+        result = RepositoryAnalysisResult(
+            github_repository_id=repository_id,
+            source_provider="github",
+            source_kind="repository_readme",
+            source_metadata=source_metadata,
+            monetization_potential=RepositoryMonetizationPotential(
+                analysis.monetization_potential.value
+            ),
+            category=(
+                RepositoryCategory(analysis.category) if analysis.category is not None else None
+            ),
+            category_confidence_score=analysis.category_confidence_score,
+            agent_tags=list(analysis.agent_tags),
+            suggested_new_categories=list(analysis.suggested_new_categories),
+            suggested_new_tags=list(analysis.suggested_new_tags),
+            pros=list(analysis.pros),
+            cons=list(analysis.cons),
+            missing_feature_signals=list(analysis.missing_feature_signals),
+            problem_statement=analysis.problem_statement,
+            target_customer=analysis.target_customer,
+            product_type=analysis.product_type,
+            business_model_guess=analysis.business_model_guess,
+            technical_stack=analysis.technical_stack,
+            target_audience=analysis.target_audience,
+            open_problems=analysis.open_problems,
+            competitors=analysis.competitors,
+            confidence_score=analysis.confidence_score,
+            recommended_action=analysis.recommended_action,
+            analyzed_at=analyzed_at,
+        )
     else:
         result.source_provider = "github"
         result.source_kind = "repository_readme"
@@ -287,10 +324,23 @@ def _upsert_analysis_result(
         result.category = (
             RepositoryCategory(analysis.category) if analysis.category is not None else None
         )
+        result.category_confidence_score = analysis.category_confidence_score
         result.agent_tags = list(analysis.agent_tags)
+        result.suggested_new_categories = list(analysis.suggested_new_categories)
+        result.suggested_new_tags = list(analysis.suggested_new_tags)
         result.pros = list(analysis.pros)
         result.cons = list(analysis.cons)
         result.missing_feature_signals = list(analysis.missing_feature_signals)
+        result.problem_statement = analysis.problem_statement
+        result.target_customer = analysis.target_customer
+        result.product_type = analysis.product_type
+        result.business_model_guess = analysis.business_model_guess
+        result.technical_stack = analysis.technical_stack
+        result.target_audience = analysis.target_audience
+        result.open_problems = analysis.open_problems
+        result.competitors = analysis.competitors
+        result.confidence_score = analysis.confidence_score
+        result.recommended_action = analysis.recommended_action
         result.analyzed_at = analyzed_at
     session.add(result)
 

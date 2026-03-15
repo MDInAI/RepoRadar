@@ -240,9 +240,23 @@ def test_repository_analysis_result_defaults_capture_structured_snapshot() -> No
     assert record.source_kind == "repository_readme"
     assert record.source_metadata == {"readme_artifact_path": "data/readmes/789.md"}
     assert record.monetization_potential is RepositoryMonetizationPotential.HIGH
+    assert record.category_confidence_score is None
+    assert record.agent_tags == []
+    assert record.suggested_new_categories == []
+    assert record.suggested_new_tags == []
     assert record.pros == ["Clear API story"]
     assert record.cons == ["Pricing unclear"]
     assert record.missing_feature_signals == ["Missing billing detail"]
+    assert record.problem_statement is None
+    assert record.target_customer is None
+    assert record.product_type is None
+    assert record.business_model_guess is None
+    assert record.technical_stack is None
+    assert record.target_audience is None
+    assert record.open_problems is None
+    assert record.competitors is None
+    assert record.confidence_score is None
+    assert record.recommended_action is None
     assert record.analyzed_at == analyzed_at
 
     table = RepositoryAnalysisResult.__table__
@@ -251,6 +265,9 @@ def test_repository_analysis_result_defaults_capture_structured_snapshot() -> No
         value.value for value in RepositoryMonetizationPotential
     ]
     assert not table.c.source_metadata.nullable
+    assert not table.c.agent_tags.nullable
+    assert not table.c.suggested_new_categories.nullable
+    assert not table.c.suggested_new_tags.nullable
     assert not table.c.pros.nullable
     assert not table.c.cons.nullable
     assert not table.c.missing_feature_signals.nullable

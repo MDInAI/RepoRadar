@@ -238,13 +238,28 @@ def test_get_repository_exploration_success(
     analysis = RepositoryAnalysisResult(
         github_repository_id=base_repository.github_repository_id,
         monetization_potential=RepositoryMonetizationPotential.HIGH,
+        category_confidence_score=91,
+        agent_tags=["workflow", "analytics"],
+        suggested_new_categories=["sales_ops"],
+        suggested_new_tags=["self-serve"],
         pros=["Great tech"],
         cons=["Pricing unknown"],
         missing_feature_signals=["Missing SSO"],
+        problem_statement="Operators need workflow automation with analytics visibility.",
+        target_customer="Operations teams",
+        product_type="workflow analytics platform",
+        business_model_guess="SaaS subscription",
+        technical_stack="TypeScript, FastAPI, SQLite",
+        target_audience="Growth and operations leaders",
+        open_problems="Packaging and hosted signals are still thin.",
+        competitors="Zapier, Retool",
+        confidence_score=86,
+        recommended_action="Create family + Combiner brief",
         source_metadata={
             "readme_artifact_path": "readmes/888.md",
             "analysis_artifact_path": "analyses/888.json",
             "analysis_provider": "StaticAnalysisProvider",
+            "analysis_model_name": "claude-3-5-haiku-20241022",
             "normalization_version": "story-3.4-v1",
             "raw_character_count": 2200,
             "normalized_character_count": 840,
@@ -284,12 +299,20 @@ def test_get_repository_exploration_success(
     assert data["has_analysis_artifact"] is True
     assert len(data["artifacts"]) == 2
     assert data["analysis_summary"]["monetization_potential"] == "high"
+    assert data["analysis_summary"]["category_confidence_score"] == 91
+    assert data["analysis_summary"]["agent_tags"] == ["workflow", "analytics"]
+    assert data["analysis_summary"]["suggested_new_categories"] == ["sales_ops"]
+    assert data["analysis_summary"]["suggested_new_tags"] == ["self-serve"]
+    assert data["analysis_summary"]["target_customer"] == "Operations teams"
+    assert data["analysis_summary"]["confidence_score"] == 86
+    assert data["analysis_summary"]["recommended_action"] == "Create family + Combiner brief"
     assert "Great tech" in data["analysis_summary"]["pros"]
     assert data["triage"]["explanation"]["kind"] == "include_rule"
     assert data["triage"]["explanation"]["matched_include_rules"] == ["workflow", "automation"]
     assert data["readme_snapshot"]["content"] == "# Test Repo\n\nWorkflow automation with analytics."
     assert data["readme_snapshot"]["normalization_version"] == "story-3.4-v1"
     assert data["analysis_artifact"]["provider_name"] == "StaticAnalysisProvider"
+    assert data["analysis_artifact"]["model_name"] == "claude-3-5-haiku-20241022"
     assert data["analysis_artifact"]["payload"]["analysis"]["missing_feature_signals"] == [
         "Missing SSO"
     ]

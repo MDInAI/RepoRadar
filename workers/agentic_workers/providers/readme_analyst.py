@@ -3,12 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 import json
-import os
 import re
 from typing import Protocol
 
 from anthropic import Anthropic
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 try:
     from openai import OpenAI
@@ -20,6 +19,24 @@ class MonetizationPotential(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+
+
+CONTROLLED_REPOSITORY_CATEGORIES = (
+    "workflow",
+    "analytics",
+    "devops",
+    "infrastructure",
+    "devtools",
+    "crm",
+    "communication",
+    "support",
+    "observability",
+    "low_code",
+    "security",
+    "ai_ml",
+    "data",
+    "productivity",
+)
 
 
 class ReadmeBusinessAnalysis(BaseModel):
@@ -41,7 +58,7 @@ class LLMReadmeBusinessAnalysis(BaseModel):
     product_type: str | None = None
     business_model_guess: str | None = None
     category: str | None = None
-    category_confidence_score: int = 0
+    category_confidence_score: int = Field(default=0, ge=0, le=100)
     agent_tags: list[str] = Field(default_factory=list)
     suggested_new_categories: list[str] = Field(default_factory=list)
     suggested_new_tags: list[str] = Field(default_factory=list)
@@ -49,8 +66,76 @@ class LLMReadmeBusinessAnalysis(BaseModel):
     pros: list[str] = Field(default_factory=list)
     cons: list[str] = Field(default_factory=list)
     missing_feature_signals: list[str] = Field(default_factory=list)
-    confidence_score: int = 0
+    confidence_score: int = Field(default=0, ge=0, le=100)
     recommended_action: str | None = None
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _normalize_category(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise TypeError("category must be a string or null")
+        normalized = value.strip().lower()
+        if not normalized:
+            return None
+        if normalized not in CONTROLLED_REPOSITORY_CATEGORIES:
+            raise ValueError(
+                f"category must be one of {CONTROLLED_REPOSITORY_CATEGORIES!r} or null"
+            )
+        return normalized
+
+    @field_validator(
+        "agent_tags",
+        "suggested_new_categories",
+        "suggested_new_tags",
+        "pros",
+        "cons",
+        "missing_feature_signals",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_string_lists(cls, value: object) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise TypeError("value must be a list")
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw_item in value:
+            if not isinstance(raw_item, str):
+                raise TypeError("list items must be strings")
+            candidate = raw_item.strip()
+            if not candidate:
+                continue
+            dedupe_key = candidate.lower()
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            normalized.append(candidate)
+        return normalized
+
+    @field_validator(
+        "target_audience",
+        "technical_stack",
+        "open_problems",
+        "competitors",
+        "problem_statement",
+        "target_customer",
+        "product_type",
+        "business_model_guess",
+        "recommended_action",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_optional_text(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise TypeError("value must be a string or null")
+        candidate = re.sub(r"\s+", " ", value).strip()
+        return candidate or None
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +149,10 @@ class NormalizedReadme:
 
 class ReadmeAnalysisProvider(Protocol):
     def analyze(self, *, repository_full_name: str, readme: NormalizedReadme) -> str: ...
+    @property
+    def provider_name(self) -> str: ...
+    @property
+    def model_name(self) -> str | None: ...
 
 
 class HeuristicReadmeAnalysisProvider:
@@ -108,6 +197,14 @@ class HeuristicReadmeAnalysisProvider:
             sort_keys=True,
         )
 
+    @property
+    def provider_name(self) -> str:
+        return "heuristic-readme-analysis"
+
+    @property
+    def model_name(self) -> str | None:
+        return None
+
 
 class LLMReadmeAnalysisProvider:
     """LLM-backed README analysis using Claude 3.5 Haiku."""
@@ -127,10 +224,6 @@ class LLMReadmeAnalysisProvider:
         if len(readme_text) > 8000:
             readme_text = readme_text[:8000]
 
-        categories = ["workflow", "analytics", "devops", "infrastructure", "devtools", "crm",
-                      "communication", "support", "observability", "low_code", "security", "ai_ml",
-                      "data", "productivity"]
-
         prompt = f"""Analyze this repository README and return a JSON object with business insights.
 
 Repository: {repository_full_name}
@@ -146,7 +239,7 @@ Return valid JSON matching this schema:
 - target_customer: customer type (string or null)
 - product_type: product category (string or null)
 - business_model_guess: monetization approach (string or null)
-- category: ONE of {categories} or null
+- category: ONE of {list(CONTROLLED_REPOSITORY_CATEGORIES)} or null
 - category_confidence_score: 0-100 integer
 - agent_tags: list of relevant tags
 - suggested_new_categories: categories not in controlled list
@@ -174,6 +267,14 @@ Return ONLY valid JSON, no markdown formatting."""
         except Exception:
             raise
 
+    @property
+    def provider_name(self) -> str:
+        return "anthropic"
+
+    @property
+    def model_name(self) -> str | None:
+        return self._model_name
+
 
 class GeminiReadmeAnalysisProvider:
     """Gemini-backed README analysis using OpenAI-compatible API."""
@@ -194,10 +295,6 @@ class GeminiReadmeAnalysisProvider:
         if len(readme_text) > 8000:
             readme_text = readme_text[:8000]
 
-        categories = ["workflow", "analytics", "devops", "infrastructure", "devtools", "crm",
-                      "communication", "support", "observability", "low_code", "security", "ai_ml",
-                      "data", "productivity"]
-
         prompt = f"""Analyze this repository README and return a JSON object with business insights.
 
 Repository: {repository_full_name}
@@ -213,7 +310,7 @@ Return valid JSON matching this schema:
 - target_customer: customer type (string or null)
 - product_type: product category (string or null)
 - business_model_guess: monetization approach (string or null)
-- category: ONE of {categories} or null
+- category: ONE of {list(CONTROLLED_REPOSITORY_CATEGORIES)} or null
 - category_confidence_score: 0-100 integer
 - agent_tags: list of relevant tags
 - suggested_new_categories: categories not in controlled list
@@ -251,6 +348,14 @@ Return ONLY valid JSON, no markdown formatting."""
             return json.dumps(validated.model_dump(), sort_keys=True)
         except Exception:
             raise
+
+    @property
+    def provider_name(self) -> str:
+        return "gemini-compatible"
+
+    @property
+    def model_name(self) -> str | None:
+        return self._model_name
 
 
 def create_analysis_provider(
