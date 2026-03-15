@@ -17,6 +17,7 @@ from app.models import (
     RepositoryAnalysisStatus,
     RepositoryArtifact,
     RepositoryArtifactKind,
+    RepositoryArtifactPayload,
     RepositoryDiscoverySource,
     RepositoryFirehoseMode,
     RepositoryIntake,
@@ -26,6 +27,9 @@ from app.models import (
     RepositoryTriageExplanationKind,
     RepositoryTriageStatus,
 )
+from app.repositories.repository_artifact_payload_repository import (
+    RepositoryArtifactPayloadRepository,
+)
 from app.repositories.repository_exploration_repository import RepositoryExplorationRepository
 from app.services.repository_exploration_service import RepositoryExplorationService
 
@@ -33,7 +37,7 @@ from app.services.repository_exploration_service import RepositoryExplorationSer
 def _build_repository_exploration_service(session: Session) -> RepositoryExplorationService:
     return RepositoryExplorationService(
         RepositoryExplorationRepository(session),
-        runtime_dir=settings.AGENTIC_RUNTIME_DIR,
+        RepositoryArtifactPayloadRepository(session, runtime_dir=settings.AGENTIC_RUNTIME_DIR),
     )
 
 
@@ -202,6 +206,34 @@ def test_get_repository_exploration_success(
             generated_at=now,
         )
     )
+    db_session.add(
+        RepositoryArtifactPayload(
+            github_repository_id=base_repository.github_repository_id,
+            artifact_kind=RepositoryArtifactKind.README_SNAPSHOT,
+            content_text="# Test Repo\n\nWorkflow automation with analytics.",
+            updated_at=now,
+        )
+    )
+    db_session.add(
+        RepositoryArtifactPayload(
+            github_repository_id=base_repository.github_repository_id,
+            artifact_kind=RepositoryArtifactKind.ANALYSIS_RESULT,
+            content_text=json.dumps(
+                {
+                    "schema_version": "story-3.4-v1",
+                    "github_repository_id": 888,
+                    "analysis_provider": "StaticAnalysisProvider",
+                    "analysis": {
+                        "monetization_potential": "high",
+                        "pros": ["Great tech"],
+                        "cons": ["Pricing unknown"],
+                        "missing_feature_signals": ["Missing SSO"],
+                    },
+                }
+            ),
+            updated_at=now,
+        )
+    )
 
     analysis = RepositoryAnalysisResult(
         github_repository_id=base_repository.github_repository_id,
@@ -235,36 +267,7 @@ def test_get_repository_exploration_success(
         )
     )
     db_session.commit()
-    runtime_dir = tmp_path / "runtime"
-    (runtime_dir / "readmes").mkdir(parents=True)
-    (runtime_dir / "analyses").mkdir(parents=True)
-    (runtime_dir / "readmes" / "888.md").write_text(
-        "# Test Repo\n\nWorkflow automation with analytics.",
-        encoding="utf-8",
-    )
-    (runtime_dir / "analyses" / "888.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "story-3.4-v1",
-                "github_repository_id": 888,
-                "analysis_provider": "StaticAnalysisProvider",
-                "analysis": {
-                    "monetization_potential": "high",
-                    "pros": ["Great tech"],
-                    "cons": ["Pricing unknown"],
-                    "missing_feature_signals": ["Missing SSO"],
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    original_runtime_dir = settings.AGENTIC_RUNTIME_DIR
-    settings.AGENTIC_RUNTIME_DIR = runtime_dir
-
-    try:
-        response = client.get(f"/api/v1/repositories/{base_repository.github_repository_id}")
-    finally:
-        settings.AGENTIC_RUNTIME_DIR = original_runtime_dir
+    response = client.get(f"/api/v1/repositories/{base_repository.github_repository_id}")
 
     assert response.status_code == 200
     data = response.json()

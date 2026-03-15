@@ -5,9 +5,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   fetchAgentConfig,
+  fetchArtifactStorageStatus,
   fetchBackfillTimeline,
   fetchAgentPauseStates,
   fetchLatestAgentRuns,
+  getArtifactStorageStatusQueryKey,
   getAgentConfigQueryKey,
   getBackfillTimelineQueryKey,
   getAgentPauseStatesQueryKey,
@@ -661,6 +663,91 @@ function LatestRunPanel({ entry }: { entry: AgentStatusEntry | undefined }) {
   );
 }
 
+function ArtifactStorageStatusPanel({
+  isLoading,
+  error,
+  status,
+}: {
+  isLoading: boolean;
+  error: string | null;
+  status:
+    | {
+        artifact_metadata_count: number;
+        artifact_payload_count: number;
+        missing_payload_count: number;
+        payload_coverage_percent: number;
+        legacy_readme_file_count: number;
+        legacy_analysis_file_count: number;
+        legacy_file_count: number;
+        artifact_debug_mirror_enabled: boolean;
+        safe_to_prune_legacy_files: boolean;
+        prune_readiness_reason: string;
+      }
+    | undefined;
+}) {
+  return (
+    <ConfigPanel title="Artifact Storage">
+      {isLoading ? (
+        <p style={{ color: "var(--text-2)", fontSize: "12px" }}>
+          Loading artifact storage coverage...
+        </p>
+      ) : null}
+      {error ? (
+        <p style={{ color: "var(--red)", fontSize: "12px", marginBottom: "12px" }}>{error}</p>
+      ) : null}
+      {status ? (
+        <>
+          <DetailRow
+            label="Payload coverage"
+            value={`${status.payload_coverage_percent.toFixed(1)}%`}
+            tone={status.missing_payload_count === 0 ? "good" : "warn"}
+          />
+          <DetailRow
+            label="Artifact metadata rows"
+            value={status.artifact_metadata_count.toLocaleString()}
+          />
+          <DetailRow
+            label="Artifact payload rows"
+            value={status.artifact_payload_count.toLocaleString()}
+          />
+          <DetailRow
+            label="Missing payload rows"
+            value={status.missing_payload_count.toLocaleString()}
+            tone={status.missing_payload_count === 0 ? "good" : "warn"}
+          />
+          <DetailRow
+            label="Debug mirror"
+            value={status.artifact_debug_mirror_enabled ? "Enabled" : "Disabled"}
+            tone={status.artifact_debug_mirror_enabled ? "warn" : "good"}
+          />
+          <DetailRow
+            label="Legacy README files"
+            value={status.legacy_readme_file_count.toLocaleString()}
+          />
+          <DetailRow
+            label="Legacy analysis files"
+            value={status.legacy_analysis_file_count.toLocaleString()}
+          />
+          <DetailRow
+            label="Total legacy files"
+            value={status.legacy_file_count.toLocaleString()}
+          />
+          <DetailRow
+            label="Safe to prune legacy files"
+            value={status.safe_to_prune_legacy_files ? "Yes" : "No"}
+            tone={status.safe_to_prune_legacy_files ? "good" : "warn"}
+          />
+          <DetailRow
+            label="Readiness reason"
+            value={status.prune_readiness_reason}
+            tone={status.safe_to_prune_legacy_files ? "good" : "default"}
+          />
+        </>
+      ) : null}
+    </ConfigPanel>
+  );
+}
+
 function AgentSettingsPanel({
   agentId,
   summary,
@@ -748,6 +835,10 @@ function AgentSettingsPanel({
     );
   }
 
+  const panelTitle = agentId === "bouncer" ? "Bouncer Filters" : "Agent Settings";
+  const editButtonLabel = agentId === "bouncer" ? "Edit Filters" : "Edit Settings";
+  const saveButtonLabel = agentId === "bouncer" ? "Save Filters" : "Save Settings";
+
   const sharedPanelHeader = (
     <div
       style={{
@@ -758,7 +849,7 @@ function AgentSettingsPanel({
         marginBottom: "12px",
       }}
     >
-      <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-0)" }}>Agent Settings</div>
+      <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-0)" }}>{panelTitle}</div>
       {config?.editable ? (
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
           {isEditing ? (
@@ -792,7 +883,7 @@ function AgentSettingsPanel({
                   fontWeight: 600,
                 }}
               >
-                {isSaving ? "Saving..." : "Save Settings"}
+                {isSaving ? "Saving..." : saveButtonLabel}
               </button>
             </>
           ) : (
@@ -808,7 +899,7 @@ function AgentSettingsPanel({
                 cursor: "pointer",
               }}
             >
-              Edit Settings
+              {editButtonLabel}
             </button>
           )}
         </div>
@@ -1415,6 +1506,11 @@ export default function ControlPanel() {
     queryFn: fetchSettingsSummary,
     refetchInterval: 60_000,
   });
+  const artifactStorageStatusQuery = useQuery({
+    queryKey: getArtifactStorageStatusQueryKey(),
+    queryFn: fetchArtifactStorageStatus,
+    refetchInterval: 60_000,
+  });
   const agentConfigQuery = useQuery({
     queryKey: getAgentConfigQueryKey(selectedAgent),
     queryFn: () => fetchAgentConfig(selectedAgent),
@@ -1830,6 +1926,16 @@ export default function ControlPanel() {
                 <p style={{ color: "var(--text-2)" }}>{loadingMessage}</p>
               </div>
             ) : null}
+
+            <ArtifactStorageStatusPanel
+              isLoading={artifactStorageStatusQuery.isLoading}
+              error={
+                artifactStorageStatusQuery.error instanceof Error
+                  ? artifactStorageStatusQuery.error.message
+                  : null
+              }
+              status={artifactStorageStatusQuery.data}
+            />
 
             <MetadataNotice entry={agentStatus} />
 

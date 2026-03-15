@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import agentic_workers.jobs.analyst_job as analyst_job_module
+import agentic_workers.storage.analysis_store as analysis_store_module
 from sqlmodel import Session, create_engine, select
 
 from agentic_workers.jobs.analyst_job import AnalystRunStatus, run_analyst_job
@@ -223,16 +224,27 @@ def test_analyst_job_records_missing_readme_failures_for_retry_review(tmp_path: 
             ),
         )
         row = session.get(RepositoryIntake, 606)
+        pause_state = session.exec(
+            select(AgentPauseState).where(AgentPauseState.agent_name == "analyst")
+        ).first()
+        event = session.exec(
+            select(SystemEvent).where(SystemEvent.event_type == "repository_analysis_failed")
+        ).one()
 
     assert result.status is AnalystRunStatus.FAILED
     assert row is not None
     assert row.analysis_status is RepositoryAnalysisStatus.FAILED
     assert row.analysis_failure_code is RepositoryAnalysisFailureCode.MISSING_README
+    assert pause_state is None
+    assert event.failure_classification.value == "retryable"
+    assert event.failure_severity.value == "warning"
 
 
 def test_analyst_job_fails_when_durable_artifact_directories_are_unwritable(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
+    monkeypatch.setattr(analysis_store_module.settings, "ARTIFACT_DEBUG_MIRROR", True)
     provider = StubGitHubProvider(
         {
             707: RepositoryReadme(
@@ -264,11 +276,11 @@ def test_analyst_job_fails_when_durable_artifact_directories_are_unwritable(
         row = session.get(RepositoryIntake, 707)
         analysis_row = session.get(RepositoryAnalysisResult, 707)
 
-    assert result.status is AnalystRunStatus.FAILED
+    assert result.status is AnalystRunStatus.SUCCESS
     assert row is not None
-    assert row.analysis_status is RepositoryAnalysisStatus.FAILED
-    assert row.analysis_failure_code is RepositoryAnalysisFailureCode.PERSISTENCE_ERROR
-    assert analysis_row is None
+    assert row.analysis_status is RepositoryAnalysisStatus.COMPLETED
+    assert row.analysis_failure_code is None
+    assert analysis_row is not None
 
 
 def test_analyst_job_returns_skipped_paused_when_agent_is_paused(

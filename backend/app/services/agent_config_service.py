@@ -159,7 +159,7 @@ AGENT_CONFIG_DEFINITIONS: dict[AgentName, AgentConfigDefinition] = {
     ),
     "bouncer": AgentConfigDefinition(
         display_name="Bouncer",
-        summary="Control rule lists and shared pacing for queue-based triage.",
+        summary="Control the Bouncer filter rules that allow or block repositories during triage.",
         apply_notes=(
             "Saved to both backend/.env and workers/.env so the control surface stays in sync.",
             "Manual Run uses the new values immediately.",
@@ -168,15 +168,15 @@ AGENT_CONFIG_DEFINITIONS: dict[AgentName, AgentConfigDefinition] = {
         fields=(
             ConfigFieldDefinition(
                 key="BOUNCER_INCLUDE_RULES",
-                label="Include rules",
-                description="Comma-separated allow rules. Leave blank to allow broad intake.",
+                label="Allow keywords",
+                description="Comma-separated keywords or phrases that Bouncer should explicitly allow through triage.",
                 input_kind="csv",
                 placeholder="workflow, analytics, devtools",
             ),
             ConfigFieldDefinition(
                 key="BOUNCER_EXCLUDE_RULES",
-                label="Exclude rules",
-                description="Comma-separated block rules. Leave blank for no explicit exclusions.",
+                label="Block keywords",
+                description="Comma-separated keywords or phrases that Bouncer should explicitly reject during triage.",
                 input_kind="csv",
                 placeholder="games, homework, tutorial",
             ),

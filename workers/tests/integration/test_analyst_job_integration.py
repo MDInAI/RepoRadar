@@ -8,6 +8,7 @@ import pytest
 from sqlmodel import Session, create_engine, select
 
 import agentic_workers.jobs.analyst_job as analyst_job_module
+import agentic_workers.storage.analysis_store as analysis_store_module
 from agentic_workers.jobs.analyst_job import AnalystRunStatus, run_analyst_job
 from agentic_workers.providers.github_provider import RepositoryReadme
 from agentic_workers.storage.backend_models import (
@@ -16,6 +17,7 @@ from agentic_workers.storage.backend_models import (
     RepositoryAnalysisStatus,
     RepositoryArtifact,
     RepositoryArtifactKind,
+    RepositoryArtifactPayload,
     RepositoryIntake,
     RepositoryQueueStatus,
     RepositoryTriageStatus,
@@ -97,6 +99,9 @@ def test_analyst_job_success_persists_result_and_runtime_artifacts(tmp_path: Pat
         artifact_rows = session.exec(
             select(RepositoryArtifact).order_by(RepositoryArtifact.artifact_kind)
         ).all()
+        artifact_payload_rows = session.exec(
+            select(RepositoryArtifactPayload).order_by(RepositoryArtifactPayload.artifact_kind)
+        ).all()
 
     assert result.status is AnalystRunStatus.SUCCESS
     assert row is not None
@@ -111,14 +116,22 @@ def test_analyst_job_success_persists_result_and_runtime_artifacts(tmp_path: Pat
         (707, RepositoryArtifactKind.ANALYSIS_RESULT),
         (707, RepositoryArtifactKind.README_SNAPSHOT),
     ]
-
-    snapshot_path = runtime_dir / "data" / "readmes" / "707.md"
-    assert snapshot_path.exists()
-    assert "workflow automation" in snapshot_path.read_text()
-    analysis_path = runtime_dir / "data" / "analyses" / "707.json"
-    analysis_payload = json.loads(analysis_path.read_text())
+    assert [(row.github_repository_id, row.artifact_kind) for row in artifact_payload_rows] == [
+        (707, RepositoryArtifactKind.ANALYSIS_RESULT),
+        (707, RepositoryArtifactKind.README_SNAPSHOT),
+    ]
+    readme_payload = next(
+        row for row in artifact_payload_rows if row.artifact_kind is RepositoryArtifactKind.README_SNAPSHOT
+    )
+    analysis_payload_row = next(
+        row for row in artifact_payload_rows if row.artifact_kind is RepositoryArtifactKind.ANALYSIS_RESULT
+    )
+    assert "workflow automation" in readme_payload.content_text
+    analysis_payload = json.loads(analysis_payload_row.content_text)
     assert analysis_payload["analysis"]["monetization_potential"] == "high"
     assert analysis_payload["source"]["readme_artifact_path"] == "data/readmes/707.md"
+    assert not (runtime_dir / "data" / "readmes" / "707.md").exists()
+    assert not (runtime_dir / "data" / "analyses" / "707.json").exists()
 
     artifact = json.loads(result.artifact_path.read_text())  # type: ignore[union-attr]
     assert artifact["status"] == "success"
@@ -226,3 +239,41 @@ def test_analyst_job_restores_previous_artifacts_when_db_persistence_fails(
     assert json.loads(analysis_path.read_text(encoding="utf-8"))["analysis"][
         "monetization_potential"
     ] == "low"
+
+
+def test_analyst_job_writes_optional_debug_mirror_when_enabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime_dir = tmp_path / "runtime"
+    provider = StubGitHubProvider(
+        RepositoryReadme(
+            owner_login="octocat",
+            repository_name="mirror-check",
+            content="# Product\n\nWorkflow automation with analytics and API access.",
+            fetched_at=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc),
+            source_url="https://api.github.com/repos/octocat/mirror-check/readme",
+        )
+    )
+    analysis_provider = StaticAnalysisProvider(
+        '{"monetization_potential":"high","pros":["API surface"],'
+        '"cons":["Pricing unclear"],"missing_feature_signals":["Missing billing"]}'
+    )
+    monkeypatch.setattr(analysis_store_module.settings, "ARTIFACT_DEBUG_MIRROR", True)
+
+    with _make_session(tmp_path) as session:
+        session.add(_accepted_row(919, "octocat/mirror-check"))
+        session.commit()
+
+        result = run_analyst_job(
+            session=session,
+            provider=provider,  # type: ignore[arg-type]
+            runtime_dir=runtime_dir,
+            analysis_provider=analysis_provider,
+        )
+
+    assert result.status is AnalystRunStatus.SUCCESS
+    snapshot_path = runtime_dir / "data" / "readmes" / "919.md"
+    analysis_path = runtime_dir / "data" / "analyses" / "919.json"
+    assert snapshot_path.exists()
+    assert analysis_path.exists()

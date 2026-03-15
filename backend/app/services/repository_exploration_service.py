@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from app.core.errors import AppError
 from app.models import RepositoryArtifactKind
+from app.repositories.repository_artifact_payload_repository import (
+    RepositoryArtifactPayloadRepository,
+)
 from app.repositories.repository_exploration_repository import (
     RepositoryCatalogListParams,
     RepositoryExplorationRepository,
@@ -33,11 +35,10 @@ class RepositoryExplorationService:
     def __init__(
         self,
         repository: RepositoryExplorationRepository,
-        *,
-        runtime_dir: Path | None = None,
+        artifact_payload_repository: RepositoryArtifactPayloadRepository,
     ) -> None:
         self.repository = repository
-        self.runtime_dir = runtime_dir
+        self.artifact_payload_repository = artifact_payload_repository
 
     def get_repository_exploration(
         self,
@@ -101,9 +102,14 @@ class RepositoryExplorationService:
 
         readme_snapshot = RepositoryReadmeSnapshotResponse(
             artifact=readme_artifact,
-            content=self._read_text_artifact(readme_artifact.runtime_relative_path)
-            if readme_artifact is not None
-            else None,
+            content=(
+                self.artifact_payload_repository.get_text_artifact(
+                    record.github_repository_id,
+                    RepositoryArtifactKind.README_SNAPSHOT,
+                )
+                if readme_artifact is not None
+                else None
+            ),
             normalization_version=self._get_str_metadata(
                 readme_artifact.provenance_metadata if readme_artifact is not None else {},
                 "normalization_version",
@@ -134,9 +140,16 @@ class RepositoryExplorationService:
                 "analysis_provider",
             ),
             source_metadata=readme_source_metadata,
-            payload=self._read_json_artifact(analysis_artifact.runtime_relative_path)
-            if analysis_artifact is not None
-            else None,
+            payload=(
+                self._read_json_artifact(
+                    self.artifact_payload_repository.get_text_artifact(
+                        record.github_repository_id,
+                        RepositoryArtifactKind.ANALYSIS_RESULT,
+                    )
+                )
+                if analysis_artifact is not None
+                else None
+            ),
         )
 
         return RepositoryExplorationResponse(
@@ -283,22 +296,7 @@ class RepositoryExplorationService:
             analysis=RepositoryProcessingAnalysisSummaryResponse(**summary.analysis),
         )
 
-    def _resolve_artifact_path(self, runtime_relative_path: str) -> Path | None:
-        if self.runtime_dir is None:
-            return None
-        return self.runtime_dir / runtime_relative_path
-
-    def _read_text_artifact(self, runtime_relative_path: str) -> str | None:
-        artifact_path = self._resolve_artifact_path(runtime_relative_path)
-        if artifact_path is None or not artifact_path.is_file():
-            return None
-        try:
-            return artifact_path.read_text(encoding="utf-8")
-        except OSError:
-            return None
-
-    def _read_json_artifact(self, runtime_relative_path: str) -> dict[str, object] | None:
-        raw = self._read_text_artifact(runtime_relative_path)
+    def _read_json_artifact(self, raw: str | None) -> dict[str, object] | None:
         if raw is None:
             return None
         try:

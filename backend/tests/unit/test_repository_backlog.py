@@ -15,6 +15,9 @@ from app.models import (
     RepositoryQueueStatus,
     RepositoryTriageStatus,
 )
+from app.repositories.repository_artifact_payload_repository import (
+    RepositoryArtifactPayloadRepository,
+)
 from app.repositories.repository_exploration_repository import (
     RepositoryCatalogListParams,
     RepositoryExplorationRepository,
@@ -171,7 +174,10 @@ def test_repository_backlog_summary_returns_counts_for_each_status_dimension(
 ) -> None:
     with _make_session(tmp_path) as session:
         _seed_backlog(session)
-        service = RepositoryExplorationService(RepositoryExplorationRepository(session))
+        service = RepositoryExplorationService(
+            RepositoryExplorationRepository(session),
+            RepositoryArtifactPayloadRepository(session),
+        )
 
         summary = service.get_repository_backlog_summary()
 
@@ -198,7 +204,10 @@ def test_repository_backlog_summary_returns_zeroed_counts_for_empty_database(
     tmp_path: Path,
 ) -> None:
     with _make_session(tmp_path) as session:
-        service = RepositoryExplorationService(RepositoryExplorationRepository(session))
+        service = RepositoryExplorationService(
+            RepositoryExplorationRepository(session),
+            RepositoryArtifactPayloadRepository(session),
+        )
 
         summary = service.get_repository_backlog_summary()
 
@@ -252,7 +261,10 @@ def test_repository_catalog_maps_failure_context_fields_for_failed_repositories(
     now = datetime(2026, 3, 9, 12, 0, tzinfo=timezone.utc)
     with _make_session(tmp_path) as session:
         _seed_backlog(session)
-        service = RepositoryExplorationService(RepositoryExplorationRepository(session))
+        service = RepositoryExplorationService(
+            RepositoryExplorationRepository(session),
+            RepositoryArtifactPayloadRepository(session),
+        )
 
         page = service.list_repository_catalog(
             RepositoryCatalogQueryParams(

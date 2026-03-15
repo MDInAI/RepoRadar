@@ -11,7 +11,11 @@ from app.models.agent_event import (
     ResumedBy,
     SystemEvent,
 )
-from app.models.artifact import RepositoryArtifact, RepositoryArtifactKind
+from app.models.artifact import (
+    RepositoryArtifact,
+    RepositoryArtifactKind,
+    RepositoryArtifactPayload,
+)
 from app.models.repository import (
     AgentMemorySegment,
     BackfillProgress,
@@ -34,6 +38,7 @@ from app.models.repository import (
     RepositoryTriageStatus,
     SynthesisRun,
     SynthesisRunStatus,
+    SynthesisRunType,
     exhausted_backfill_boundary,
 )
 
@@ -51,6 +56,7 @@ __all__ = [
     "SystemEvent",
     "RepositoryArtifact",
     "RepositoryArtifactKind",
+    "RepositoryArtifactPayload",
     "BackfillProgress",
     "FirehoseProgress",
     "IdeaFamily",
@@ -71,5 +77,6 @@ __all__ = [
     "RepositoryTriageStatus",
     "SynthesisRun",
     "SynthesisRunStatus",
+    "SynthesisRunType",
     "exhausted_backfill_boundary",
 ]

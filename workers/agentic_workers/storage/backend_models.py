@@ -23,6 +23,7 @@ from app.models import (  # noqa: E402
     FirehoseProgress,
     RepositoryArtifact,
     RepositoryArtifactKind,
+    RepositoryArtifactPayload,
     RepositoryAnalysisFailureCode,
     RepositoryAnalysisResult,
     RepositoryAnalysisStatus,
@@ -38,6 +39,7 @@ from app.models import (  # noqa: E402
     SQLModel,
     SynthesisRun,
     SynthesisRunStatus,
+    SynthesisRunType,
     SystemEvent,
     exhausted_backfill_boundary,
 )
@@ -55,6 +57,7 @@ __all__ = [
     "FirehoseProgress",
     "RepositoryArtifact",
     "RepositoryArtifactKind",
+    "RepositoryArtifactPayload",
     "RepositoryAnalysisFailureCode",
     "RepositoryAnalysisResult",
     "RepositoryAnalysisStatus",
@@ -70,6 +73,7 @@ __all__ = [
     "SQLModel",
     "SynthesisRun",
     "SynthesisRunStatus",
+    "SynthesisRunType",
     "SystemEvent",
     "exhausted_backfill_boundary",
 ]
