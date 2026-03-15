@@ -28,6 +28,7 @@ from agentic_workers.providers.github_provider import (
 )
 from agentic_workers.providers.readme_analyst import (
     HeuristicReadmeAnalysisProvider,
+    LLMReadmeBusinessAnalysis,
     ReadmeAnalysisProvider,
     ReadmeBusinessAnalysis,
     create_analysis_provider,
@@ -191,7 +192,7 @@ def run_analyst_job(
                     )
                     session.commit()
                 continue
-            analysis = ReadmeBusinessAnalysis.model_validate_json(raw_analysis)
+            analysis = LLMReadmeBusinessAnalysis.model_validate_json(raw_analysis)
             completed_at = datetime.now(timezone.utc)
 
             persisted = persist_analysis_success(
