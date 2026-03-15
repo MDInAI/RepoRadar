@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/Users/soh/Documents/GitHub/agentic-parser/backend -name \"models.py\" -o -name \"*models*\" -type f | grep -E \"\\\\.\\(py|ts\\)$\" | head -20)",
+      "Bash(find /c/Users/soh/Documents/GitHub/agentic-parser/backend -path \"*app/models*\" 2>/dev/null | head -5)"
+    ]
+  }
+}
