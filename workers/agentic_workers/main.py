@@ -706,11 +706,11 @@ def _summarize_analyst_run(result: AnalystRunResult) -> AgentRunMetrics:
         items_failed=items_failed,
         error_summary=error_summary,
         error_context=error_context,
-        provider_name="heuristic-readme-analysis",
-        model_name=None,
-        input_tokens=0,
-        output_tokens=0,
-        total_tokens=0,
+        provider_name=result.provider_name,
+        model_name=result.model_name,
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+        total_tokens=result.total_tokens,
     )
 
 

@@ -982,6 +982,22 @@ class RepositoryAnalysisResult(SQLModel, table=True):
             server_default=text("'[]'"),
         ),
     )
+    suggested_new_categories: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(
+            MutableList.as_mutable(JSONStringListType()),
+            nullable=False,
+            server_default=text("'[]'"),
+        ),
+    )
+    suggested_new_tags: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(
+            MutableList.as_mutable(JSONStringListType()),
+            nullable=False,
+            server_default=text("'[]'"),
+        ),
+    )
     pros: list[str] = Field(
         default_factory=list,
         sa_column=Column(
@@ -1039,6 +1055,14 @@ class RepositoryAnalysisResult(SQLModel, table=True):
         sa_column=Column(Text, nullable=True),
     )
     competitors: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    confidence_score: int | None = Field(
+        default=None,
+        sa_column=Column(Integer, nullable=True),
+    )
+    recommended_action: str | None = Field(
         default=None,
         sa_column=Column(Text, nullable=True),
     )

@@ -124,25 +124,41 @@ function renderTagList(tags: string[], className: string, emptyLabel = "None yet
   );
 }
 
+function formatScore(value: number | null | undefined, suffix = "/100"): string {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "Unavailable";
+  }
+  return `${value}${suffix}`;
+}
+
 function buildDecisionRows(detail: RepositoryDetailResponse) {
   const fit = titleCase(detail.analysis_summary?.monetization_potential ?? "unscored");
   const category = detail.category ? titleCase(detail.category) : "Unclassified";
   const recommendation =
-    detail.analysis_summary?.monetization_potential === "high"
+    detail.analysis_summary?.recommended_action ??
+    (detail.analysis_summary?.monetization_potential === "high"
       ? "Create family + Combiner brief"
       : detail.analysis_summary?.monetization_potential === "medium"
         ? "Keep on watchlist and gather more evidence"
-        : "Monitor only";
+        : "Monitor only");
 
   return [
     { label: "Monetization", value: `${fit} fit` },
     { label: "Category", value: category },
+    {
+      label: "Category confidence",
+      value: formatScore(detail.analysis_summary?.category_confidence_score),
+    },
     {
       label: "Market timing",
       value:
         detail.stargazers_count >= 1000
           ? "Strong community signal"
           : "Needs more demand validation",
+    },
+    {
+      label: "Analyst confidence",
+      value: formatScore(detail.analysis_summary?.confidence_score),
     },
     { label: "Recommended action", value: recommendation },
   ];
@@ -182,6 +198,9 @@ function buildCategorySignals(detail: RepositoryDetailResponse): string[] {
 }
 
 function buildSummaryParagraph(detail: RepositoryDetailResponse): string {
+  if (detail.analysis_summary?.problem_statement) {
+    return detail.analysis_summary.problem_statement;
+  }
   if (detail.analysis_summary?.pros?.length) {
     return detail.analysis_summary.pros.join(" ");
   }
@@ -193,6 +212,7 @@ function buildSummaryParagraph(detail: RepositoryDetailResponse): string {
 
 function buildEvidenceNotes(detail: RepositoryDetailResponse): string[] {
   const notes = [
+    ...(detail.analysis_summary?.open_problems ? [detail.analysis_summary.open_problems] : []),
     ...(detail.analysis_summary?.cons ?? []),
     ...(detail.analysis_summary?.missing_feature_signals ?? []),
   ].filter((value) => value.trim().length > 0);
@@ -380,13 +400,13 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
   const summaryParagraph = buildSummaryParagraph(detail);
   const recommendedAction =
     decisionRows.find((row) => row.label === "Recommended action")?.value ?? "Review dossier";
-  const familyCount = 0;
+  const familyCount = detail.idea_family_ids.length;
 
   return (
     <>
       <div className="topbar">
         <span className="topbar-title">Repository Detail</span>
-        <span className="topbar-breadcrumb">dossier · {detail.repository_name}</span>
+        <span className="topbar-breadcrumb">dossier / {detail.repository_name}</span>
       </div>
 
       <main className="repo-detail-page">
@@ -465,9 +485,13 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                         Analyst Summary
                       </h2>
                     </div>
-                    {detail.analysis_summary?.monetization_potential ? (
+                    {typeof detail.analysis_summary?.confidence_score === "number" ? (
+                      <span className="badge badge-blue">
+                        {detail.analysis_summary.confidence_score}/100 Confidence
+                      </span>
+                    ) : detail.analysis_summary?.monetization_potential ? (
                       <span className="badge badge-green">
-                        {titleCase(detail.analysis_summary.monetization_potential)} Confidence
+                        {titleCase(detail.analysis_summary.monetization_potential)} Fit
                       </span>
                     ) : null}
                   </div>
@@ -484,6 +508,12 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                     <div className="repo-inline-card">
                       <p className="card-label">Analysis</p>
                       <p className="repo-inline-card-value">{titleCase(detail.analysis_status)}</p>
+                    </div>
+                    <div className="repo-inline-card">
+                      <p className="card-label">Target Customer</p>
+                      <p className="repo-inline-card-value">
+                        {detail.analysis_summary?.target_customer ?? "Unavailable"}
+                      </p>
                     </div>
                   </div>
                 </section>
@@ -625,8 +655,16 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                         <span>{detail.analysis_artifact?.provider_name ?? "Unavailable"}</span>
                       </div>
                       <div className="repo-key-value-row">
+                        <span className="card-label">Model</span>
+                        <span>{detail.analysis_artifact?.model_name ?? "Unavailable"}</span>
+                      </div>
+                      <div className="repo-key-value-row">
                         <span className="card-label">Category</span>
                         <span>{detail.category ? titleCase(detail.category) : "Unclassified"}</span>
+                      </div>
+                      <div className="repo-key-value-row">
+                        <span className="card-label">Category confidence</span>
+                        <span>{formatScore(detail.analysis_summary?.category_confidence_score)}</span>
                       </div>
                       <div className="repo-key-value-row">
                         <span className="card-label">Agent tags</span>
@@ -635,6 +673,26 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                             ? detail.agent_tags.join(", ")
                             : "None"}
                         </span>
+                      </div>
+                      <div className="repo-key-value-row">
+                        <span className="card-label">Target audience</span>
+                        <span>{detail.analysis_summary?.target_audience ?? "Unavailable"}</span>
+                      </div>
+                      <div className="repo-key-value-row">
+                        <span className="card-label">Technical stack</span>
+                        <span>{detail.analysis_summary?.technical_stack ?? "Unavailable"}</span>
+                      </div>
+                      <div className="repo-key-value-row">
+                        <span className="card-label">Business model</span>
+                        <span>{detail.analysis_summary?.business_model_guess ?? "Unavailable"}</span>
+                      </div>
+                      <div className="repo-key-value-row">
+                        <span className="card-label">Competitors</span>
+                        <span>{detail.analysis_summary?.competitors ?? "Unavailable"}</span>
+                      </div>
+                      <div className="repo-key-value-row">
+                        <span className="card-label">Recommended action</span>
+                        <span>{detail.analysis_summary?.recommended_action ?? "Unavailable"}</span>
                       </div>
                       <div className="repo-key-value-row">
                         <span className="card-label">Generated at</span>
@@ -803,6 +861,24 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
               <div className="repo-rail-section">
                 <p className="card-label">Category Signals</p>
                 {renderTagList(categorySignals, "tag tag-active")}
+              </div>
+
+              <div className="repo-rail-section">
+                <p className="card-label">Suggested Categories</p>
+                {renderTagList(
+                  detail.analysis_summary?.suggested_new_categories ?? [],
+                  "tag tag-active",
+                  "No suggested categories",
+                )}
+              </div>
+
+              <div className="repo-rail-section">
+                <p className="card-label">Suggested Tags</p>
+                {renderTagList(
+                  detail.analysis_summary?.suggested_new_tags ?? [],
+                  "tag tag-agent",
+                  "No suggested tags",
+                )}
               </div>
 
               <div className="repo-rail-section">

@@ -35,6 +35,8 @@ class RepositoryAnalysisSummaryResponse(BaseModel):
     category: RepositoryCategory | None = None
     category_confidence_score: int | None = None
     agent_tags: list[str] = Field(default_factory=list)
+    suggested_new_categories: list[str] = Field(default_factory=list)
+    suggested_new_tags: list[str] = Field(default_factory=list)
     pros: list[str] = Field(default_factory=list)
     cons: list[str] = Field(default_factory=list)
     missing_feature_signals: list[str] = Field(default_factory=list)
@@ -46,6 +48,8 @@ class RepositoryAnalysisSummaryResponse(BaseModel):
     target_audience: str | None = None
     open_problems: str | None = None
     competitors: str | None = None
+    confidence_score: int | None = None
+    recommended_action: str | None = None
     source_metadata: dict[str, object] = Field(default_factory=dict)
     analyzed_at: datetime
 
@@ -76,6 +80,7 @@ class RepositoryReadmeSnapshotResponse(BaseModel):
 class RepositoryAnalysisArtifactResponse(BaseModel):
     artifact: RepositoryArtifactRefResponse | None = None
     provider_name: str | None = None
+    model_name: str | None = None
     source_metadata: dict[str, object] = Field(default_factory=dict)
     payload: dict[str, object] | None = None
 

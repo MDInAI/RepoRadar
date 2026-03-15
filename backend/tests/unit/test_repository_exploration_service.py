@@ -78,13 +78,28 @@ def test_repository_exploration_service_returns_joined_metadata_summary_and_arti
             RepositoryAnalysisResult(
                 github_repository_id=707,
                 monetization_potential=RepositoryMonetizationPotential.HIGH,
+                category_confidence_score=88,
+                agent_tags=["workflow", "automation"],
+                suggested_new_categories=["sales_ops"],
+                suggested_new_tags=["self-serve"],
                 pros=["Clear workflow"],
                 cons=["Pricing unclear"],
                 missing_feature_signals=["Missing billing"],
+                problem_statement="Teams need workflow automation without bespoke tooling.",
+                target_customer="SaaS operators",
+                product_type="workflow platform",
+                business_model_guess="usage-based SaaS",
+                technical_stack="Next.js, Postgres, background workers",
+                target_audience="Operations teams",
+                open_problems="Still missing packaging and billing evidence.",
+                competitors="Zapier, Make",
+                confidence_score=84,
+                recommended_action="Create family + Combiner brief",
                 source_metadata={
                     "readme_artifact_path": "data/readmes/707.md",
                     "analysis_artifact_path": "data/analyses/707.json",
                     "analysis_provider": "StaticAnalysisProvider",
+                    "analysis_model_name": "claude-3-5-haiku-20241022",
                     "normalization_version": "story-3.4-v1",
                     "raw_character_count": 3120,
                     "normalized_character_count": 1280,
@@ -178,11 +193,19 @@ def test_repository_exploration_service_returns_joined_metadata_summary_and_arti
     assert response.triage.explanation.matched_include_rules == ["workflow", "automation"]
     assert response.analysis_summary is not None
     assert response.analysis_summary.monetization_potential is RepositoryMonetizationPotential.HIGH
+    assert response.analysis_summary.category_confidence_score == 88
+    assert response.analysis_summary.agent_tags == ["workflow", "automation"]
+    assert response.analysis_summary.suggested_new_categories == ["sales_ops"]
+    assert response.analysis_summary.suggested_new_tags == ["self-serve"]
+    assert response.analysis_summary.target_customer == "SaaS operators"
+    assert response.analysis_summary.confidence_score == 84
+    assert response.analysis_summary.recommended_action == "Create family + Combiner brief"
     assert response.readme_snapshot is not None
     assert response.readme_snapshot.content == "# Analyze Me\n\nWorkflow automation for SaaS operators."
     assert response.readme_snapshot.normalization_version == "story-3.4-v1"
     assert response.analysis_artifact is not None
     assert response.analysis_artifact.provider_name == "StaticAnalysisProvider"
+    assert response.analysis_artifact.model_name == "claude-3-5-haiku-20241022"
     assert response.analysis_artifact.payload["analysis"]["pros"] == ["Clear workflow"]
     assert response.processing.intake_created_at == now
     assert response.processing.intake_started_at is None
