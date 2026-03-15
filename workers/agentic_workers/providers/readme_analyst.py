@@ -236,6 +236,17 @@ Return ONLY valid JSON, no markdown formatting."""
             )
 
             response_text = response.choices[0].message.content
+            if not response_text:
+                raise ValueError("Empty response from Gemini API")
+            # Strip markdown code blocks if present
+            response_text = response_text.strip()
+            if response_text.startswith("```json"):
+                response_text = response_text[7:]
+            elif response_text.startswith("```"):
+                response_text = response_text[3:]
+            if response_text.endswith("```"):
+                response_text = response_text[:-3]
+            response_text = response_text.strip()
             validated = LLMReadmeBusinessAnalysis.model_validate_json(response_text)
             return json.dumps(validated.model_dump(), sort_keys=True)
         except Exception:

@@ -33,10 +33,19 @@ class RepositoryArtifactRefResponse(BaseModel):
 class RepositoryAnalysisSummaryResponse(BaseModel):
     monetization_potential: RepositoryMonetizationPotential
     category: RepositoryCategory | None = None
+    category_confidence_score: int | None = None
     agent_tags: list[str] = Field(default_factory=list)
     pros: list[str] = Field(default_factory=list)
     cons: list[str] = Field(default_factory=list)
     missing_feature_signals: list[str] = Field(default_factory=list)
+    problem_statement: str | None = None
+    target_customer: str | None = None
+    product_type: str | None = None
+    business_model_guess: str | None = None
+    technical_stack: str | None = None
+    target_audience: str | None = None
+    open_problems: str | None = None
+    competitors: str | None = None
     source_metadata: dict[str, object] = Field(default_factory=dict)
     analyzed_at: datetime
 

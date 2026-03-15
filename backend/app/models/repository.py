@@ -1006,6 +1006,42 @@ class RepositoryAnalysisResult(SQLModel, table=True):
             server_default=text("'[]'"),
         ),
     )
+    category_confidence_score: int | None = Field(
+        default=None,
+        sa_column=Column(Integer, nullable=True),
+    )
+    problem_statement: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    target_customer: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    product_type: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    business_model_guess: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    technical_stack: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    target_audience: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    open_problems: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    competitors: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
     analyzed_at: datetime = Field(
         sa_column=Column(UTCDateTimeType(), nullable=False),
     )

@@ -13,7 +13,7 @@ from app.repositories.repository_artifact_payload_repository import (
     RepositoryArtifactPayloadRepository,
 )
 from agentic_workers.core.config import settings
-from agentic_workers.providers.readme_analyst import ReadmeBusinessAnalysis
+from agentic_workers.providers.readme_analyst import LLMReadmeBusinessAnalysis, ReadmeBusinessAnalysis
 from agentic_workers.storage.artifact_store import (
     RepositoryArtifactPayload,
     activate_repository_artifacts,
@@ -79,7 +79,7 @@ def persist_analysis_success(
     raw_character_count: int,
     normalized_character_count: int,
     removed_line_count: int,
-    analysis: ReadmeBusinessAnalysis,
+    analysis: LLMReadmeBusinessAnalysis,
     analysis_provider_name: str,
     completed_at: datetime,
 ) -> PersistedAnalysisArtifacts:
@@ -224,7 +224,7 @@ def _upsert_analysis_result(
     session: Session,
     *,
     repository_id: int,
-    analysis: ReadmeBusinessAnalysis,
+    analysis: LLMReadmeBusinessAnalysis,
     source_metadata: dict[str, object],
     analyzed_at: datetime,
 ) -> None:
@@ -233,12 +233,21 @@ def _upsert_analysis_result(
         "source_provider": "github",
         "source_kind": "repository_readme",
         "source_metadata": source_metadata,
-        "monetization_potential": analysis.monetization_potential.value,
+        "monetization_potential": analysis.monetization_potential.value if hasattr(analysis, 'monetization_potential') else None,
         "category": analysis.category,
+        "category_confidence_score": analysis.category_confidence_score,
         "agent_tags": list(analysis.agent_tags),
-        "pros": list(analysis.pros),
-        "cons": list(analysis.cons),
-        "missing_feature_signals": list(analysis.missing_feature_signals),
+        "pros": list(analysis.pros) if hasattr(analysis, 'pros') else [],
+        "cons": list(analysis.cons) if hasattr(analysis, 'cons') else [],
+        "missing_feature_signals": list(analysis.missing_feature_signals) if hasattr(analysis, 'missing_feature_signals') else [],
+        "problem_statement": analysis.problem_statement,
+        "target_customer": analysis.target_customer,
+        "product_type": analysis.product_type,
+        "business_model_guess": analysis.business_model_guess,
+        "technical_stack": analysis.technical_stack,
+        "target_audience": analysis.target_audience,
+        "open_problems": analysis.open_problems,
+        "competitors": analysis.competitors,
         "analyzed_at": analyzed_at,
     }
     update_values = {key: value for key, value in values.items() if key != "github_repository_id"}
