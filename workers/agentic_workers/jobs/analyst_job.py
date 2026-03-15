@@ -30,6 +30,7 @@ from agentic_workers.providers.readme_analyst import (
     HeuristicReadmeAnalysisProvider,
     ReadmeAnalysisProvider,
     ReadmeBusinessAnalysis,
+    create_analysis_provider,
     normalize_readme,
 )
 from agentic_workers.storage.analysis_store import (
@@ -99,7 +100,19 @@ def run_analyst_job(
             artifact_path=None,
         )
 
-    effective_analysis_provider = analysis_provider or HeuristicReadmeAnalysisProvider()
+    effective_analysis_provider = analysis_provider
+    if effective_analysis_provider is None:
+        from agentic_workers.core.config import settings
+        api_key = settings.ANTHROPIC_API_KEY.get_secret_value() if settings.ANTHROPIC_API_KEY else None
+        gemini_key = settings.GEMINI_API_KEY.get_secret_value() if settings.GEMINI_API_KEY else None
+        effective_analysis_provider = create_analysis_provider(
+            settings.ANALYST_PROVIDER,
+            api_key,
+            settings.ANALYST_MODEL_NAME,
+            gemini_key,
+            settings.GEMINI_BASE_URL,
+            settings.GEMINI_MODEL_NAME
+        )
     artifact_writer = write_artifact or _write_run_artifact
 
     outcomes: list[AnalystRepositoryOutcome] = []

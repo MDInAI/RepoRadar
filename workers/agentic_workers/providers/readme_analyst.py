@@ -3,10 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 import json
+import os
 import re
 from typing import Protocol
 
+from anthropic import Anthropic
 from pydantic import BaseModel, Field
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
 
 
 class MonetizationPotential(StrEnum):
@@ -22,6 +29,28 @@ class ReadmeBusinessAnalysis(BaseModel):
     pros: list[str] = Field(default_factory=list)
     cons: list[str] = Field(default_factory=list)
     missing_feature_signals: list[str] = Field(default_factory=list)
+
+
+class LLMReadmeBusinessAnalysis(BaseModel):
+    target_audience: str | None = None
+    technical_stack: str | None = None
+    open_problems: str | None = None
+    competitors: str | None = None
+    problem_statement: str | None = None
+    target_customer: str | None = None
+    product_type: str | None = None
+    business_model_guess: str | None = None
+    category: str | None = None
+    category_confidence_score: int = 0
+    agent_tags: list[str] = Field(default_factory=list)
+    suggested_new_categories: list[str] = Field(default_factory=list)
+    suggested_new_tags: list[str] = Field(default_factory=list)
+    monetization_potential: MonetizationPotential = MonetizationPotential.LOW
+    pros: list[str] = Field(default_factory=list)
+    cons: list[str] = Field(default_factory=list)
+    missing_feature_signals: list[str] = Field(default_factory=list)
+    confidence_score: int = 0
+    recommended_action: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +107,159 @@ class HeuristicReadmeAnalysisProvider:
             },
             sort_keys=True,
         )
+
+
+class LLMReadmeAnalysisProvider:
+    """LLM-backed README analysis using Claude 3.5 Haiku."""
+
+    def __init__(self, api_key: str | None = None, model_name: str | None = None):
+        if not api_key:
+            raise ValueError("api_key is required for LLMReadmeAnalysisProvider")
+        self._client = Anthropic(api_key=api_key)
+        self._model_name = model_name or "claude-3-5-haiku-20241022"
+
+    def analyze(self, *, repository_full_name: str, readme: NormalizedReadme) -> str:
+        if not readme.normalized_text.strip():
+            raise ValueError("README content is empty")
+
+        # Truncate very large READMEs to avoid context window issues
+        readme_text = readme.normalized_text
+        if len(readme_text) > 8000:
+            readme_text = readme_text[:8000]
+
+        categories = ["workflow", "analytics", "devops", "infrastructure", "devtools", "crm",
+                      "communication", "support", "observability", "low_code", "security", "ai_ml",
+                      "data", "productivity"]
+
+        prompt = f"""Analyze this repository README and return a JSON object with business insights.
+
+Repository: {repository_full_name}
+README:
+{readme_text}
+
+Return valid JSON matching this schema:
+- target_audience: who uses this (string or null)
+- technical_stack: key technologies (string or null)
+- open_problems: problems it solves (string or null)
+- competitors: similar products (string or null)
+- problem_statement: core problem addressed (string or null)
+- target_customer: customer type (string or null)
+- product_type: product category (string or null)
+- business_model_guess: monetization approach (string or null)
+- category: ONE of {categories} or null
+- category_confidence_score: 0-100 integer
+- agent_tags: list of relevant tags
+- suggested_new_categories: categories not in controlled list
+- suggested_new_tags: new tag suggestions
+- monetization_potential: "low", "medium", or "high"
+- pros: list of strengths (max 4)
+- cons: list of weaknesses (max 4)
+- missing_feature_signals: list of missing features (max 4)
+- confidence_score: overall confidence 0-100 integer
+- recommended_action: next step suggestion (string or null)
+
+Return ONLY valid JSON, no markdown formatting."""
+
+        try:
+            message = self._client.messages.create(
+                model=self._model_name,
+                max_tokens=2048,
+                timeout=30.0,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            response_text = message.content[0].text
+            validated = LLMReadmeBusinessAnalysis.model_validate_json(response_text)
+            return json.dumps(validated.model_dump(), sort_keys=True)
+        except Exception:
+            raise
+
+
+class GeminiReadmeAnalysisProvider:
+    """Gemini-backed README analysis using OpenAI-compatible API."""
+
+    def __init__(self, api_key: str | None = None, base_url: str | None = None, model_name: str | None = None):
+        if not api_key:
+            raise ValueError("api_key is required for GeminiReadmeAnalysisProvider")
+        if OpenAI is None:
+            raise ImportError("openai package is required for GeminiReadmeAnalysisProvider")
+        self._client = OpenAI(api_key=api_key, base_url=base_url or "https://api.haimaker.ai/v1")
+        self._model_name = model_name or "google/gemini-2.0-flash-001"
+
+    def analyze(self, *, repository_full_name: str, readme: NormalizedReadme) -> str:
+        if not readme.normalized_text.strip():
+            raise ValueError("README content is empty")
+
+        readme_text = readme.normalized_text
+        if len(readme_text) > 8000:
+            readme_text = readme_text[:8000]
+
+        categories = ["workflow", "analytics", "devops", "infrastructure", "devtools", "crm",
+                      "communication", "support", "observability", "low_code", "security", "ai_ml",
+                      "data", "productivity"]
+
+        prompt = f"""Analyze this repository README and return a JSON object with business insights.
+
+Repository: {repository_full_name}
+README:
+{readme_text}
+
+Return valid JSON matching this schema:
+- target_audience: who uses this (string or null)
+- technical_stack: key technologies (string or null)
+- open_problems: problems it solves (string or null)
+- competitors: similar products (string or null)
+- problem_statement: core problem addressed (string or null)
+- target_customer: customer type (string or null)
+- product_type: product category (string or null)
+- business_model_guess: monetization approach (string or null)
+- category: ONE of {categories} or null
+- category_confidence_score: 0-100 integer
+- agent_tags: list of relevant tags
+- suggested_new_categories: categories not in controlled list
+- suggested_new_tags: new tag suggestions
+- monetization_potential: "low", "medium", or "high"
+- pros: list of strengths (max 4)
+- cons: list of weaknesses (max 4)
+- missing_feature_signals: list of missing features (max 4)
+- confidence_score: overall confidence 0-100 integer
+- recommended_action: next step suggestion (string or null)
+
+Return ONLY valid JSON, no markdown formatting."""
+
+        try:
+            response = self._client.chat.completions.create(
+                model=self._model_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=2048,
+                timeout=30.0
+            )
+
+            response_text = response.choices[0].message.content
+            validated = LLMReadmeBusinessAnalysis.model_validate_json(response_text)
+            return json.dumps(validated.model_dump(), sort_keys=True)
+        except Exception:
+            raise
+
+
+def create_analysis_provider(
+    analyst_provider: str,
+    anthropic_api_key: str | None = None,
+    model_name: str | None = None,
+    gemini_api_key: str | None = None,
+    gemini_base_url: str | None = None,
+    gemini_model_name: str | None = None
+) -> ReadmeAnalysisProvider:
+    """Factory function to create the appropriate analysis provider."""
+    if analyst_provider == "llm":
+        return LLMReadmeAnalysisProvider(api_key=anthropic_api_key, model_name=model_name)
+    if analyst_provider == "gemini":
+        return GeminiReadmeAnalysisProvider(
+            api_key=gemini_api_key,
+            base_url=gemini_base_url,
+            model_name=gemini_model_name
+        )
+    return HeuristicReadmeAnalysisProvider()
 
 
 def normalize_readme(raw_text: str) -> NormalizedReadme:

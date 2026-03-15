@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     BACKFILL_MIN_CREATED_DATE: date = date(2008, 1, 1)
     BOUNCER_INCLUDE_RULES: tuple[str, ...] = ()
     BOUNCER_EXCLUDE_RULES: tuple[str, ...] = ()
+    ANALYST_PROVIDER: str = "heuristic"
+    ANTHROPIC_API_KEY: SecretStr | None = None
+    ANALYST_MODEL_NAME: str = "claude-3-5-haiku-20241022"
+    GEMINI_API_KEY: SecretStr | None = None
+    GEMINI_BASE_URL: str = "https://api.haimaker.ai/v1"
+    GEMINI_MODEL_NAME: str = "google/gemini-2.0-flash-001"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -79,6 +85,44 @@ class Settings(BaseSettings):
             candidate = value.strip()
             return candidate or None
         return value
+
+    @field_validator("ANTHROPIC_API_KEY", mode="before")
+    @classmethod
+    def _normalize_anthropic_key(cls, value: object) -> object:
+        if isinstance(value, str):
+            candidate = value.strip()
+            return candidate or None
+        return value
+
+    @field_validator("GEMINI_API_KEY", mode="before")
+    @classmethod
+    def _normalize_gemini_key(cls, value: object) -> object:
+        if isinstance(value, str):
+            candidate = value.strip()
+            return candidate or None
+        return value
+
+    @field_validator("ANALYST_PROVIDER", mode="before")
+    @classmethod
+    def _validate_analyst_provider(cls, value: object) -> object:
+        if isinstance(value, str):
+            candidate = value.strip().lower()
+            if candidate not in ("heuristic", "llm", "gemini"):
+                raise ValueError("must be 'heuristic', 'llm', or 'gemini'")
+            return candidate
+        return value
+
+    @classmethod
+    def model_post_init(cls, __context):
+        """Validate configuration after all fields are set."""
+        pass
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        if self.ANALYST_PROVIDER == "llm" and not self.ANTHROPIC_API_KEY:
+            raise ValueError("ANTHROPIC_API_KEY is required when ANALYST_PROVIDER=llm")
+        if self.ANALYST_PROVIDER == "gemini" and not self.GEMINI_API_KEY:
+            raise ValueError("GEMINI_API_KEY is required when ANALYST_PROVIDER=gemini")
 
     @field_validator("AGENTIC_RUNTIME_DIR", "OPENCLAW_CONFIG_PATH", "OPENCLAW_WORKSPACE_DIR", mode="before")
     @classmethod

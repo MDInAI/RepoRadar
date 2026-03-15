@@ -1,0 +1,109 @@
+{
+  "exclude_rules": [],
+  "generated_at": "2026-03-15T20:32:55.701769+00:00",
+  "include_rules": [],
+  "outcomes": [
+    {
+      "error": null,
+      "explained_at": "2026-03-15T20:32:55.682733+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "ZypherHQ/OpenBao",
+      "github_repository_id": 1181595389,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T20:32:55.685043+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "nikmcfly/MiroFish-Offline",
+      "github_repository_id": 1182000750,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T20:32:55.686683+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "eightbitswide/CML",
+      "github_repository_id": 1181587229,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T20:32:55.689434+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "dffcode/ipv6_only",
+      "github_repository_id": 1181707179,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T20:32:55.690887+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "kitfunso/hippo-memory",
+      "github_repository_id": 1182306628,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T20:32:55.692782+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "FugerQingliu/SlayTheSpire2AutoDrawing",
+      "github_repository_id": 1182495209,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T20:32:55.694373+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "by17s/munt3os",
+      "github_repository_id": 1182506658,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T20:32:55.697235+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "backbay-labs/hush",
+      "github_repository_id": 1182605691,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    }
+  ],
+  "status": "success",
+  "summary": {
+    "accepted": 8,
+    "failed": 0,
+    "rejected": 0
+  }
+}
