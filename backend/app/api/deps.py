@@ -13,10 +13,14 @@ from app.repositories.intake_runtime_repository import IntakeRuntimeRepository
 from app.repositories.memory_repository import MemoryRepository
 from app.repositories.obsession_repository import ObsessionRepository
 from app.repositories.repository_curation_repository import RepositoryCurationRepository
+from app.repositories.repository_artifact_payload_repository import (
+    RepositoryArtifactPayloadRepository,
+)
 from app.repositories.repository_exploration_repository import RepositoryExplorationRepository
 from app.repositories.repository_triage_repository import RepositoryTriageRepository
 from app.repositories.synthesis_repository import SynthesisRepository
 from app.services.agent_event_service import AgentEventService
+from app.services.artifact_storage_status_service import ArtifactStorageStatusService
 from app.services.agent_config_service import AgentConfigService
 from app.services.agent_operator_service import AgentOperatorService
 from app.services.backfill_timeline_service import BackfillTimelineService
@@ -71,6 +75,15 @@ def get_agent_operator_service(
     return AgentOperatorService(AgentEventRepository(session))
 
 
+def get_artifact_storage_status_service(
+    session: Session = Depends(get_db_session),
+) -> ArtifactStorageStatusService:
+    return ArtifactStorageStatusService(
+        session,
+        runtime_dir=settings.AGENTIC_RUNTIME_DIR,
+    )
+
+
 def get_event_broadcaster(request: Request) -> EventBroadcaster:
     broadcaster = getattr(request.app.state, "event_broadcaster", None)
     if not isinstance(broadcaster, EventBroadcaster):
@@ -83,7 +96,10 @@ def get_repository_exploration_service(
 ) -> RepositoryExplorationService:
     return RepositoryExplorationService(
         RepositoryExplorationRepository(session),
-        runtime_dir=settings.AGENTIC_RUNTIME_DIR,
+        RepositoryArtifactPayloadRepository(
+            session,
+            runtime_dir=settings.AGENTIC_RUNTIME_DIR,
+        ),
     )
 
 

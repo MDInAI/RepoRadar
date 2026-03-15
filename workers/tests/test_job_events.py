@@ -468,9 +468,11 @@ def test_run_configured_analyst_job_records_failed_run_and_error_events(
     assert [event.event_type for event in events] == [
         "agent_started",
         "repository_analysis_failed",
-        "agent_paused",
         "agent_failed",
     ]
+    failure_event = next(event for event in events if event.event_type == "repository_analysis_failed")
+    assert failure_event.failure_classification.value == "retryable"
+    assert failure_event.failure_severity.value == "warning"
 
 
 def test_run_configured_backfill_job_persists_window_exhausted_event(

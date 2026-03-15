@@ -22,6 +22,9 @@ from app.models import (
     RepositoryTriageStatus,
 )
 from app.repositories.repository_curation_repository import RepositoryCurationRepository
+from app.repositories.repository_artifact_payload_repository import (
+    RepositoryArtifactPayloadRepository,
+)
 from app.repositories.repository_exploration_repository import RepositoryExplorationRepository
 from app.services.repository_curation_service import RepositoryCurationService
 from app.services.repository_exploration_service import RepositoryExplorationService
@@ -32,7 +35,10 @@ def _build_repository_curation_service(session: Session) -> RepositoryCurationSe
 
 
 def _build_repository_exploration_service(session: Session) -> RepositoryExplorationService:
-    return RepositoryExplorationService(RepositoryExplorationRepository(session))
+    return RepositoryExplorationService(
+        RepositoryExplorationRepository(session),
+        RepositoryArtifactPayloadRepository(session),
+    )
 
 
 @pytest.fixture

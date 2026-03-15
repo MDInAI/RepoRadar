@@ -49,11 +49,17 @@ def client(db_session: Session) -> Iterator[TestClient]:
         return IdeaFamilyService(IdeaFamilyRepository(db_session))
 
     from app.api.deps import get_repository_exploration_service
+    from app.repositories.repository_artifact_payload_repository import (
+        RepositoryArtifactPayloadRepository,
+    )
     from app.repositories.repository_exploration_repository import RepositoryExplorationRepository
     from app.services.repository_exploration_service import RepositoryExplorationService
 
     def get_test_repository_exploration_service():
-        return RepositoryExplorationService(RepositoryExplorationRepository(db_session))
+        return RepositoryExplorationService(
+            RepositoryExplorationRepository(db_session),
+            RepositoryArtifactPayloadRepository(db_session),
+        )
 
     app.dependency_overrides[get_session] = get_test_session
     app.dependency_overrides[get_idea_family_service] = get_test_idea_family_service

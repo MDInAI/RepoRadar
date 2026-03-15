@@ -13,6 +13,7 @@ from app.models import (
     RepositoryAnalysisStatus,
     RepositoryArtifact,
     RepositoryArtifactKind,
+    RepositoryArtifactPayload,
     RepositoryDiscoverySource,
     RepositoryFirehoseMode,
     RepositoryIntake,
@@ -23,6 +24,9 @@ from app.models import (
     RepositoryTriageStatus,
     SQLModel,
 )
+from app.repositories.repository_artifact_payload_repository import (
+    RepositoryArtifactPayloadRepository,
+)
 from app.repositories.repository_exploration_repository import RepositoryExplorationRepository
 from app.services.repository_exploration_service import RepositoryExplorationService
 from app.schemas.repository_exploration import RepositoryCatalogQueryParams
@@ -32,6 +36,13 @@ def _make_session(tmp_path: Path) -> Session:
     engine = create_engine(f"sqlite:///{tmp_path / 'repository-exploration.db'}")
     SQLModel.metadata.create_all(engine)
     return Session(engine)
+
+
+def _make_service(session: Session, *, runtime_dir: Path | None = None) -> RepositoryExplorationService:
+    return RepositoryExplorationService(
+        RepositoryExplorationRepository(session),
+        RepositoryArtifactPayloadRepository(session, runtime_dir=runtime_dir),
+    )
 
 
 def test_repository_exploration_service_returns_joined_metadata_summary_and_artifacts(
@@ -120,36 +131,37 @@ def test_repository_exploration_service_returns_joined_metadata_summary_and_arti
                 generated_at=now,
             )
         )
+        session.add(
+            RepositoryArtifactPayload(
+                github_repository_id=707,
+                artifact_kind=RepositoryArtifactKind.README_SNAPSHOT,
+                content_text="# Analyze Me\n\nWorkflow automation for SaaS operators.",
+                updated_at=now,
+            )
+        )
+        session.add(
+            RepositoryArtifactPayload(
+                github_repository_id=707,
+                artifact_kind=RepositoryArtifactKind.ANALYSIS_RESULT,
+                content_text=json.dumps(
+                    {
+                        "schema_version": "story-3.4-v1",
+                        "github_repository_id": 707,
+                        "full_name": "octocat/analyze-me",
+                        "analysis_provider": "StaticAnalysisProvider",
+                        "analysis": {
+                            "monetization_potential": "high",
+                            "pros": ["Clear workflow"],
+                            "cons": ["Pricing unclear"],
+                            "missing_feature_signals": ["Missing billing"],
+                        },
+                    }
+                ),
+                updated_at=now,
+            )
+        )
         session.commit()
-        runtime_dir = tmp_path / "runtime"
-        (runtime_dir / "data" / "readmes").mkdir(parents=True)
-        (runtime_dir / "data" / "analyses").mkdir(parents=True)
-        (runtime_dir / "data" / "readmes" / "707.md").write_text(
-            "# Analyze Me\n\nWorkflow automation for SaaS operators.",
-            encoding="utf-8",
-        )
-        (runtime_dir / "data" / "analyses" / "707.json").write_text(
-            json.dumps(
-                {
-                    "schema_version": "story-3.4-v1",
-                    "github_repository_id": 707,
-                    "full_name": "octocat/analyze-me",
-                    "analysis_provider": "StaticAnalysisProvider",
-                    "analysis": {
-                        "monetization_potential": "high",
-                        "pros": ["Clear workflow"],
-                        "cons": ["Pricing unclear"],
-                        "missing_feature_signals": ["Missing billing"],
-                    },
-                }
-            ),
-            encoding="utf-8",
-        )
-
-        service = RepositoryExplorationService(
-            RepositoryExplorationRepository(session),
-            runtime_dir=runtime_dir,
-        )
+        service = _make_service(session)
         response = service.get_repository_exploration(707)
 
     assert response.github_repository_id == 707
@@ -192,7 +204,7 @@ def test_repository_exploration_service_raises_not_found_for_missing_repository(
     tmp_path: Path,
 ) -> None:
     with _make_session(tmp_path) as session:
-        service = RepositoryExplorationService(RepositoryExplorationRepository(session))
+        service = _make_service(session)
         with pytest.raises(AppError, match="was not found"):
             service.get_repository_exploration(999)
 
@@ -253,7 +265,7 @@ def test_repository_exploration_service_lists_catalog_page(
         )
         session.commit()
 
-        service = RepositoryExplorationService(RepositoryExplorationRepository(session))
+        service = _make_service(session)
         response = service.list_repository_catalog(RepositoryCatalogQueryParams())
 
     assert response.total == 1
@@ -341,10 +353,7 @@ def test_repository_exploration_service_preserves_failed_analysis_status_with_ar
             encoding="utf-8",
         )
 
-        service = RepositoryExplorationService(
-            RepositoryExplorationRepository(session),
-            runtime_dir=runtime_dir,
-        )
+        service = _make_service(session, runtime_dir=runtime_dir)
         response = service.get_repository_exploration(808)
 
     assert response.intake_status.value == "completed"

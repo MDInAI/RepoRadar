@@ -3,7 +3,16 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, String, Text, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    Column,
+    ForeignKey,
+    ForeignKeyConstraint,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.schema import Index
 from sqlalchemy.types import Enum as SQLEnum
@@ -83,5 +92,57 @@ class RepositoryArtifact(SQLModel, table=True):
         ),
     )
     generated_at: datetime = Field(
+        sa_column=Column(UTCDateTimeType(), nullable=False),
+    )
+
+
+class RepositoryArtifactPayload(SQLModel, table=True):
+    __tablename__ = "repository_artifact_payload"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["github_repository_id", "artifact_kind"],
+            ["repository_artifact.github_repository_id", "repository_artifact.artifact_kind"],
+            ondelete="CASCADE",
+            name="fk_repository_artifact_payload_artifact",
+        ),
+        CheckConstraint(
+            "content_encoding != ''", name="ck_repository_artifact_payload_encoding_not_blank"
+        ),
+        Index("ix_repository_artifact_payload_updated_at", "updated_at"),
+    )
+
+    github_repository_id: int = Field(
+        sa_column=Column(
+            BigInteger,
+            ForeignKey("repository_intake.github_repository_id", ondelete="CASCADE"),
+            primary_key=True,
+            nullable=False,
+        ),
+    )
+    artifact_kind: RepositoryArtifactKind = Field(
+        sa_column=Column(
+            SQLEnum(
+                RepositoryArtifactKind,
+                values_callable=_enum_values,
+                name="repository_artifact_kind",
+                native_enum=False,
+                create_constraint=True,
+            ),
+            primary_key=True,
+            nullable=False,
+        ),
+    )
+    content_text: str = Field(
+        sa_column=Column(Text(), nullable=False),
+    )
+    content_encoding: str = Field(
+        default="utf-8",
+        sa_column=Column(
+            String(32),
+            nullable=False,
+            server_default=text("'utf-8'"),
+        ),
+    )
+    updated_at: datetime = Field(
         sa_column=Column(UTCDateTimeType(), nullable=False),
     )

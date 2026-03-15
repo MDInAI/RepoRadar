@@ -19,12 +19,18 @@ from app.models import (
     RepositoryQueueStatus,
     RepositoryTriageStatus,
 )
+from app.repositories.repository_artifact_payload_repository import (
+    RepositoryArtifactPayloadRepository,
+)
 from app.repositories.repository_exploration_repository import RepositoryExplorationRepository
 from app.services.repository_exploration_service import RepositoryExplorationService
 
 
 def _build_service(session: Session) -> RepositoryExplorationService:
-    return RepositoryExplorationService(RepositoryExplorationRepository(session))
+    return RepositoryExplorationService(
+        RepositoryExplorationRepository(session),
+        RepositoryArtifactPayloadRepository(session),
+    )
 
 
 @pytest.fixture

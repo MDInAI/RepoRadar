@@ -124,3 +124,17 @@ class AgentManualRunTriggerResponse(BaseModel):
     trigger_mode: str = "background-subprocess"
     triggered_at: datetime
     message: str
+
+
+class ArtifactStorageStatusResponse(BaseModel):
+    artifact_metadata_count: int
+    artifact_payload_count: int
+    missing_payload_count: int
+    payload_coverage_ratio: float
+    payload_coverage_percent: int
+    legacy_readme_file_count: int
+    legacy_analysis_file_count: int
+    legacy_file_count: int
+    artifact_debug_mirror_enabled: bool
+    safe_to_prune_legacy_files: bool
+    prune_readiness_reason: str

@@ -8,6 +8,9 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
+from app.repositories.repository_artifact_payload_repository import (
+    RepositoryArtifactPayloadRepository,
+)
 from agentic_workers.core.pause_manager import is_agent_paused
 from agentic_workers.providers.combiner_provider import (
     AnthropicCombinerProvider,
@@ -16,6 +19,7 @@ from agentic_workers.providers.combiner_provider import (
 )
 from agentic_workers.storage.backend_models import (
     RepositoryIntake,
+    RepositoryArtifactKind,
     SynthesisRun,
     SynthesisRunStatus,
 )
@@ -101,19 +105,26 @@ def run_combiner_job(
 
         # Load repository READMEs
         readme_contents = []
+        artifact_payload_repository = RepositoryArtifactPayloadRepository(
+            session,
+            runtime_dir=runtime_dir,
+        )
         for repo_id in run.input_repository_ids:
             repo = session.get(RepositoryIntake, repo_id)
             if not repo:
                 raise ValueError(f"Repository {repo_id} not found")
 
-            # Load README artifact from data/readmes/{github_repository_id}.md
-            if runtime_dir:
-                readme_path = runtime_dir / "data" / "readmes" / f"{repo.github_repository_id}.md"
-                if readme_path.exists():
-                    readme_contents.append({
+            readme_content = artifact_payload_repository.get_text_artifact(
+                repo.github_repository_id,
+                RepositoryArtifactKind.README_SNAPSHOT,
+            )
+            if readme_content is not None:
+                readme_contents.append(
+                    {
                         "full_name": repo.full_name,
-                        "content": readme_path.read_text(encoding="utf-8"),
-                    })
+                        "content": readme_content,
+                    }
+                )
 
         if not readme_contents:
             raise ValueError("No README artifacts found for input repositories")

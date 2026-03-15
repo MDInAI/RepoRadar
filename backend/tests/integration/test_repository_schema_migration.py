@@ -36,6 +36,7 @@ def test_repository_intake_migration_creates_schema_and_enforces_identity(
     assert "repository_triage_explanation" in inspector.get_table_names()
     assert "repository_analysis_result" in inspector.get_table_names()
     assert "repository_artifact" in inspector.get_table_names()
+    assert "repository_artifact_payload" in inspector.get_table_names()
     assert inspector.get_pk_constraint("repository_intake")["constrained_columns"] == [
         "github_repository_id"
     ]
@@ -199,6 +200,23 @@ def test_repository_intake_migration_creates_schema_and_enforces_identity(
     assert len(artifact_foreign_keys) == 1
     assert artifact_foreign_keys[0]["referred_table"] == "repository_intake"
     assert artifact_foreign_keys[0]["referred_columns"] == ["github_repository_id"]
+
+    payload_columns = {
+        column["name"]: column for column in inspector.get_columns("repository_artifact_payload")
+    }
+    assert {
+        "github_repository_id",
+        "artifact_kind",
+        "content_text",
+        "content_encoding",
+        "updated_at",
+    } <= set(payload_columns)
+    assert not payload_columns["content_text"]["nullable"]
+    assert not payload_columns["content_encoding"]["nullable"]
+    assert not payload_columns["updated_at"]["nullable"]
+
+    payload_foreign_keys = inspector.get_foreign_keys("repository_artifact_payload")
+    assert len(payload_foreign_keys) == 2
 
     with engine.begin() as connection:
         connection.execute(

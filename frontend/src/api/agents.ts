@@ -160,6 +160,20 @@ export interface BackfillTimelineUpdateResponse extends BackfillTimelineResponse
   message: string;
 }
 
+export interface ArtifactStorageStatusResponse {
+  artifact_metadata_count: number;
+  artifact_payload_count: number;
+  missing_payload_count: number;
+  payload_coverage_ratio: number;
+  payload_coverage_percent: number;
+  legacy_readme_file_count: number;
+  legacy_analysis_file_count: number;
+  legacy_file_count: number;
+  artifact_debug_mirror_enabled: boolean;
+  safe_to_prune_legacy_files: boolean;
+  prune_readiness_reason: string;
+}
+
 interface AgentErrorEnvelope {
   error?: {
     code?: string;
@@ -321,6 +335,23 @@ function isBackfillTimelineResponse(value: unknown): value is BackfillTimelineRe
 
 function isBackfillTimelineUpdateResponse(value: unknown): value is BackfillTimelineUpdateResponse {
   return isBackfillTimelineResponse(value) && isRecord(value) && typeof value.message === "string";
+}
+
+function isArtifactStorageStatusResponse(value: unknown): value is ArtifactStorageStatusResponse {
+  return (
+    isRecord(value) &&
+    typeof value.artifact_metadata_count === "number" &&
+    typeof value.artifact_payload_count === "number" &&
+    typeof value.missing_payload_count === "number" &&
+    typeof value.payload_coverage_ratio === "number" &&
+    typeof value.payload_coverage_percent === "number" &&
+    typeof value.legacy_readme_file_count === "number" &&
+    typeof value.legacy_analysis_file_count === "number" &&
+    typeof value.legacy_file_count === "number" &&
+    typeof value.artifact_debug_mirror_enabled === "boolean" &&
+    typeof value.safe_to_prune_legacy_files === "boolean" &&
+    typeof value.prune_readiness_reason === "string"
+  );
 }
 
 export function isAgentRunEvent(value: unknown): value is AgentRunEvent {
@@ -607,6 +638,10 @@ export function getBackfillTimelineQueryKey() {
   return ["agents", "backfill", "timeline"] as const;
 }
 
+export function getArtifactStorageStatusQueryKey() {
+  return ["agents", "artifacts", "status"] as const;
+}
+
 export function sortAgentStatusEntries(entries: AgentStatusEntry[]): AgentStatusEntry[] {
   return [...entries].sort(
     (left, right) =>
@@ -766,5 +801,14 @@ export async function updateBackfillTimeline(values: {
     isBackfillTimelineUpdateResponse,
     "Backfill timeline update response has unexpected shape",
     "backfill_timeline_update_shape_invalid",
+  );
+}
+
+export async function fetchArtifactStorageStatus(): Promise<ArtifactStorageStatusResponse> {
+  return parseExpectedResponse(
+    await requestJson<unknown>("/api/v1/agents/artifacts/status"),
+    isArtifactStorageStatusResponse,
+    "Artifact storage status response has unexpected shape",
+    "artifact_storage_status_shape_invalid",
   );
 }

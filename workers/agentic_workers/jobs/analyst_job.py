@@ -254,7 +254,10 @@ def run_analyst_job(
                 )
                 session.commit()
         except GitHubReadmeNotFoundError as exc:
-            consecutive_failures += 1
+            # Missing READMEs are common in the wild and should not behave like
+            # operator-blocking system outages. Record the repo failure, but do
+            # not escalate it into an analyst pause cascade.
+            consecutive_failures = 0
             recovery_error = _record_failure(
                 session=session,
                 repository_id=repository.github_repository_id,
@@ -277,18 +280,25 @@ def run_analyst_job(
                 )
             )
             if recovery_error is None:
-                classification = classify_github_error(exc)
-                _emit_analysis_failure_event(
+                emit_failure_event(
                     session,
-                    agent_run_id=agent_run_id,
-                    repository_id=repository.github_repository_id,
-                    full_name=repository.full_name,
-                    failure_code=RepositoryAnalysisFailureCode.MISSING_README,
+                    event_type="repository_analysis_failed",
+                    agent_name="analyst",
                     message=_join_messages(str(exc), recovery_error) or str(exc),
-                    classification=classification,
-                    failure_severity=determine_severity(classification, consecutive_failures),
-                    consecutive_failures=consecutive_failures,
+                    classification=FailureClassification.RETRYABLE,
+                    failure_severity=FailureSeverity.WARNING,
+                    affected_repository_id=repository.github_repository_id,
                     upstream_provider="github",
+                    context_json=json.dumps(
+                        {
+                            "github_repository_id": repository.github_repository_id,
+                            "full_name": repository.full_name,
+                            "failure_code": RepositoryAnalysisFailureCode.MISSING_README.value,
+                            "handling": "missing_readme_non_blocking",
+                        },
+                        sort_keys=True,
+                    ),
+                    agent_run_id=agent_run_id,
                 )
                 session.commit()
         except GitHubRateLimitError as exc:

@@ -9,6 +9,7 @@ from app.api.deps import (
     get_backfill_timeline_service,
     get_agent_event_service,
     get_agent_operator_service,
+    get_artifact_storage_status_service,
 )
 from app.core.errors import AppError
 from app.schemas.agent_config import (
@@ -21,6 +22,7 @@ from app.models import AgentRunStatus, EventSeverity, FailureClassification, Fai
 from app.schemas.agent_event import (
     AgentLatestRunsResponse,
     AgentManualRunTriggerResponse,
+    ArtifactStorageStatusResponse,
     AgentPauseStateResponse,
     AgentRunDetailResponse,
     AgentRunListParams,
@@ -36,6 +38,7 @@ from app.schemas.agent_timeline import (
     BackfillTimelineUpdateResponse,
 )
 from app.services.agent_event_service import AgentEventService
+from app.services.artifact_storage_status_service import ArtifactStorageStatusService
 from app.services.agent_config_service import AgentConfigService
 from app.services.agent_operator_service import AgentOperatorService
 from app.services.backfill_timeline_service import BackfillTimelineService
@@ -47,6 +50,7 @@ AgentEventServiceDep = Depends(get_agent_event_service)
 AgentOperatorServiceDep = Depends(get_agent_operator_service)
 AgentConfigServiceDep = Depends(get_agent_config_service)
 BackfillTimelineServiceDep = Depends(get_backfill_timeline_service)
+ArtifactStorageStatusServiceDep = Depends(get_artifact_storage_status_service)
 
 
 def get_agent_run_list_params(
@@ -234,3 +238,10 @@ def update_backfill_timeline(
     service: BackfillTimelineService = BackfillTimelineServiceDep,
 ) -> BackfillTimelineUpdateResponse:
     return service.update_timeline(request)
+
+
+@router.get("/agents/artifacts/status", response_model=ArtifactStorageStatusResponse)
+def get_artifact_storage_status(
+    service: ArtifactStorageStatusService = ArtifactStorageStatusServiceDep,
+) -> ArtifactStorageStatusResponse:
+    return service.get_status()

@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import logging
 from pathlib import Path
 
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
+from app.repositories.repository_artifact_payload_repository import (
+    RepositoryArtifactPayloadRepository,
+)
+from agentic_workers.core.config import settings
 from agentic_workers.providers.readme_analyst import ReadmeBusinessAnalysis
 from agentic_workers.storage.artifact_store import (
     RepositoryArtifactPayload,
@@ -25,6 +30,8 @@ from agentic_workers.storage.backend_models import (
     RepositoryMonetizationPotential,
 )
 from agentic_workers.storage.readme_store import build_readme_artifact
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,9 +83,6 @@ def persist_analysis_success(
     analysis_provider_name: str,
     completed_at: datetime,
 ) -> PersistedAnalysisArtifacts:
-    if runtime_dir is None:
-        raise RuntimeError("runtime_dir is required for durable repository artifacts")
-
     repository = session.get(RepositoryIntake, repository_id)
     if repository is None:
         raise RuntimeError(
@@ -122,9 +126,9 @@ def persist_analysis_success(
         generated_at=completed_at,
     )
 
-    activated_artifacts = activate_repository_artifacts(
+    artifact_payload_repository = RepositoryArtifactPayloadRepository(
+        session,
         runtime_dir=runtime_dir,
-        artifacts=[readme_artifact, analysis_artifact],
     )
     try:
         repository.analysis_status = RepositoryAnalysisStatus.COMPLETED
@@ -159,13 +163,29 @@ def persist_analysis_success(
             repository_id=repository_id,
             artifacts=[readme_artifact, analysis_artifact],
         )
+        _upsert_repository_artifact_payloads(
+            artifact_payload_repository,
+            repository_id=repository_id,
+            artifacts=[readme_artifact, analysis_artifact],
+        )
         session.commit()
     except Exception:
         _rollback_after_failure(session)
-        activated_artifacts.rollback()
         raise
 
-    activated_artifacts.finalize()
+    if settings.ARTIFACT_DEBUG_MIRROR and runtime_dir is not None:
+        try:
+            activate_repository_artifacts(
+                runtime_dir=runtime_dir,
+                artifacts=[readme_artifact, analysis_artifact],
+            )
+        except Exception as exc:
+            logger.warning(
+                "Artifact mirror write failed for repository %s: %s",
+                repository_id,
+                exc,
+            )
+
     return PersistedAnalysisArtifacts(
         readme_artifact=readme_artifact,
         analysis_artifact=analysis_artifact,
@@ -346,3 +366,18 @@ def _rollback_after_failure(session: Session) -> str | None:
     except Exception as exc:
         return f"rollback failed: {exc}"
     return None
+
+
+def _upsert_repository_artifact_payloads(
+    artifact_payload_repository: RepositoryArtifactPayloadRepository,
+    *,
+    repository_id: int,
+    artifacts: list[RepositoryArtifactPayload],
+) -> None:
+    for artifact in artifacts:
+        artifact_payload_repository.upsert_text_artifact(
+            github_repository_id=repository_id,
+            artifact_kind=artifact.artifact_kind,
+            content_text=artifact.content_bytes.decode("utf-8"),
+            updated_at=artifact.generated_at,
+        )

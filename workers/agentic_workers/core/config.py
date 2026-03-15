@@ -11,6 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class WorkerRuntimeSettings(BaseModel):
     database_url: str
     runtime_dir: Path | None
+    artifact_debug_mirror: bool
     workspace_dir: Path | None
 
 
@@ -40,6 +41,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     DATABASE_URL: str = "sqlite:///../runtime/data/sqlite/agentic_workflow.db"
     AGENTIC_RUNTIME_DIR: Path | None = Path("../runtime")
+    ARTIFACT_DEBUG_MIRROR: bool = False
     OPENCLAW_CONFIG_PATH: Path | None = Path("~/.openclaw/openclaw.json")
     OPENCLAW_WORKSPACE_DIR: Path | None = None
     GITHUB_PROVIDER_TOKEN: SecretStr | None = None
@@ -138,6 +140,7 @@ class Settings(BaseSettings):
         return WorkerRuntimeSettings(
             database_url=self.DATABASE_URL,
             runtime_dir=self.AGENTIC_RUNTIME_DIR,
+            artifact_debug_mirror=self.ARTIFACT_DEBUG_MIRROR,
             workspace_dir=self.OPENCLAW_WORKSPACE_DIR,
         )
 
