@@ -10,6 +10,7 @@ from app.schemas.settings import (
 )
 from app.services.settings.common import (
     _DEFAULT_FIREHOSE_PAGES,
+    _calculate_effective_firehose_interval,
     _calculate_effective_backfill_interval,
 )
 
@@ -114,12 +115,25 @@ def project_setting_summaries(app_settings: Settings) -> list[MaskedSettingSumma
         _process_env_int("FIREHOSE_PAGES", default=_DEFAULT_FIREHOSE_PAGES),
         provider.backfill_pages,
     )
+    effective_firehose_interval = _calculate_effective_firehose_interval(
+        provider.firehose_interval_seconds,
+        provider.github_requests_per_minute,
+        provider.intake_pacing_seconds,
+        _process_env_int("FIREHOSE_PAGES", default=_DEFAULT_FIREHOSE_PAGES),
+        provider.backfill_pages,
+    )
 
     if effective_backfill_interval != provider.backfill_interval_seconds:
         logger.warning(
             "Backfill interval clamped: configured=%ds, effective=%ds",
             provider.backfill_interval_seconds,
             effective_backfill_interval,
+        )
+    if effective_firehose_interval != provider.firehose_interval_seconds:
+        logger.warning(
+            "Firehose interval clamped: configured=%ds, effective=%ds",
+            provider.firehose_interval_seconds,
+            effective_firehose_interval,
         )
 
     logger.debug(
@@ -193,6 +207,39 @@ def project_setting_summaries(app_settings: Settings) -> list[MaskedSettingSumma
             notes=["Worker pacing stays project-owned rather than OpenClaw-native."],
         ),
         MaskedSettingSummary(
+            key="FIREHOSE_INTERVAL_SECONDS",
+            label="Firehose interval",
+            owner="agentic-workflow",
+            source="project-env",
+            configured=True,
+            required=True,
+            value=str(effective_firehose_interval),
+            notes=[
+                "Firehose cadence remains project-owned worker configuration.",
+                f"Configured: {provider.firehose_interval_seconds}s, Effective (clamped by budget): {effective_firehose_interval}s",
+            ],
+        ),
+        MaskedSettingSummary(
+            key="FIREHOSE_PER_PAGE",
+            label="Firehose page size",
+            owner="agentic-workflow",
+            source="project-env",
+            configured=True,
+            required=True,
+            value=str(provider.firehose_per_page),
+            notes=["Real-time GitHub search page size stays in project-owned settings."],
+        ),
+        MaskedSettingSummary(
+            key="FIREHOSE_PAGES",
+            label="Firehose pages per mode",
+            owner="agentic-workflow",
+            source="project-env",
+            configured=True,
+            required=True,
+            value=str(provider.firehose_pages),
+            notes=["Firehose pacing stays bounded by an explicit per-mode page cap."],
+        ),
+        MaskedSettingSummary(
             key="BACKFILL_INTERVAL_SECONDS",
             label="Backfill interval",
             owner="agentic-workflow",
@@ -244,6 +291,26 @@ def project_setting_summaries(app_settings: Settings) -> list[MaskedSettingSumma
             required=True,
             value=provider.backfill_min_created_date.isoformat(),
             notes=["Historical backfill stays bounded by a project-owned oldest-date cutoff."],
+        ),
+        MaskedSettingSummary(
+            key="BOUNCER_INCLUDE_RULES",
+            label="Bouncer include rules",
+            owner="agentic-workflow",
+            source="project-env",
+            configured=True,
+            required=False,
+            value=", ".join(provider.bouncer_include_rules) if provider.bouncer_include_rules else "none",
+            notes=["Rule-based triage include rules remain explicit project-owned tuning."],
+        ),
+        MaskedSettingSummary(
+            key="BOUNCER_EXCLUDE_RULES",
+            label="Bouncer exclude rules",
+            owner="agentic-workflow",
+            source="project-env",
+            configured=True,
+            required=False,
+            value=", ".join(provider.bouncer_exclude_rules) if provider.bouncer_exclude_rules else "none",
+            notes=["Rule-based triage exclude rules remain explicit project-owned tuning."],
         ),
         MaskedSettingSummary(
             key="OPENCLAW_CONFIG_PATH",

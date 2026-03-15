@@ -233,7 +233,7 @@ export function CatalogFilterBar({
         <div>
           <p className="card-label">Corpus Browser</p>
           <h2 className="card-title" style={{ marginTop: "6px" }}>
-            Search, filter, and curate repositories with real analysis tags
+            Search and curate repositories with real analysis tags
           </h2>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -314,8 +314,8 @@ export function CatalogFilterBar({
         />
       </div>
 
-      <div className="repo-filter-grid" style={{ marginTop: "14px", gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
-        <label className="repo-filter-control">
+      <div className="repo-filter-toolbar">
+        <label className="repo-filter-control compact">
           <span className="repo-filter-label">Minimum stars</span>
           <input
             aria-label="Minimum stars"
@@ -330,7 +330,7 @@ export function CatalogFilterBar({
             }}
           />
         </label>
-        <label className="repo-filter-control">
+        <label className="repo-filter-control compact">
           <span className="repo-filter-label">Maximum stars</span>
           <input
             aria-label="Maximum stars"
@@ -361,12 +361,12 @@ export function CatalogFilterBar({
             type="checkbox"
             onChange={(event) => onStarredOnlyChange(event.target.checked)}
           />
-          <span>Show starred only</span>
+          <span>Show watchlist only</span>
         </label>
         <button
           aria-label="Toggle sort order"
           className="btn"
-          style={{ justifyContent: "center", alignSelf: "end", height: "34px" }}
+          style={{ minHeight: "36px", alignSelf: "end" }}
           type="button"
           onClick={() => onOrderChange(order === "desc" ? "asc" : "desc")}
         >
@@ -382,15 +382,15 @@ export function CatalogFilterBar({
               <button
                 key={chip.key}
                 aria-label={`Remove ${chip.label} filter`}
-                className="tag tag-active"
+                className="tag tag-user"
                 type="button"
                 onClick={() => onRemoveChip(chip.key)}
               >
                 {chip.label} ×
               </button>
             ))}
-            <button className="btn btn-sm" type="button" onClick={onClearAll}>
-              Clear all
+            <button aria-label="Clear all" className="btn btn-sm" type="button" onClick={onClearAll}>
+              Clear filters
             </button>
           </>
         ) : (

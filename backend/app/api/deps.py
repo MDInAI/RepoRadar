@@ -1,9 +1,10 @@
 from collections.abc import Generator
+from pathlib import Path
 
 from fastapi import Depends, Request
 from sqlmodel import Session
 
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.core.database import get_session
 from app.core.event_broadcaster import EventBroadcaster
 from app.repositories.agent_event_repository import AgentEventRepository
@@ -16,6 +17,9 @@ from app.repositories.repository_exploration_repository import RepositoryExplora
 from app.repositories.repository_triage_repository import RepositoryTriageRepository
 from app.repositories.synthesis_repository import SynthesisRepository
 from app.services.agent_event_service import AgentEventService
+from app.services.agent_config_service import AgentConfigService
+from app.services.agent_operator_service import AgentOperatorService
+from app.services.backfill_timeline_service import BackfillTimelineService
 from app.services.idea_family_service import IdeaFamilyService
 from app.services.intake_runtime_service import GatewayIntakeRuntimeService
 from app.services.memory_service import MemoryService
@@ -57,7 +61,14 @@ def get_agent_event_service(
     return AgentEventService(
         AgentEventRepository(session),
         broadcaster=get_event_broadcaster(request),
+        runtime_dir=settings.AGENTIC_RUNTIME_DIR,
     )
+
+
+def get_agent_operator_service(
+    session: Session = Depends(get_db_session),
+) -> AgentOperatorService:
+    return AgentOperatorService(AgentEventRepository(session))
 
 
 def get_event_broadcaster(request: Request) -> EventBroadcaster:
@@ -118,4 +129,18 @@ def get_memory_service(
 
 
 def get_settings_service() -> SettingsService:
-    return SettingsService()
+    env_path = Path(__file__).resolve().parents[2] / ".env"
+    return SettingsService(app_settings=Settings(_env_file=env_path))
+
+
+def get_agent_config_service() -> AgentConfigService:
+    return AgentConfigService()
+
+
+def get_backfill_timeline_service(
+    session: Session = Depends(get_db_session),
+) -> BackfillTimelineService:
+    return BackfillTimelineService(
+        session,
+        runtime_dir=settings.AGENTIC_RUNTIME_DIR,
+    )

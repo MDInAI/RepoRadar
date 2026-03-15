@@ -1,6 +1,7 @@
 import { getRequiredApiBaseUrl } from "./base-url";
 
 export type RepositoryDiscoverySource = "unknown" | "firehose" | "backfill";
+export type RepositoryFirehoseMode = "new" | "trending";
 export type RepositoryQueueStatus = "pending" | "in_progress" | "completed" | "failed";
 export type RepositoryIntakeStatus = RepositoryQueueStatus;
 export type RepositoryTriageStatus = "pending" | "accepted" | "rejected";
@@ -39,6 +40,7 @@ export interface RepositoryCatalogItem {
   forks_count: number;
   pushed_at: string | null;
   discovery_source: RepositoryDiscoverySource;
+  firehose_discovery_mode: RepositoryFirehoseMode | null;
   intake_status: RepositoryIntakeStatus;
   triage_status: RepositoryTriageStatus;
   analysis_status: RepositoryAnalysisStatus;
@@ -55,6 +57,7 @@ export interface RepositoryCatalogItem {
   has_analysis_artifact: boolean;
   is_starred: boolean;
   user_tags: string[];
+  idea_family_ids?: number[];
 }
 
 export interface RepositoryBacklogSummary {
@@ -168,11 +171,13 @@ export interface RepositoryDetailResponse {
   full_name: string;
   repository_description: string | null;
   discovery_source: RepositoryDiscoverySource;
+  firehose_discovery_mode: RepositoryFirehoseMode | null;
   intake_status: RepositoryIntakeStatus;
   triage_status: RepositoryTriageStatus;
   analysis_status: RepositoryAnalysisStatus;
   stargazers_count: number;
   forks_count: number;
+  github_created_at: string | null;
   discovered_at: string;
   status_updated_at: string;
   pushed_at: string | null;

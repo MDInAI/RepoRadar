@@ -273,6 +273,10 @@ class RepositoryIntake(SQLModel, table=True):
         default=0,
         sa_column=Column(Integer, nullable=False, server_default=text("0")),
     )
+    github_created_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(UTCDateTimeType(), nullable=True),
+    )
     pushed_at: datetime | None = Field(
         default=None,
         sa_column=Column(UTCDateTimeType(), nullable=True),

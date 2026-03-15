@@ -114,6 +114,15 @@ class AgentEventRepository:
     def get_agent_run(self, run_id: int) -> AgentRun | None:
         return self.session.get(AgentRun, run_id)
 
+    def has_running_agent_run(self, agent_name: str) -> bool:
+        statement = (
+            select(func.count())
+            .select_from(AgentRun)
+            .where(AgentRun.agent_name == agent_name)
+            .where(AgentRun.status == AgentRunStatus.RUNNING)
+        )
+        return bool(self.session.exec(statement).one() or 0)
+
     def get_latest_run_per_agent(self) -> list[AgentRun]:
         ranked_runs = (
             select(

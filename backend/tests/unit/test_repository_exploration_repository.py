@@ -184,6 +184,8 @@ def test_list_repository_catalog_returns_default_sort_and_pagination(tmp_path: P
     assert page.items[0].has_analysis_artifact is True
     assert page.items[0].is_starred is False
     assert page.items[0].user_tags == []
+    assert page.items[0].firehose_discovery_mode is RepositoryFirehoseMode.TRENDING
+    assert page.items[0].agent_tags == ["trending"]
 
 
 def test_list_repository_catalog_supports_combined_filters_and_search(tmp_path: Path) -> None:
@@ -270,6 +272,23 @@ def test_filter_by_analysis_status_alone(tmp_path: Path) -> None:
         )
     assert page.total == 1
     assert page.items[0].github_repository_id == 303
+
+
+def test_filter_by_firehose_discovery_mode_agent_tag(tmp_path: Path) -> None:
+    with _make_session(tmp_path) as session:
+        _seed_catalog(session)
+        repo = RepositoryExplorationRepository(session)
+        page = repo.list_repository_catalog(
+            _default_params(
+                agent_tag="new",
+                triage_status=RepositoryTriageStatus.ACCEPTED,
+                analysis_status=RepositoryAnalysisStatus.PENDING,
+            )
+        )
+
+    assert page.total == 1
+    assert [item.github_repository_id for item in page.items] == [303]
+    assert page.items[0].agent_tags == ["new"]
 
 
 def test_filter_by_monetization_potential_alone(tmp_path: Path) -> None:

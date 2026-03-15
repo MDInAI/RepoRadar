@@ -76,6 +76,7 @@ class GatewayIntakeRuntimeService:
                 window_start_date=runtime.window_start_date,
                 created_before_boundary=runtime.created_before_boundary,
                 created_before_cursor=runtime.created_before_cursor,
+                resume_required=runtime.resume_required,
                 exhausted=runtime.exhausted,
             ),
             notes=self._build_queue_notes(

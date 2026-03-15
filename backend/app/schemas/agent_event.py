@@ -85,6 +85,7 @@ class AgentStatusEntry(BaseModel):
     output_tokens_24h: int = 0
     has_run: bool
     latest_run: AgentRunResponse | None = None
+    latest_intake_summary: dict[str, int] | None = None
 
 
 class AgentLatestRunsResponse(BaseModel):
@@ -115,3 +116,11 @@ class AgentPauseStateResponse(BaseModel):
     triggered_by_event_id: int | None = None
     resumed_at: datetime | None = None
     resumed_by: ResumedBy | None = None
+
+
+class AgentManualRunTriggerResponse(BaseModel):
+    agent_name: str
+    accepted: bool = True
+    trigger_mode: str = "background-subprocess"
+    triggered_at: datetime
+    message: str

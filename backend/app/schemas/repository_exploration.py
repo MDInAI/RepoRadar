@@ -10,6 +10,7 @@ from app.models import (
     RepositoryArtifactKind,
     RepositoryCategory,
     RepositoryDiscoverySource,
+    RepositoryFirehoseMode,
     RepositoryMonetizationPotential,
     RepositoryQueueStatus,
     RepositoryTriageExplanationKind,
@@ -100,11 +101,13 @@ class RepositoryExplorationResponse(BaseModel):
     full_name: str
     repository_description: str | None = None
     discovery_source: RepositoryDiscoverySource
+    firehose_discovery_mode: RepositoryFirehoseMode | None = None
     intake_status: RepositoryQueueStatus
     triage_status: RepositoryTriageStatus
     analysis_status: RepositoryAnalysisStatus
     stargazers_count: int
     forks_count: int
+    github_created_at: datetime | None = None
     discovered_at: datetime
     status_updated_at: datetime
     pushed_at: datetime | None = None
@@ -166,6 +169,7 @@ class RepositoryCatalogItemResponse(BaseModel):
     forks_count: int
     pushed_at: datetime | None = None
     discovery_source: RepositoryDiscoverySource
+    firehose_discovery_mode: RepositoryFirehoseMode | None = None
     intake_status: RepositoryQueueStatus
     triage_status: RepositoryTriageStatus
     analysis_status: RepositoryAnalysisStatus

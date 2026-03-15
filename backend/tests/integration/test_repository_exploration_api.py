@@ -276,6 +276,7 @@ def test_get_repository_exploration_success(
     assert data["intake_status"] == "completed"
     assert data["triage_status"] == "accepted"
     assert data["stargazers_count"] == 100
+    assert data["firehose_discovery_mode"] is None
     assert data["has_readme_artifact"] is True
     assert data["has_analysis_artifact"] is True
     assert len(data["artifacts"]) == 2
@@ -320,6 +321,8 @@ def test_list_repository_catalog_returns_paginated_results(
     assert [item["github_repository_id"] for item in data["items"]] == [701]
     assert data["items"][0]["full_name"] == "alpha/growth-engine"
     assert data["items"][0]["intake_status"] == "completed"
+    assert data["items"][0]["firehose_discovery_mode"] == "trending"
+    assert data["items"][0]["agent_tags"] == ["trending"]
     assert data["items"][0]["monetization_potential"] == "high"
     assert data["items"][0]["has_readme_artifact"] is True
     assert data["items"][0]["has_analysis_artifact"] is False
@@ -403,6 +406,21 @@ def test_list_repository_catalog_supports_filters_and_search(
 
     assert data["total"] == 1
     assert [item["github_repository_id"] for item in data["items"]] == [701]
+
+
+def test_list_repository_catalog_filters_by_firehose_mode_agent_tag(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    _seed_catalog(db_session)
+
+    response = client.get("/api/v1/repositories", params={"agent_tag": "trending"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert [item["github_repository_id"] for item in data["items"]] == [701]
+    assert data["items"][0]["agent_tags"] == ["trending"]
 
 
 def test_list_repository_catalog_treats_like_special_characters_as_literals(

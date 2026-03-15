@@ -13,6 +13,7 @@ const detailResponse = {
   full_name: "alpha/growth-engine",
   repository_description: "Growth workflows for operators",
   discovery_source: "firehose",
+  firehose_discovery_mode: "trending",
   intake_status: "completed",
   triage_status: "accepted",
   analysis_status: "completed",

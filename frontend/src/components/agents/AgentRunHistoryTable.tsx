@@ -23,7 +23,6 @@ import {
   formatItemsCount,
   formatRunDuration,
   formatTimestampLabel,
-  getRunStatusBadgeClassName,
 } from "./agentPresentation";
 
 const columnHelper = createColumnHelper<AgentRunEvent>();
