@@ -260,6 +260,15 @@ def test_get_repository_exploration_success(
             "analysis_artifact_path": "analyses/888.json",
             "analysis_provider": "StaticAnalysisProvider",
             "analysis_model_name": "claude-3-5-haiku-20241022",
+            "analysis_mode": "fast",
+            "analysis_outcome": "completed_low_confidence",
+            "analysis_schema_version": "story-3.4-v2",
+            "analysis_evidence_version": "fast-evidence-v1",
+            "insufficient_evidence_reason": None,
+            "evidence_summary": "Deterministic evidence summary.",
+            "analysis_signals": {"has_readme": True, "stars": 100},
+            "supporting_signals": ["Repository already has 100 GitHub stars."],
+            "red_flags": ["Commercial packaging and pricing evidence is still weak."],
             "normalization_version": "story-3.4-v1",
             "raw_character_count": 2200,
             "normalized_character_count": 840,
@@ -306,6 +315,18 @@ def test_get_repository_exploration_success(
     assert data["analysis_summary"]["target_customer"] == "Operations teams"
     assert data["analysis_summary"]["confidence_score"] == 86
     assert data["analysis_summary"]["recommended_action"] == "Create family + Combiner brief"
+    assert data["analysis_summary"]["analysis_mode"] == "fast"
+    assert data["analysis_summary"]["analysis_outcome"] == "completed_low_confidence"
+    assert data["analysis_summary"]["analysis_schema_version"] == "story-3.4-v2"
+    assert data["analysis_summary"]["analysis_evidence_version"] == "fast-evidence-v1"
+    assert data["analysis_summary"]["evidence_summary"] == "Deterministic evidence summary."
+    assert data["analysis_summary"]["analysis_signals"]["stars"] == 100
+    assert data["analysis_summary"]["supporting_signals"] == [
+        "Repository already has 100 GitHub stars."
+    ]
+    assert data["analysis_summary"]["red_flags"] == [
+        "Commercial packaging and pricing evidence is still weak."
+    ]
     assert "Great tech" in data["analysis_summary"]["pros"]
     assert data["triage"]["explanation"]["kind"] == "include_rule"
     assert data["triage"]["explanation"]["matched_include_rules"] == ["workflow", "automation"]

@@ -34,6 +34,20 @@ class RepositoryAnalysisSummaryResponse(BaseModel):
     monetization_potential: RepositoryMonetizationPotential
     category: RepositoryCategory | None = None
     category_confidence_score: int | None = None
+    analysis_mode: str | None = None
+    analysis_outcome: str | None = None
+    analysis_schema_version: str | None = None
+    analysis_evidence_version: str | None = None
+    insufficient_evidence_reason: str | None = None
+    evidence_summary: str | None = None
+    analysis_signals: dict[str, object] = Field(default_factory=dict)
+    score_breakdown: dict[str, int] = Field(default_factory=dict)
+    analysis_summary_short: str | None = None
+    analysis_summary_long: str | None = None
+    supporting_signals: list[str] = Field(default_factory=list)
+    red_flags: list[str] = Field(default_factory=list)
+    contradictions: list[str] = Field(default_factory=list)
+    missing_information: list[str] = Field(default_factory=list)
     agent_tags: list[str] = Field(default_factory=list)
     suggested_new_categories: list[str] = Field(default_factory=list)
     suggested_new_tags: list[str] = Field(default_factory=list)

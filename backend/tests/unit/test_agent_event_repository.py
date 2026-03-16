@@ -207,3 +207,36 @@ def test_agent_event_repository_list_events_for_run_excludes_cross_agent_pause_e
         ("firehose", "rate_limit_hit"),
         ("firehose", "agent_paused"),
     ]
+
+
+def test_has_running_agent_run_recovers_stale_superseded_runs() -> None:
+    with _make_session() as session:
+        session.add_all(
+            [
+                AgentRun(
+                    id=10,
+                    agent_name="analyst",
+                    status=AgentRunStatus.RUNNING,
+                    started_at=datetime(2026, 3, 10, 10, 0, tzinfo=timezone.utc),
+                ),
+                AgentRun(
+                    id=11,
+                    agent_name="analyst",
+                    status=AgentRunStatus.FAILED,
+                    started_at=datetime(2026, 3, 10, 10, 5, tzinfo=timezone.utc),
+                    completed_at=datetime(2026, 3, 10, 10, 6, tzinfo=timezone.utc),
+                    duration_seconds=60.0,
+                ),
+            ]
+        )
+        session.commit()
+
+        repository = AgentEventRepository(session)
+        has_running = repository.has_running_agent_run("analyst")
+        stale_run = session.get(AgentRun, 10)
+
+    assert has_running is False
+    assert stale_run is not None
+    assert stale_run.status is AgentRunStatus.FAILED
+    assert stale_run.completed_at is not None
+    assert stale_run.error_summary == "Recovered stale running job after worker state drift."

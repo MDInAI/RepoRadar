@@ -74,6 +74,12 @@ def test_settings_service_returns_masked_configuration_summary(tmp_path: Path) -
     worker_backfill_window = next(
         item for item in response.worker_settings if item.key == "workers.BACKFILL_WINDOW_DAYS"
     )
+    analyst_provider = next(
+        item for item in response.project_settings if item.key == "ANALYST_PROVIDER"
+    )
+    worker_analyst_provider = next(
+        item for item in response.worker_settings if item.key == "workers.ANALYST_PROVIDER"
+    )
 
     assert gateway_url.value == "wss://gateway.local:18789"
     assert gateway_token.value == "configured"
@@ -83,7 +89,65 @@ def test_settings_service_returns_masked_configuration_summary(tmp_path: Path) -
     assert firehose_interval.value == "3600"
     assert backfill_interval.value == "21600"
     assert worker_backfill_window.value == "30"
+    assert analyst_provider.value == "heuristic"
+    assert worker_analyst_provider.value == "heuristic"
     assert all(item.source == "shared-project-env" for item in response.worker_settings)
+
+
+def test_settings_service_surfaces_analyst_runtime_configuration(tmp_path: Path) -> None:
+    config_path = _write_openclaw_config(
+        tmp_path / "openclaw.json",
+        {
+            "gateway": {
+                "url": "wss://gateway.local",
+                "auth": {"token": "gateway-token-value"},
+            },
+            "agents": {"defaults": {"model": "openai/gpt-5-mini"}},
+        },
+    )
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+    worker_env_dir = tmp_path / "workers"
+    worker_env_dir.mkdir()
+    (worker_env_dir / ".env").write_text(
+        "\n".join(
+            [
+                "ANALYST_PROVIDER=gemini",
+                "GEMINI_API_KEY=worker-gemini-key",
+                "GEMINI_BASE_URL=https://example.invalid/v1",
+                "GEMINI_MODEL_NAME=google/gemini-2.5-flash",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    response = SettingsService(
+        app_settings=Settings(
+            OPENCLAW_CONFIG_PATH=config_path,
+            OPENCLAW_WORKSPACE_DIR=workspace_dir,
+            ANALYST_PROVIDER="llm",
+            ANTHROPIC_API_KEY="anthropic-project-key",
+            ANALYST_MODEL_NAME="claude-3-5-haiku-20241022",
+            GEMINI_BASE_URL="https://project.example/v1",
+            GEMINI_MODEL_NAME="project-gemini-model",
+        ),
+        project_root=tmp_path,
+    ).get_settings_summary()
+
+    project_provider = next(item for item in response.project_settings if item.key == "ANALYST_PROVIDER")
+    project_anthropic_key = next(item for item in response.project_settings if item.key == "ANTHROPIC_API_KEY")
+    worker_provider = next(item for item in response.worker_settings if item.key == "workers.ANALYST_PROVIDER")
+    worker_gemini_key = next(item for item in response.worker_settings if item.key == "workers.GEMINI_API_KEY")
+    worker_gemini_url = next(item for item in response.worker_settings if item.key == "workers.GEMINI_BASE_URL")
+
+    assert project_provider.value == "llm"
+    assert project_anthropic_key.value == "configured"
+    assert project_anthropic_key.secret is True
+    assert worker_provider.value == "gemini"
+    assert worker_gemini_key.value == "configured"
+    assert worker_gemini_key.secret is True
+    assert worker_gemini_url.value == "https://example.invalid/v1"
 
 
 def test_settings_service_clamps_backfill_interval_with_effective_worker_inputs(

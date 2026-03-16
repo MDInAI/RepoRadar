@@ -145,6 +145,20 @@ class GatewayAgentSessionAffinity(BaseModel):
     status: Literal["reserved"] = "reserved"
 
 
+class GitHubApiBudgetSnapshot(BaseModel):
+    provider: Literal["github"] = "github"
+    captured_at: datetime
+    last_response_status: int | None = None
+    request_url: str | None = None
+    resource: str | None = None
+    limit: int | None = None
+    remaining: int | None = None
+    used: int | None = None
+    reset_at: datetime | None = None
+    retry_after_seconds: int | None = None
+    exhausted: bool | None = None
+
+
 class GatewayNamedAgentSummary(BaseModel):
     agent_key: GatewayAgentKey
     display_name: GatewayAgentDisplayName
@@ -185,6 +199,7 @@ class NormalizedGatewayRuntimeState(BaseModel):
     status: Literal["unknown"]
     route_owner: str
     agent_states: list[GatewayNamedAgentSummary] = Field(default_factory=list)
+    github_api_budget: GitHubApiBudgetSnapshot | None = None
     notes: list[str] = Field(default_factory=list)
 
 

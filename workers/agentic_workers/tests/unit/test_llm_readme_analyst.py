@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from agentic_workers.providers.readme_analyst import (
+    CONTROLLED_AGENT_TAGS,
     LLMReadmeAnalysisProvider,
     LLMReadmeBusinessAnalysis,
     NormalizedReadme,
@@ -26,6 +27,7 @@ def test_valid_json_response(sample_readme):
     """Test that valid JSON response is parsed successfully."""
     mock_response = Mock()
     mock_response.content = [Mock(text='{"target_audience": "developers", "category": "workflow", "category_confidence_score": 85, "confidence_score": 80, "monetization_potential": "medium"}')]
+    mock_response.usage = Mock(input_tokens=123, output_tokens=45)
 
     with patch("agentic_workers.providers.readme_analyst.Anthropic") as mock_anthropic:
         mock_client = Mock()
@@ -37,6 +39,26 @@ def test_valid_json_response(sample_readme):
 
         assert isinstance(result, str)
         assert "workflow" in result
+        assert provider.last_usage.input_tokens == 123
+        assert provider.last_usage.output_tokens == 45
+        assert provider.last_usage.total_tokens == 168
+
+
+def test_valid_json_response_with_code_fences(sample_readme):
+    """Test that fenced JSON is normalized before validation."""
+    mock_response = Mock()
+    mock_response.content = [Mock(text='```json\n{"category": "workflow", "category_confidence_score": 85, "confidence_score": 80, "monetization_potential": "medium"}\n```')]
+    mock_response.usage = Mock(input_tokens=10, output_tokens=5)
+
+    with patch("agentic_workers.providers.readme_analyst.Anthropic") as mock_anthropic:
+        mock_client = Mock()
+        mock_client.messages.create.return_value = mock_response
+        mock_anthropic.return_value = mock_client
+
+        provider = LLMReadmeAnalysisProvider(api_key="test-key")
+        result = provider.analyze(repository_full_name="test/repo", readme=sample_readme)
+
+        assert '"category": "workflow"' in result
 
 
 def test_invalid_json_raises_validation_error(sample_readme):
@@ -102,6 +124,33 @@ def test_suggested_new_categories_captured(sample_readme):
 
         assert "suggested_new_categories" in result
         assert "blockchain" in result
+
+
+def test_unknown_agent_tags_are_redirected_to_suggested_new_tags(sample_readme):
+    mock_response = Mock()
+    mock_response.content = [
+        Mock(
+            text=(
+                '{"category": "workflow", "agent_tags": ["API", "Vertical SaaS", "workflow"], '
+                '"suggested_new_tags": ["Custom Workflow"], "category_confidence_score": 75, '
+                '"confidence_score": 70, "monetization_potential": "medium"}'
+            )
+        )
+    ]
+
+    with patch("agentic_workers.providers.readme_analyst.Anthropic") as mock_anthropic:
+        mock_client = Mock()
+        mock_client.messages.create.return_value = mock_response
+        mock_anthropic.return_value = mock_client
+
+        provider = LLMReadmeAnalysisProvider(api_key="test-key")
+        result = LLMReadmeBusinessAnalysis.model_validate_json(
+            provider.analyze(repository_full_name="test/repo", readme=sample_readme)
+        )
+
+        assert result.agent_tags == ["api", "workflow"]
+        assert result.suggested_new_tags == ["vertical-saas", "custom-workflow"]
+        assert set(result.agent_tags).issubset(set(CONTROLLED_AGENT_TAGS))
 
 
 def test_create_analysis_provider_llm():

@@ -87,3 +87,5 @@ Localhost-only single-operator MVP. No authentication or RBAC in this phase.
 ## Architecture
 
 See `docs/` for detailed architecture documentation and `_bmad-output/planning-artifacts/architecture.md` for the full architecture decision document.
+
+For the current Analyst implementation and website testing flow, see `docs/analyst-enhancement-testing-guide.md`.

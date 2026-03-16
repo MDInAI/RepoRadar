@@ -79,3 +79,55 @@ def test_update_agent_config_normalizes_csv_rules(tmp_path: Path) -> None:
 
     include_field = next(field for field in response.fields if field.key == "BOUNCER_INCLUDE_RULES")
     assert include_field.value == "workflow, analytics, devtools"
+
+
+def test_get_agent_config_exposes_analyst_select_and_text_fields(tmp_path: Path) -> None:
+    service = AgentConfigService(project_root=tmp_path)
+
+    response = service.get_agent_config("analyst")
+
+    provider_field = next(field for field in response.fields if field.key == "ANALYST_PROVIDER")
+    model_field = next(field for field in response.fields if field.key == "ANALYST_MODEL_NAME")
+    assert provider_field.input_kind == "select"
+    assert provider_field.options == ["heuristic", "llm", "gemini"]
+    assert model_field.input_kind == "text"
+
+
+def test_update_agent_config_persists_analyst_values(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    workers_dir = tmp_path / "workers"
+    backend_dir.mkdir()
+    workers_dir.mkdir()
+
+    service = AgentConfigService(project_root=tmp_path)
+    response = service.update_agent_config(
+        "analyst",
+        AgentConfigUpdateRequest(
+            values={
+                "ANALYST_PROVIDER": "gemini",
+                "ANALYST_MODEL_NAME": "claude-unused-when-gemini",
+                "GEMINI_BASE_URL": "https://example.invalid/v1",
+                "GEMINI_MODEL_NAME": "google/gemini-2.5-flash",
+                "GITHUB_REQUESTS_PER_MINUTE": "75",
+                "INTAKE_PACING_SECONDS": "12",
+            }
+        ),
+    )
+
+    provider_field = next(field for field in response.fields if field.key == "ANALYST_PROVIDER")
+    assert provider_field.value == "gemini"
+    backend_text = (backend_dir / ".env").read_text(encoding="utf-8")
+    worker_text = (workers_dir / ".env").read_text(encoding="utf-8")
+    assert "ANALYST_PROVIDER=gemini" in backend_text
+    assert "GEMINI_BASE_URL=https://example.invalid/v1" in worker_text
+    assert "GEMINI_MODEL_NAME=google/gemini-2.5-flash" in worker_text
+
+
+def test_update_agent_config_rejects_invalid_analyst_provider(tmp_path: Path) -> None:
+    service = AgentConfigService(project_root=tmp_path)
+
+    with pytest.raises(AppError, match="must be one of"):
+        service.update_agent_config(
+            "analyst",
+            AgentConfigUpdateRequest(values={"ANALYST_PROVIDER": "openai"}),
+        )

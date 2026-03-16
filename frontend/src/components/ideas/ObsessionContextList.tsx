@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useObsessionContexts } from '@/hooks/useObsession';
+import { formatAppDateTime } from '@/lib/time';
 import { ObsessionContextDetailDialog } from './ObsessionContextDetailDialog';
 
 interface ObsessionContextListProps {
@@ -100,7 +101,7 @@ export function ObsessionContextList({ ideaFamilyId, showCompleted = true }: Obs
                   </div>
                   {context.last_refresh_at && (
                     <div className="text-xs text-gray-500 mt-1">
-                      Last refresh: {new Date(context.last_refresh_at).toLocaleString()}
+                      Last refresh: {formatAppDateTime(context.last_refresh_at)}
                     </div>
                   )}
                 </div>

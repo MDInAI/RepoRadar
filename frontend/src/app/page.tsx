@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 
 export default function Home() {
@@ -15,6 +17,7 @@ export default function Home() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
           <NavCard href="/overview" title="Overview" desc="System metrics and agent status" />
+          <NavCard href="/live" title="Live Ops" desc="Real-time command surface for all agents" />
           <NavCard href="/control" title="Control Panel" desc="Advanced agent configuration" />
           <NavCard href="/agents" title="Agents" desc="Monitor runtime agents" />
           <NavCard href="/repositories" title="Repositories" desc="Browse discovered repos" />

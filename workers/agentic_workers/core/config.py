@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import BaseModel, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class WorkerRuntimeSettings(BaseModel):
@@ -55,8 +56,8 @@ class Settings(BaseSettings):
     BACKFILL_PAGES: int = 2
     BACKFILL_WINDOW_DAYS: int = 30
     BACKFILL_MIN_CREATED_DATE: date = date(2008, 1, 1)
-    BOUNCER_INCLUDE_RULES: tuple[str, ...] = ()
-    BOUNCER_EXCLUDE_RULES: tuple[str, ...] = ()
+    BOUNCER_INCLUDE_RULES: Annotated[tuple[str, ...], NoDecode] = ()
+    BOUNCER_EXCLUDE_RULES: Annotated[tuple[str, ...], NoDecode] = ()
     ANALYST_PROVIDER: str = "heuristic"
     ANTHROPIC_API_KEY: SecretStr | None = None
     ANALYST_MODEL_NAME: str = "claude-3-5-haiku-20241022"

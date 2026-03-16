@@ -100,6 +100,25 @@ def test_repository_exploration_service_returns_joined_metadata_summary_and_arti
                     "analysis_artifact_path": "data/analyses/707.json",
                     "analysis_provider": "StaticAnalysisProvider",
                     "analysis_model_name": "claude-3-5-haiku-20241022",
+                    "analysis_mode": "fast",
+                    "analysis_outcome": "completed",
+                    "analysis_schema_version": "story-3.4-v2",
+                    "analysis_evidence_version": "fast-evidence-v1",
+                    "evidence_summary": "Deterministic evidence summary.",
+                    "analysis_signals": {"has_readme": True, "stars": 321},
+                    "score_breakdown": {
+                        "technical_maturity_score": 74,
+                        "commercial_readiness_score": 63,
+                        "hosted_gap_score": 71,
+                        "market_timing_score": 58,
+                        "trust_risk_score": 22,
+                    },
+                    "analysis_summary_short": "Short deterministic analyst summary.",
+                    "analysis_summary_long": "Long deterministic analyst summary.",
+                    "supporting_signals": ["Repository already has 321 GitHub stars."],
+                    "red_flags": ["Commercial packaging and pricing evidence is still weak."],
+                    "contradictions": ["Hosted claims exceed deployment evidence."],
+                    "missing_information": ["Pricing details are missing."],
                     "normalization_version": "story-3.4-v1",
                     "raw_character_count": 3120,
                     "normalized_character_count": 1280,
@@ -200,6 +219,27 @@ def test_repository_exploration_service_returns_joined_metadata_summary_and_arti
     assert response.analysis_summary.target_customer == "SaaS operators"
     assert response.analysis_summary.confidence_score == 84
     assert response.analysis_summary.recommended_action == "Create family + Combiner brief"
+    assert response.analysis_summary.analysis_mode == "fast"
+    assert response.analysis_summary.analysis_outcome == "completed"
+    assert response.analysis_summary.analysis_schema_version == "story-3.4-v2"
+    assert response.analysis_summary.analysis_evidence_version == "fast-evidence-v1"
+    assert response.analysis_summary.evidence_summary == "Deterministic evidence summary."
+    assert response.analysis_summary.analysis_signals["stars"] == 321
+    assert response.analysis_summary.score_breakdown["hosted_gap_score"] == 71
+    assert response.analysis_summary.analysis_summary_short == "Short deterministic analyst summary."
+    assert response.analysis_summary.analysis_summary_long == "Long deterministic analyst summary."
+    assert response.analysis_summary.supporting_signals == [
+        "Repository already has 321 GitHub stars."
+    ]
+    assert response.analysis_summary.red_flags == [
+        "Commercial packaging and pricing evidence is still weak."
+    ]
+    assert response.analysis_summary.contradictions == [
+        "Hosted claims exceed deployment evidence."
+    ]
+    assert response.analysis_summary.missing_information == [
+        "Pricing details are missing."
+    ]
     assert response.readme_snapshot is not None
     assert response.readme_snapshot.content == "# Analyze Me\n\nWorkflow automation for SaaS operators."
     assert response.readme_snapshot.normalization_version == "story-3.4-v1"
@@ -212,7 +252,7 @@ def test_repository_exploration_service_returns_joined_metadata_summary_and_arti
     assert response.processing.intake_completed_at is None
     assert response.processing.failure is None
     assert response.firehose_discovery_mode is RepositoryFirehoseMode.NEW
-    assert response.agent_tags == ["new"]
+    assert response.agent_tags == ["new", "workflow", "automation"]
     assert response.has_readme_artifact is True
     assert response.has_analysis_artifact is True
     assert response.is_starred is False

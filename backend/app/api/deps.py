@@ -49,7 +49,10 @@ def get_gateway_contract_service(
             runtime_dir=settings.AGENTIC_RUNTIME_DIR,
         )
     )
-    return GatewayContractService(intake_runtime_service=intake_runtime_service)
+    return GatewayContractService(
+        intake_runtime_service=intake_runtime_service,
+        runtime_dir=settings.AGENTIC_RUNTIME_DIR,
+    )
 
 
 def get_repository_triage_service(

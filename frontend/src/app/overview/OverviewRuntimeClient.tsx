@@ -16,6 +16,7 @@ import type {
   GatewayNamedAgentSummary,
   GatewayRuntimeSurfaceResponse,
 } from "@/lib/gateway-contract";
+import { APP_TIME_ZONE } from "@/lib/time";
 import { startTransition, useEffect, useRef, useState } from "react";
 
 import {
@@ -207,7 +208,7 @@ export function OverviewRuntimeClient({
   const [lastUpdatedAt, setLastUpdatedAt] = useState(initialUpdatedAt);
   const [refreshError, setRefreshError] = useState<string | null>(initialError ?? null);
   const [refreshSnapshot, setRefreshSnapshot] = useState(INITIAL_REFRESH_SNAPSHOT);
-  const [displayTimeZone, setDisplayTimeZone] = useState("UTC");
+  const [displayTimeZone] = useState(APP_TIME_ZONE);
   const mountedRef = useRef(false);
   const refreshControllerRef = useRef<RuntimeRefreshController | null>(null);
   useEventStream();
@@ -237,10 +238,6 @@ export function OverviewRuntimeClient({
 
   useEffect(() => {
     mountedRef.current = true;
-    setDisplayTimeZone(
-      Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-    );
-
     const refreshController = createRuntimeRefreshController({
       intervalMs: RUNTIME_REFRESH_INTERVAL_MS,
       maxConsecutiveFailures: MAX_CONSECUTIVE_REFRESH_FAILURES,

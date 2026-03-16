@@ -1,12 +1,57 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
+import {
+  fetchLatestAgentRuns,
+  fetchAgentPauseStates,
+  fetchFailureEvents,
+  getLatestAgentRunsQueryKey,
+  getAgentPauseStatesQueryKey,
+  getFailureEventsQueryKey,
+} from "@/api/agents";
 import { fetchOverviewSummary, getOverviewSummaryQueryKey } from "@/api/overview";
+import { fetchGatewayRuntime } from "@/api/readiness";
+import { GitHubBudgetPanel } from "@/components/agents/GitHubBudgetPanel";
+import { AgentOperatorSummary } from "@/components/agents/AgentOperatorSummary";
+import { OperationalAlertsPanel } from "@/components/agents/OperationalAlertsPanel";
+import { buildLatestActiveFailureByAgent } from "@/components/agents/alertState";
 
 export default function OverviewPage() {
+  const recentFailureSince = useMemo(
+    () => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    [],
+  );
   const { data, isLoading, error } = useQuery({
     queryKey: getOverviewSummaryQueryKey(),
     queryFn: fetchOverviewSummary,
+    refetchInterval: 30_000,
+  });
+  const pauseStatesQuery = useQuery({
+    queryKey: getAgentPauseStatesQueryKey(),
+    queryFn: fetchAgentPauseStates,
+    refetchInterval: 10_000,
+  });
+  const latestRunsQuery = useQuery({
+    queryKey: getLatestAgentRunsQueryKey(),
+    queryFn: fetchLatestAgentRuns,
+    refetchInterval: 15_000,
+  });
+  const failureEventsQuery = useQuery({
+    queryKey: getFailureEventsQueryKey({
+      since: recentFailureSince,
+      limit: 8,
+    }),
+    queryFn: () =>
+      fetchFailureEvents({
+        since: recentFailureSince,
+        limit: 8,
+      }),
+    refetchInterval: 10_000,
+  });
+  const gatewayRuntimeQuery = useQuery({
+    queryKey: ["gateway", "runtime"],
+    queryFn: fetchGatewayRuntime,
     refetchInterval: 30_000,
   });
 
@@ -25,8 +70,8 @@ export default function OverviewPage() {
     );
   }
 
-  const activeAgents = data?.agents.filter(a => !a.is_paused && a.status === 'completed').length || 0;
   const runningAgents = data?.agents.filter(a => !a.is_paused && a.status === 'running').length || 0;
+  const readyAgents = data?.agents.filter(a => !a.is_paused && a.status !== 'running' && a.status !== 'failed').length || 0;
   const healthyAgents = data?.agents.filter(a => !a.is_paused && a.status !== 'failed').length || 0;
   const reposDiscovered24h = data?.ingestion.discovered_last_24h || 0;
   const acceptedRepos = data?.triage.accepted || 0;
@@ -38,6 +83,18 @@ export default function OverviewPage() {
   const topTokenAgent = data?.agents.find(
     (agent) => agent.agent_name === data?.token_usage.top_consumer_agent_name,
   );
+  const latestRunAgents = latestRunsQuery.data?.agents ?? [];
+  const pauseStates = pauseStatesQuery.data ?? [];
+  const activeFailureByAgent = buildLatestActiveFailureByAgent(
+    failureEventsQuery.data ?? [],
+    latestRunAgents,
+    pauseStates,
+  );
+  const agentsNeedingAttention = latestRunAgents.filter((entry) => {
+    const paused = pauseStates.some((state) => state.agent_name === entry.agent_name && state.is_paused);
+    const failure = activeFailureByAgent.has(entry.agent_name);
+    return Boolean(paused || failure || entry.latest_run?.status === "failed");
+  });
 
   return (
     <>
@@ -51,11 +108,19 @@ export default function OverviewPage() {
           <div style={{ color: 'var(--text-3)' }}>Loading...</div>
         ) : data ? (
           <>
+            <OperationalAlertsPanel
+              pauseStates={pauseStatesQuery.data ?? []}
+              failureEvents={failureEventsQuery.data ?? []}
+              agents={data.agents}
+              agentStatuses={latestRunsQuery.data?.agents ?? []}
+            />
+            <GitHubBudgetPanel snapshot={gatewayRuntimeQuery.data?.runtime.github_api_budget} />
+
             <div className="hero-strip mb-16">
               <div>
                 <h2>Mission Control</h2>
                 <div className="sub">
-                  {data?.agents.length || 0} agents · {activeAgents} active · {runningAgents} running
+                  {data?.agents.length || 0} agents · {runningAgents} running now · {readyAgents} ready
                 </div>
               </div>
               <div className="flex items-center gap-12">
@@ -73,6 +138,29 @@ export default function OverviewPage() {
               <span className="cmd-text">Standing order: watch for B2B workflow tools with rising star velocity and low hosted competition</span>
               <span className="cmd-meta">Updated 2m ago</span>
               <button className="btn btn-sm">Edit</button>
+            </div>
+
+            <div className="section-head">
+              <span className="section-title">Who Needs Attention</span>
+              <div className="section-line"></div>
+            </div>
+            <div className="grid g3 mb-16">
+              {agentsNeedingAttention
+                .slice(0, 3)
+                .map((entry) => (
+                  <AgentOperatorSummary
+                    key={entry.agent_name}
+                    entry={entry}
+                    pauseState={pauseStates.find((state) => state.agent_name === entry.agent_name)}
+                    failureEvent={activeFailureByAgent.get(entry.agent_name)}
+                    title={entry.display_name}
+                  />
+                ))}
+              {agentsNeedingAttention.length === 0 ? (
+                <div className="card" style={{ gridColumn: "1 / -1" }}>
+                  Nothing needs operator attention right now.
+                </div>
+              ) : null}
             </div>
 
             <div className="section-head">

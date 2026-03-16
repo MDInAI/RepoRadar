@@ -7,7 +7,7 @@ import re
 from typing import Protocol
 
 from anthropic import Anthropic
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 try:
     from openai import OpenAI
@@ -36,6 +36,53 @@ CONTROLLED_REPOSITORY_CATEGORIES = (
     "ai_ml",
     "data",
     "productivity",
+)
+
+CONTROLLED_AGENT_TAGS = (
+    "admin-panel",
+    "analytics",
+    "api",
+    "auth",
+    "automation",
+    "b2b",
+    "b2c",
+    "billing",
+    "commercial-ready",
+    "communication",
+    "crm",
+    "data",
+    "database",
+    "developer",
+    "devops",
+    "docker",
+    "enterprise",
+    "go",
+    "hosted-gap",
+    "integrations",
+    "internal-tools",
+    "kubernetes",
+    "low-code",
+    "low-confidence",
+    "maintainer-risk",
+    "marketplace",
+    "monitoring",
+    "multi-tenant",
+    "needs-deep-analysis",
+    "nextjs",
+    "notifications",
+    "open-core-candidate",
+    "platform",
+    "plugin-ecosystem",
+    "postgres",
+    "python",
+    "react",
+    "reporting",
+    "saas-candidate",
+    "self-hosted",
+    "smb",
+    "support",
+    "typescript",
+    "workflow",
 )
 
 
@@ -137,6 +184,42 @@ class LLMReadmeBusinessAnalysis(BaseModel):
         candidate = re.sub(r"\s+", " ", value).strip()
         return candidate or None
 
+    @model_validator(mode="after")
+    def _normalize_taxonomy_fields(self) -> "LLMReadmeBusinessAnalysis":
+        normalized_tags: list[str] = []
+        suggested_tags: list[str] = []
+        seen_tags: set[str] = set()
+        seen_suggested_tags: set[str] = set()
+
+        for raw_tag in [*self.agent_tags, *self.suggested_new_tags]:
+            normalized = _normalize_tag_candidate(raw_tag)
+            if not normalized:
+                continue
+            if normalized in CONTROLLED_AGENT_TAGS:
+                if normalized not in seen_tags:
+                    seen_tags.add(normalized)
+                    normalized_tags.append(normalized)
+                continue
+            if normalized not in seen_suggested_tags:
+                seen_suggested_tags.add(normalized)
+                suggested_tags.append(normalized)
+
+        normalized_categories: list[str] = []
+        seen_categories: set[str] = set()
+        for raw_category in self.suggested_new_categories:
+            normalized = _normalize_category_candidate(raw_category)
+            if not normalized or normalized in CONTROLLED_REPOSITORY_CATEGORIES:
+                continue
+            if normalized in seen_categories:
+                continue
+            seen_categories.add(normalized)
+            normalized_categories.append(normalized)
+
+        self.agent_tags = normalized_tags
+        self.suggested_new_tags = suggested_tags
+        self.suggested_new_categories = normalized_categories
+        return self
+
 
 @dataclass(frozen=True, slots=True)
 class NormalizedReadme:
@@ -147,12 +230,27 @@ class NormalizedReadme:
     removed_line_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class ReadmeAnalysisUsage:
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+
+
 class ReadmeAnalysisProvider(Protocol):
-    def analyze(self, *, repository_full_name: str, readme: NormalizedReadme) -> str: ...
+    def analyze(
+        self,
+        *,
+        repository_full_name: str,
+        readme: NormalizedReadme,
+        evidence: dict[str, object] | None = None,
+    ) -> str: ...
     @property
     def provider_name(self) -> str: ...
     @property
     def model_name(self) -> str | None: ...
+    @property
+    def last_usage(self) -> ReadmeAnalysisUsage: ...
 
 
 class HeuristicReadmeAnalysisProvider:
@@ -163,7 +261,18 @@ class HeuristicReadmeAnalysisProvider:
     persistence contract matches the future schema-guided path.
     """
 
-    def analyze(self, *, repository_full_name: str, readme: NormalizedReadme) -> str:
+    def __init__(self) -> None:
+        self._last_usage = ReadmeAnalysisUsage()
+
+    def analyze(
+        self,
+        *,
+        repository_full_name: str,
+        readme: NormalizedReadme,
+        evidence: dict[str, object] | None = None,
+    ) -> str:
+        del evidence
+        self._last_usage = ReadmeAnalysisUsage()
         lower_text = readme.normalized_text.lower()
         category = _classify_category(
             repository_full_name=repository_full_name,
@@ -205,6 +314,10 @@ class HeuristicReadmeAnalysisProvider:
     def model_name(self) -> str | None:
         return None
 
+    @property
+    def last_usage(self) -> ReadmeAnalysisUsage:
+        return self._last_usage
+
 
 class LLMReadmeAnalysisProvider:
     """LLM-backed README analysis using Claude 3.5 Haiku."""
@@ -214,8 +327,15 @@ class LLMReadmeAnalysisProvider:
             raise ValueError("api_key is required for LLMReadmeAnalysisProvider")
         self._client = Anthropic(api_key=api_key)
         self._model_name = model_name or "claude-3-5-haiku-20241022"
+        self._last_usage = ReadmeAnalysisUsage()
 
-    def analyze(self, *, repository_full_name: str, readme: NormalizedReadme) -> str:
+    def analyze(
+        self,
+        *,
+        repository_full_name: str,
+        readme: NormalizedReadme,
+        evidence: dict[str, object] | None = None,
+    ) -> str:
         if not readme.normalized_text.strip():
             raise ValueError("README content is empty")
 
@@ -227,6 +347,9 @@ class LLMReadmeAnalysisProvider:
         prompt = f"""Analyze this repository README and return a JSON object with business insights.
 
 Repository: {repository_full_name}
+Deterministic evidence:
+{json.dumps(evidence or {}, indent=2, sort_keys=True)}
+
 README:
 {readme_text}
 
@@ -241,9 +364,9 @@ Return valid JSON matching this schema:
 - business_model_guess: monetization approach (string or null)
 - category: ONE of {list(CONTROLLED_REPOSITORY_CATEGORIES)} or null
 - category_confidence_score: 0-100 integer
-- agent_tags: list of relevant tags
+- agent_tags: list of relevant tags chosen only from {list(CONTROLLED_AGENT_TAGS)}
 - suggested_new_categories: categories not in controlled list
-- suggested_new_tags: new tag suggestions
+- suggested_new_tags: new tag suggestions not already in the controlled tag list
 - monetization_potential: "low", "medium", or "high"
 - pros: list of strengths (max 4)
 - cons: list of weaknesses (max 4)
@@ -261,10 +384,19 @@ Return ONLY valid JSON, no markdown formatting."""
                 messages=[{"role": "user", "content": prompt}]
             )
 
-            response_text = message.content[0].text
+            input_tokens = _coerce_token_count(getattr(getattr(message, "usage", None), "input_tokens", 0))
+            output_tokens = _coerce_token_count(getattr(getattr(message, "usage", None), "output_tokens", 0))
+            response_text = _extract_anthropic_text(message)
+            self._last_usage = ReadmeAnalysisUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=input_tokens + output_tokens,
+            )
+            response_text = _strip_json_code_fences(response_text)
             validated = LLMReadmeBusinessAnalysis.model_validate_json(response_text)
             return json.dumps(validated.model_dump(), sort_keys=True)
         except Exception:
+            self._last_usage = ReadmeAnalysisUsage()
             raise
 
     @property
@@ -274,6 +406,10 @@ Return ONLY valid JSON, no markdown formatting."""
     @property
     def model_name(self) -> str | None:
         return self._model_name
+
+    @property
+    def last_usage(self) -> ReadmeAnalysisUsage:
+        return self._last_usage
 
 
 class GeminiReadmeAnalysisProvider:
@@ -286,8 +422,15 @@ class GeminiReadmeAnalysisProvider:
             raise ImportError("openai package is required for GeminiReadmeAnalysisProvider")
         self._client = OpenAI(api_key=api_key, base_url=base_url or "https://api.haimaker.ai/v1")
         self._model_name = model_name or "google/gemini-2.0-flash-001"
+        self._last_usage = ReadmeAnalysisUsage()
 
-    def analyze(self, *, repository_full_name: str, readme: NormalizedReadme) -> str:
+    def analyze(
+        self,
+        *,
+        repository_full_name: str,
+        readme: NormalizedReadme,
+        evidence: dict[str, object] | None = None,
+    ) -> str:
         if not readme.normalized_text.strip():
             raise ValueError("README content is empty")
 
@@ -298,6 +441,9 @@ class GeminiReadmeAnalysisProvider:
         prompt = f"""Analyze this repository README and return a JSON object with business insights.
 
 Repository: {repository_full_name}
+Deterministic evidence:
+{json.dumps(evidence or {}, indent=2, sort_keys=True)}
+
 README:
 {readme_text}
 
@@ -312,9 +458,9 @@ Return valid JSON matching this schema:
 - business_model_guess: monetization approach (string or null)
 - category: ONE of {list(CONTROLLED_REPOSITORY_CATEGORIES)} or null
 - category_confidence_score: 0-100 integer
-- agent_tags: list of relevant tags
+- agent_tags: list of relevant tags chosen only from {list(CONTROLLED_AGENT_TAGS)}
 - suggested_new_categories: categories not in controlled list
-- suggested_new_tags: new tag suggestions
+- suggested_new_tags: new tag suggestions not already in the controlled tag list
 - monetization_potential: "low", "medium", or "high"
 - pros: list of strengths (max 4)
 - cons: list of weaknesses (max 4)
@@ -335,18 +481,20 @@ Return ONLY valid JSON, no markdown formatting."""
             response_text = response.choices[0].message.content
             if not response_text:
                 raise ValueError("Empty response from Gemini API")
-            # Strip markdown code blocks if present
-            response_text = response_text.strip()
-            if response_text.startswith("```json"):
-                response_text = response_text[7:]
-            elif response_text.startswith("```"):
-                response_text = response_text[3:]
-            if response_text.endswith("```"):
-                response_text = response_text[:-3]
-            response_text = response_text.strip()
+            usage = getattr(response, "usage", None)
+            input_tokens = _coerce_token_count(getattr(usage, "prompt_tokens", 0))
+            output_tokens = _coerce_token_count(getattr(usage, "completion_tokens", 0))
+            total_tokens = _coerce_token_count(getattr(usage, "total_tokens", input_tokens + output_tokens))
+            self._last_usage = ReadmeAnalysisUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+            )
+            response_text = _strip_json_code_fences(response_text)
             validated = LLMReadmeBusinessAnalysis.model_validate_json(response_text)
             return json.dumps(validated.model_dump(), sort_keys=True)
         except Exception:
+            self._last_usage = ReadmeAnalysisUsage()
             raise
 
     @property
@@ -356,6 +504,10 @@ Return ONLY valid JSON, no markdown formatting."""
     @property
     def model_name(self) -> str | None:
         return self._model_name
+
+    @property
+    def last_usage(self) -> ReadmeAnalysisUsage:
+        return self._last_usage
 
 
 def create_analysis_provider(
@@ -421,6 +573,52 @@ def normalize_readme(raw_text: str) -> NormalizedReadme:
         normalized_character_count=len(normalized_text),
         removed_line_count=removed_line_count,
     )
+
+
+def _coerce_token_count(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return max(value, 0)
+    try:
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _strip_json_code_fences(text: str) -> str:
+    candidate = text.strip()
+    if candidate.startswith("```json"):
+        candidate = candidate[7:]
+    elif candidate.startswith("```"):
+        candidate = candidate[3:]
+    if candidate.endswith("```"):
+        candidate = candidate[:-3]
+    return candidate.strip()
+
+
+def _normalize_tag_candidate(value: str) -> str:
+    candidate = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
+    return candidate
+
+
+def _normalize_category_candidate(value: str) -> str:
+    candidate = re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
+    return candidate
+
+
+def _extract_anthropic_text(message: object) -> str:
+    content = getattr(message, "content", None)
+    if not isinstance(content, list):
+        raise ValueError("Anthropic response content was not a list")
+    text_parts: list[str] = []
+    for block in content:
+        text = getattr(block, "text", None)
+        if isinstance(text, str) and text.strip():
+            text_parts.append(text)
+    if not text_parts:
+        raise ValueError("Anthropic response did not include any text content")
+    return "".join(text_parts)
 
 
 _SKIPPED_SECTION_HEADINGS = {

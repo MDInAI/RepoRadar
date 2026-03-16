@@ -1,0 +1,121 @@
+{
+  "exclude_rules": [],
+  "generated_at": "2026-03-15T23:41:34.990850+00:00",
+  "include_rules": [],
+  "outcomes": [
+    {
+      "error": null,
+      "explained_at": "2026-03-15T23:41:34.975809+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "Infatoshi/OpenSquirrel",
+      "github_repository_id": 1182715089,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T23:41:34.978182+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "lanteanio/svelte-realtime",
+      "github_repository_id": 1181318806,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T23:41:34.980295+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "rasbt/llm-architecture-gallery",
+      "github_repository_id": 1182741097,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T23:41:34.982032+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "dylanebert/texel-splatting",
+      "github_repository_id": 1181663842,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T23:41:34.983675+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "AnkitNayak-eth/llmBench",
+      "github_repository_id": 1182126744,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T23:41:34.985234+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "djchrisssssss/ccp-cognitive-invade-deconstruction",
+      "github_repository_id": 1182175123,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T23:41:34.986758+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "Siddhant-K-code/agent-trace",
+      "github_repository_id": 1182227663,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T23:41:34.988310+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "LaloVene/PaperShell",
+      "github_repository_id": 1182525821,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T23:41:34.989648+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "gocronx/seqdelay",
+      "github_repository_id": 1182556203,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    }
+  ],
+  "status": "success",
+  "summary": {
+    "accepted": 9,
+    "failed": 0,
+    "rejected": 0
+  }
+}

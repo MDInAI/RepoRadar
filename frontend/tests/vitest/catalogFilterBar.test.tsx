@@ -113,7 +113,7 @@ describe("CatalogFilterBar", () => {
     expect(screen.getByText("No active filters")).toBeTruthy();
     expect(screen.getByText("Showing 1 of 10 repos")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Toggle sort order" }).textContent).toContain(
-      "Descending",
+      "High to low",
     );
 
     expect(screen.getByRole("option", { name: "All sources" })).toBeTruthy();
@@ -126,6 +126,7 @@ describe("CatalogFilterBar", () => {
     expect(screen.getAllByRole("option", { name: "Completed" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("option", { name: "All fit scores" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Medium" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Added to website" })).toBeTruthy();
   });
 
   test("dispatches every control handler and chip action", async () => {

@@ -87,6 +87,51 @@ def test_trigger_agent_run_rejects_already_running_agent(session, tmp_path: Path
         service.trigger_agent_run("backfill")
 
 
+def test_trigger_agent_run_recovers_stale_running_job_before_launch(
+    session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workers_root = tmp_path / "workers"
+    python_bin = workers_root / ".venv" / "bin" / "python"
+    python_bin.parent.mkdir(parents=True)
+    python_bin.write_text("", encoding="utf-8")
+
+    session.add_all(
+        [
+            AgentRun(id=20, agent_name="analyst", status=AgentRunStatus.RUNNING),
+            AgentRun(
+                id=21,
+                agent_name="analyst",
+                status=AgentRunStatus.FAILED,
+                error_summary="newer run already finished",
+            ),
+        ]
+    )
+    session.commit()
+
+    def fake_run(args, cwd, capture_output, text, timeout, check):
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="import-ok\n", stderr="")
+
+    def fake_popen(args, cwd, stdout, stderr, start_new_session):
+        class _Proc:
+            pid = 54321
+
+        return _Proc()
+
+    monkeypatch.setattr("app.services.agent_operator_service.subprocess.run", fake_run)
+    monkeypatch.setattr("app.services.agent_operator_service.subprocess.Popen", fake_popen)
+
+    service = AgentOperatorService(AgentEventRepository(session), project_root=tmp_path)
+
+    response = service.trigger_agent_run("analyst")
+    recovered_run = session.get(AgentRun, 20)
+
+    assert response.accepted is True
+    assert recovered_run is not None
+    assert recovered_run.status is AgentRunStatus.FAILED
+
+
 def test_trigger_agent_run_rejects_worker_import_failures(
     session,
     tmp_path: Path,

@@ -1,5 +1,7 @@
 'use client';
 
+import { formatAppDateTime } from "@/lib/time";
+
 interface SynthesisRun {
   id: number;
   run_type: string;
@@ -62,7 +64,7 @@ export function SynthesisRunTimeline({ runs, onViewOutput }: SynthesisRunTimelin
                     )}
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
-                    {new Date(run.created_at).toLocaleString()}
+                    {formatAppDateTime(run.created_at)}
                   </div>
                 </div>
                 <button

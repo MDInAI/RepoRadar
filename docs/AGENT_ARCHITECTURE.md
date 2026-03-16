@@ -31,7 +31,7 @@ The system has 7 defined agents. Here's the complete breakdown:
 | **Firehose** | Live | No | Yes | Discovers repositories from GitHub new/trending feeds |
 | **Backfill** | Live | No | Yes | Replays older GitHub repository windows for historical coverage |
 | **Bouncer** | Live | No | No | Applies local include/exclude rules to filter repositories |
-| **Analyst** | Live | No | Yes | Fetches and analyzes READMEs using heuristics |
+| **Analyst** | Live | **Yes** (configurable) | Yes | Builds evidence-backed repository analysis with fast/deep modes |
 | **Combiner** | Live | **Yes** (optional) | No | Synthesizes multi-repository opportunities |
 | **Obsession** | Partial | No | No | Tracks obsession contexts, memory, and refresh triggers |
 
@@ -191,20 +191,22 @@ BOUNCER_EXCLUDE_RULES = ("personal", "deprecated")   # Always reject these
 
 **Implementation:** `workers/agentic_workers/jobs/analyst_job.py`
 
-**Uses LLM:** No (heuristic-based)  
+**Uses LLM:** Yes (configurable fast/deep analysis)  
 **Uses GitHub API:** Yes (requires `GITHUB_PROVIDER_TOKEN`)  
-**Configured Provider:** HeuristicReadmeAnalysisProvider
+**Configured Provider:** Configurable analyst provider (`heuristic`, Anthropic LLM, or Gemini-compatible)
 
 **Function Details:**
 
-The Analyst fetches README content from GitHub and performs business-oriented analysis to assess monetization potential. Currently uses deterministic heuristics rather than LLM calls.
+The Analyst fetches README content plus lightweight repository intelligence from GitHub and produces an evidence-backed business analysis for accepted repositories. It supports a fast pass for broad coverage and a deeper pass for stronger candidates.
 
 **Process:**
 1. Finds repositories with `triage_status=ACCEPTED` and incomplete analysis
 2. Fetches README from GitHub API
-3. Normalizes README (removes badges, license sections, etc.)
-4. Runs heuristic analysis scoring
-5. Persists results and artifacts
+3. Fetches deterministic repo evidence (metadata, contributors, releases, commits, PRs, issues, tree signals, selected manifest files)
+4. Normalizes README (removes badges, license sections, etc.)
+5. Builds structured evidence, contradictions, score breakdowns, and semantic outcomes
+6. Runs fast analysis, then optionally deep analysis for high-potential repos
+7. Persists analysis results and artifacts
 
 **README Normalization:**
 - Removes badge lines
@@ -218,20 +220,20 @@ The Analyst fetches README content from GitHub and performs business-oriented an
 | Dimension | Description |
 |-----------|-------------|
 | monetization_potential | LOW / MEDIUM / HIGH |
+| category / agent_tags | Controlled taxonomy plus suggested expansions |
+| confidence | Category confidence, overall confidence, semantic outcome |
+| score_breakdown | Technical maturity, commercial readiness, hosted gap, market timing, trust risk |
 | pros | Positive business signals detected |
 | cons | Risk signals or missing information |
 | missing_feature_signals | Specific features not mentioned |
+| contradictions | Tension between README claims and observed repo evidence |
 
-**Monetization Scoring Signals:**
+**Artifacts:**
 
-**HIGH signals:** pricing, subscription, enterprise, customers, billing, revenue, paid, b2b, saas
-
-**MEDIUM signals:** team, teams, workflow, automation, dashboard, analytics, platform, api
-
-**Output:**
 - `RepositoryAnalysisResult` records
 - README artifacts in `runtime/data/readmes/`
 - Analysis artifacts in `runtime/analyst/analysis-runs/`
+- Persisted source metadata with provider/model/token usage, evidence summaries, contradictions, and score breakdowns
 
 ---
 

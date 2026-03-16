@@ -182,8 +182,8 @@ def test_resume_agent_rejects_unpaused_agent(client: TestClient, db_session: Ses
     assert response.status_code == 409
 
 
-def test_resume_agent_rejects_missing_checkpoint(client: TestClient, db_session: Session) -> None:
-    """POST /api/v1/agents/{agent_name}/resume returns 422 when checkpoint missing."""
+def test_resume_agent_allows_resume_without_checkpoint(client: TestClient, db_session: Session) -> None:
+    """POST /api/v1/agents/{agent_name}/resume clears the pause even without a checkpoint."""
     db_session.add(
         AgentPauseState(
             agent_name="firehose",
@@ -194,7 +194,8 @@ def test_resume_agent_rejects_missing_checkpoint(client: TestClient, db_session:
     db_session.commit()
 
     response = client.post("/api/v1/agents/firehose/resume")
-    assert response.status_code == 422
+    assert response.status_code == 200
+    assert response.json()["is_paused"] is False
 
 
 def test_pause_agent_success(client: TestClient, db_session: Session) -> None:

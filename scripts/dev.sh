@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
+BACKEND_RELOAD="${BACKEND_RELOAD:-1}"
 declare -a PIDS=()
 declare -a SERVICE_NAMES=()
 SHUTTING_DOWN=0
@@ -26,7 +27,11 @@ stop_services() {
   echo ""
   echo "Shutting down..."
 
-  for pid in "${PIDS[@]}"; do
+  if ! declare -p PIDS >/dev/null 2>&1; then
+    return
+  fi
+
+  for pid in "${PIDS[@]-}"; do
     if kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
     fi
@@ -35,16 +40,20 @@ stop_services() {
   local deadline=$((SECONDS + 5))
   while [ "${#PIDS[@]}" -gt 0 ] && [ "$SECONDS" -lt "$deadline" ]; do
     local remaining=()
-    for pid in "${PIDS[@]}"; do
+    for pid in "${PIDS[@]-}"; do
       if kill -0 "$pid" 2>/dev/null; then
         remaining+=("$pid")
       fi
     done
-    PIDS=("${remaining[@]}")
+    if [ "${#remaining[@]}" -gt 0 ]; then
+      PIDS=("${remaining[@]}")
+    else
+      PIDS=()
+    fi
     [ "${#PIDS[@]}" -gt 0 ] && sleep 1
   done
 
-  for pid in "${PIDS[@]}"; do
+  for pid in "${PIDS[@]-}"; do
     if kill -0 "$pid" 2>/dev/null; then
       kill -9 "$pid" 2>/dev/null || true
     fi
@@ -141,7 +150,11 @@ fi
 # Backend
 if [ -f "$PROJECT_ROOT/backend/pyproject.toml" ]; then
   echo "[backend]  Starting FastAPI server on port ${BACKEND_PORT}..."
-  start_service backend "$PROJECT_ROOT/backend" uv run uvicorn app.main:app --reload --host 127.0.0.1 --port "$BACKEND_PORT"
+  backend_cmd=(uv run uvicorn app.main:app --host 127.0.0.1 --port "$BACKEND_PORT")
+  if [ "$BACKEND_RELOAD" = "1" ]; then
+    backend_cmd=(uv run uvicorn app.main:app --reload --host 127.0.0.1 --port "$BACKEND_PORT")
+  fi
+  start_service backend "$PROJECT_ROOT/backend" "${backend_cmd[@]}"
 fi
 
 # Workers

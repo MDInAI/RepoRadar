@@ -1,4 +1,5 @@
 import type { GatewayAgentIntakeQueueSummary } from "../../lib/gateway-contract";
+import { formatAppDateTime } from "../../lib/time";
 
 export function formatOptionalValue(value: string | number | boolean | null): string {
   if (value === null) {
@@ -14,18 +15,15 @@ export function formatTimestamp(value: string | null, timeZone: string): string 
   if (!value) {
     return "Not recorded yet";
   }
-
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone,
-  }).format(new Date(value));
+  void timeZone;
+  return formatAppDateTime(value);
 }
 
 export function renderCheckpointRows(
   queue: GatewayAgentIntakeQueueSummary,
   timeZone: string,
 ): Array<[string, string]> {
+  void timeZone;
   const { checkpoint } = queue;
 
   if (checkpoint.kind === "firehose") {

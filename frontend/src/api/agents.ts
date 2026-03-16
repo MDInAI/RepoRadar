@@ -16,6 +16,8 @@ export type AgentRunStatus =
   | "skipped"
   | "skipped_paused";
 export type EventSeverity = "info" | "warning" | "error" | "critical";
+export type FailureClassification = "retryable" | "blocking" | "rate_limited";
+export type FailureSeverityLevel = "warning" | "error" | "critical";
 
 export interface AgentRunEvent {
   id: number;
@@ -40,6 +42,20 @@ export interface AgentRunDetailResponse extends AgentRunEvent {
   events: SystemEventPayload[];
 }
 
+export interface AgentRuntimeProgress {
+  status_label: string;
+  current_activity: string;
+  current_target: string | null;
+  progress_percent: number | null;
+  completed_count: number | null;
+  total_count: number | null;
+  remaining_count: number | null;
+  unit_label: string | null;
+  updated_at: string | null;
+  source: string;
+  details: string[];
+}
+
 export interface SystemEventPayload {
   id: number;
   event_type: string;
@@ -49,6 +65,15 @@ export interface SystemEventPayload {
   context_json: string | null;
   agent_run_id: number | null;
   created_at: string;
+}
+
+export interface FailureEventPayload extends SystemEventPayload {
+  failure_classification: FailureClassification | null;
+  failure_severity: FailureSeverityLevel | null;
+  http_status_code: number | null;
+  retry_after_seconds: number | null;
+  affected_repository_id: number | null;
+  upstream_provider: string | null;
 }
 
 export interface AgentStatusEntry {
@@ -75,6 +100,7 @@ export interface AgentStatusEntry {
     duplicates: number;
     failed_outcomes: number;
   } | null;
+  runtime_progress?: AgentRuntimeProgress | null;
 }
 
 export interface AgentLatestRunsResponse {
@@ -98,6 +124,14 @@ export interface SystemEventListParams {
   limit?: number;
 }
 
+export interface FailureEventListParams {
+  agent_name?: AgentName | null;
+  classification?: FailureClassification | null;
+  severity?: FailureSeverityLevel | null;
+  since?: string | null;
+  limit?: number;
+}
+
 export interface AgentPauseState {
   agent_name: AgentName;
   is_paused: boolean;
@@ -117,7 +151,7 @@ export interface AgentManualRunTriggerResponse {
   message: string;
 }
 
-export type AgentConfigInputKind = "integer" | "date" | "csv";
+export type AgentConfigInputKind = "integer" | "date" | "csv" | "text" | "select";
 
 export interface AgentConfigField {
   key: string;
@@ -125,6 +159,7 @@ export interface AgentConfigField {
   description: string;
   input_kind: AgentConfigInputKind;
   value: string;
+  options: string[];
   unit: string | null;
   min_value: number | null;
   placeholder: string | null;
@@ -255,6 +290,14 @@ function isEventSeverity(value: unknown): value is EventSeverity {
   return typeof value === "string" && EVENT_SEVERITIES.includes(value as EventSeverity);
 }
 
+function isFailureClassification(value: unknown): value is FailureClassification {
+  return value === "retryable" || value === "blocking" || value === "rate_limited";
+}
+
+function isFailureSeverityLevel(value: unknown): value is FailureSeverityLevel {
+  return value === "warning" || value === "error" || value === "critical";
+}
+
 function isAgentPauseState(value: unknown): value is AgentPauseState {
   return (
     isRecord(value) &&
@@ -281,7 +324,7 @@ function isAgentManualRunTriggerResponse(value: unknown): value is AgentManualRu
 }
 
 function isAgentConfigInputKind(value: unknown): value is AgentConfigInputKind {
-  return value === "integer" || value === "date" || value === "csv";
+  return value === "integer" || value === "date" || value === "csv" || value === "text" || value === "select";
 }
 
 function isAgentConfigField(value: unknown): value is AgentConfigField {
@@ -292,6 +335,8 @@ function isAgentConfigField(value: unknown): value is AgentConfigField {
     typeof value.description === "string" &&
     isAgentConfigInputKind(value.input_kind) &&
     typeof value.value === "string" &&
+    Array.isArray(value.options) &&
+    value.options.every((option) => typeof option === "string") &&
     (typeof value.unit === "string" || value.unit === null) &&
     (typeof value.min_value === "number" || value.min_value === null) &&
     (typeof value.placeholder === "string" || value.placeholder === null)
@@ -389,6 +434,19 @@ export function isSystemEventPayload(value: unknown): value is SystemEventPayloa
   );
 }
 
+function isFailureEventPayload(value: unknown): value is FailureEventPayload {
+  return (
+    isSystemEventPayload(value) &&
+    isRecord(value) &&
+    (value.failure_classification === null || isFailureClassification(value.failure_classification)) &&
+    (value.failure_severity === null || isFailureSeverityLevel(value.failure_severity)) &&
+    isNullableNumber(value.http_status_code) &&
+    isNullableNumber(value.retry_after_seconds) &&
+    isNullableNumber(value.affected_repository_id) &&
+    isNullableString(value.upstream_provider)
+  );
+}
+
 function isAgentRunDetailResponse(value: unknown): value is AgentRunDetailResponse {
   return (
     isAgentRunEvent(value) &&
@@ -425,7 +483,22 @@ function isAgentStatusEntry(value: unknown): value is AgentStatusEntry {
         typeof value.latest_intake_summary.inserted === "number" &&
         typeof value.latest_intake_summary.skipped === "number" &&
         typeof value.latest_intake_summary.duplicates === "number" &&
-        typeof value.latest_intake_summary.failed_outcomes === "number"))
+        typeof value.latest_intake_summary.failed_outcomes === "number")) &&
+    (!("runtime_progress" in value) ||
+      value.runtime_progress === null ||
+      (isRecord(value.runtime_progress) &&
+        typeof value.runtime_progress.status_label === "string" &&
+        typeof value.runtime_progress.current_activity === "string" &&
+        isNullableString(value.runtime_progress.current_target) &&
+        isNullableNumber(value.runtime_progress.progress_percent) &&
+        isNullableNumber(value.runtime_progress.completed_count) &&
+        isNullableNumber(value.runtime_progress.total_count) &&
+        isNullableNumber(value.runtime_progress.remaining_count) &&
+        isNullableString(value.runtime_progress.unit_label) &&
+        isNullableString(value.runtime_progress.updated_at) &&
+        typeof value.runtime_progress.source === "string" &&
+        Array.isArray(value.runtime_progress.details) &&
+        value.runtime_progress.details.every((detail) => typeof detail === "string")))
   );
 }
 
@@ -630,6 +703,18 @@ export function getAgentPauseStatesQueryKey() {
   return ["agents", "pause-states"] as const;
 }
 
+export function getFailureEventsQueryKey(params: FailureEventListParams = {}) {
+  return [
+    "agents",
+    "failure-events",
+    params.agent_name ?? "all",
+    params.classification ?? "all",
+    params.severity ?? "all",
+    params.since ?? "all",
+    params.limit ?? DEFAULT_EVENT_LIMIT,
+  ] as const;
+}
+
 export function getAgentConfigQueryKey(agentName: AgentName) {
   return ["agents", "config", agentName] as const;
 }
@@ -723,6 +808,32 @@ export async function fetchAgentPauseStates(): Promise<AgentPauseState[]> {
       Array.isArray(value) && value.every(isAgentPauseState),
     "Agent pause states response has unexpected shape",
     "agent_pause_states_shape_invalid",
+  );
+}
+
+export async function fetchFailureEvents(
+  params: FailureEventListParams = {},
+): Promise<FailureEventPayload[]> {
+  const limit = validateListLimit(
+    params.limit,
+    DEFAULT_EVENT_LIMIT,
+    "failure_events_limit_invalid",
+  );
+  return parseExpectedResponse(
+    await requestJson<unknown>(
+      "/api/v1/events/failures",
+      buildSearchParams({
+        agent_name: params.agent_name,
+        classification: params.classification,
+        severity: params.severity,
+        since: params.since,
+        limit,
+      }),
+    ),
+    (value): value is FailureEventPayload[] =>
+      Array.isArray(value) && value.every(isFailureEventPayload),
+    "Failure events response has unexpected shape",
+    "failure_events_shape_invalid",
   );
 }
 

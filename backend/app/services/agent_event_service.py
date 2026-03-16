@@ -35,6 +35,7 @@ from app.schemas.agent_event import (
     SystemEventListParams,
     SystemEventResponse,
 )
+from app.services.agent_runtime_progress_service import AgentRuntimeProgressService
 
 
 _AGENT_RUN_EVENT_TYPES = {
@@ -81,11 +82,17 @@ class AgentEventService:
         ]
 
     def get_latest_run_per_agent(self) -> AgentLatestRunsResponse:
+        latest_runs = self.repository.get_latest_run_per_agent()
+        raw_runs_by_name = {record.agent_name: record for record in latest_runs}
         runs_by_name = {
             record.agent_name: self._build_agent_run_response(record)
-            for record in self.repository.get_latest_run_per_agent()
+            for record in latest_runs
         }
         usage_by_name = self._get_agent_usage_24h()
+        runtime_progress_service = AgentRuntimeProgressService(
+            self.repository.session,
+            runtime_dir=self.runtime_dir,
+        )
         return AgentLatestRunsResponse(
             agents=[
                 AgentStatusEntry(
@@ -108,6 +115,10 @@ class AgentEventService:
                     latest_intake_summary=self._load_latest_intake_summary(
                         name,
                         runs_by_name.get(name),
+                    ),
+                    runtime_progress=runtime_progress_service.build_for_agent(
+                        name,
+                        raw_runs_by_name.get(name),
                     ),
                 )
                 for name in AGENT_NAMES
@@ -477,40 +488,20 @@ class AgentEventService:
         return response
 
     def _validate_recovery_source(self, agent_name: str, pause_state: object) -> dict[str, object] | None:
-        """Validate that recovery source exists for the agent. Returns cached checkpoint data."""
+        """Best-effort recovery context for resume events.
+
+        Resuming an agent should clear an operator/policy pause even when there is no
+        explicit checkpoint requesting resume. When useful checkpoint or backlog context
+        exists, include it on the emitted event; otherwise return None.
+        """
         if agent_name in ("firehose", "backfill"):
             from sqlmodel import select
-            from datetime import timedelta
             if agent_name == "firehose":
                 from app.models import FirehoseProgress
                 stmt = select(FirehoseProgress)
                 checkpoint = self.repository.session.exec(stmt).first()
                 if checkpoint is None:
-                    raise AppError(
-                        message=f"Cannot resume '{agent_name}': no checkpoint state found.",
-                        code="missing_recovery_source",
-                        status_code=422,
-                    )
-                if not checkpoint.resume_required:
-                    raise AppError(
-                        message=f"Cannot resume '{agent_name}': checkpoint does not require resume.",
-                        code="invalid_recovery_source",
-                        status_code=422,
-                    )
-                if checkpoint.next_page is None or checkpoint.active_mode is None:
-                    raise AppError(
-                        message=f"Cannot resume '{agent_name}': checkpoint is incomplete.",
-                        code="invalid_recovery_source",
-                        status_code=422,
-                    )
-                if checkpoint.last_checkpointed_at:
-                    age = datetime.now(timezone.utc) - checkpoint.last_checkpointed_at
-                    if age > timedelta(hours=24):
-                        raise AppError(
-                            message=f"Cannot resume '{agent_name}': checkpoint is stale (>24h old).",
-                            code="stale_recovery_source",
-                            status_code=422,
-                        )
+                    return None
                 return {
                     "active_mode": checkpoint.active_mode,
                     "next_page": checkpoint.next_page,
@@ -521,31 +512,7 @@ class AgentEventService:
                 stmt = select(BackfillProgress)
                 checkpoint = self.repository.session.exec(stmt).first()
                 if checkpoint is None:
-                    raise AppError(
-                        message=f"Cannot resume '{agent_name}': no checkpoint state found.",
-                        code="missing_recovery_source",
-                        status_code=422,
-                    )
-                if not checkpoint.resume_required:
-                    raise AppError(
-                        message=f"Cannot resume '{agent_name}': checkpoint does not require resume.",
-                        code="invalid_recovery_source",
-                        status_code=422,
-                    )
-                if checkpoint.next_page is None:
-                    raise AppError(
-                        message=f"Cannot resume '{agent_name}': checkpoint is incomplete.",
-                        code="invalid_recovery_source",
-                        status_code=422,
-                    )
-                if checkpoint.last_checkpointed_at:
-                    age = datetime.now(timezone.utc) - checkpoint.last_checkpointed_at
-                    if age > timedelta(hours=24):
-                        raise AppError(
-                            message=f"Cannot resume '{agent_name}': checkpoint is stale (>24h old).",
-                            code="stale_recovery_source",
-                            status_code=422,
-                        )
+                    return None
                 return {
                     "window_start_date": checkpoint.window_start_date.isoformat() if checkpoint.window_start_date else None,
                     "created_before_boundary": checkpoint.created_before_boundary.isoformat() if checkpoint.created_before_boundary else None,
@@ -568,12 +535,6 @@ class AgentEventService:
                 )
 
             count = self.repository.session.exec(stmt).one()
-            if count == 0:
-                raise AppError(
-                    message=f"Cannot resume '{agent_name}': no pending work in queue.",
-                    code="missing_recovery_source",
-                    status_code=422,
-                )
             return {"pending_items": count}
         return None
 

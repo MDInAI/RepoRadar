@@ -11,6 +11,7 @@ import {
   updateRepositoryStar,
   type RepositoryDetailResponse,
 } from "@/api/repositories";
+import { formatAppDateTime } from "@/lib/time";
 
 type RepositoryTab = "overview" | "readme" | "analysis" | "related" | "history";
 type RepositoryActionKey = "family-assignment" | "combiner-draft" | "similar-project-scan";
@@ -56,14 +57,7 @@ const ACTIONS: RepositoryActionDefinition[] = [
 ];
 
 function formatTimestamp(value: string | null | undefined): string {
-  if (!value) {
-    return "Unavailable";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return "Unknown";
-  }
-  return `${parsed.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+  return formatAppDateTime(value);
 }
 
 function formatRelativeDate(value: string | null | undefined): string {
@@ -131,9 +125,26 @@ function formatScore(value: number | null | undefined, suffix = "/100"): string 
   return `${value}${suffix}`;
 }
 
+function buildScoreRows(detail: RepositoryDetailResponse) {
+  const scores = detail.analysis_summary?.score_breakdown ?? {};
+  return [
+    { label: "Technical maturity", value: formatScore(scores.technical_maturity_score) },
+    { label: "Commercial readiness", value: formatScore(scores.commercial_readiness_score) },
+    { label: "Hosted gap", value: formatScore(scores.hosted_gap_score) },
+    { label: "Market timing", value: formatScore(scores.market_timing_score) },
+    { label: "Trust risk", value: formatScore(scores.trust_risk_score) },
+  ];
+}
+
 function buildDecisionRows(detail: RepositoryDetailResponse) {
   const fit = titleCase(detail.analysis_summary?.monetization_potential ?? "unscored");
   const category = detail.category ? titleCase(detail.category) : "Unclassified";
+  const analysisMode = detail.analysis_summary?.analysis_mode
+    ? titleCase(detail.analysis_summary.analysis_mode)
+    : "Legacy";
+  const analysisOutcome = detail.analysis_summary?.analysis_outcome
+    ? titleCase(detail.analysis_summary.analysis_outcome)
+    : "Unavailable";
   const recommendation =
     detail.analysis_summary?.recommended_action ??
     (detail.analysis_summary?.monetization_potential === "high"
@@ -160,6 +171,8 @@ function buildDecisionRows(detail: RepositoryDetailResponse) {
       label: "Analyst confidence",
       value: formatScore(detail.analysis_summary?.confidence_score),
     },
+    { label: "Analysis mode", value: analysisMode },
+    { label: "Analysis outcome", value: analysisOutcome },
     { label: "Recommended action", value: recommendation },
   ];
 }
@@ -198,8 +211,14 @@ function buildCategorySignals(detail: RepositoryDetailResponse): string[] {
 }
 
 function buildSummaryParagraph(detail: RepositoryDetailResponse): string {
+  if (detail.analysis_summary?.analysis_summary_short) {
+    return detail.analysis_summary.analysis_summary_short;
+  }
   if (detail.analysis_summary?.problem_statement) {
     return detail.analysis_summary.problem_statement;
+  }
+  if (detail.analysis_summary?.evidence_summary) {
+    return detail.analysis_summary.evidence_summary;
   }
   if (detail.analysis_summary?.pros?.length) {
     return detail.analysis_summary.pros.join(" ");
@@ -212,7 +231,15 @@ function buildSummaryParagraph(detail: RepositoryDetailResponse): string {
 
 function buildEvidenceNotes(detail: RepositoryDetailResponse): string[] {
   const notes = [
+    ...(detail.analysis_summary?.insufficient_evidence_reason
+      ? [detail.analysis_summary.insufficient_evidence_reason]
+      : []),
+    ...(detail.analysis_summary?.evidence_summary ? [detail.analysis_summary.evidence_summary] : []),
+    ...(detail.analysis_summary?.analysis_summary_long ? [detail.analysis_summary.analysis_summary_long] : []),
     ...(detail.analysis_summary?.open_problems ? [detail.analysis_summary.open_problems] : []),
+    ...(detail.analysis_summary?.contradictions ?? []),
+    ...(detail.analysis_summary?.missing_information ?? []),
+    ...(detail.analysis_summary?.red_flags ?? []),
     ...(detail.analysis_summary?.cons ?? []),
     ...(detail.analysis_summary?.missing_feature_signals ?? []),
   ].filter((value) => value.trim().length > 0);
@@ -335,6 +362,7 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
 
   const detail = detailQuery.data;
   const decisionRows = useMemo(() => (detail ? buildDecisionRows(detail) : []), [detail]);
+  const scoreRows = useMemo(() => (detail ? buildScoreRows(detail) : []), [detail]);
   const historyRows = useMemo(() => (detail ? buildHistoryRows(detail) : []), [detail]);
   const categorySignals = useMemo(() => (detail ? buildCategorySignals(detail) : []), [detail]);
 
@@ -694,11 +722,51 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                         <span className="card-label">Recommended action</span>
                         <span>{detail.analysis_summary?.recommended_action ?? "Unavailable"}</span>
                       </div>
+                      {scoreRows.map((row) => (
+                        <div key={row.label} className="repo-key-value-row">
+                          <span className="card-label">{row.label}</span>
+                          <span>{row.value}</span>
+                        </div>
+                      ))}
                       <div className="repo-key-value-row">
                         <span className="card-label">Generated at</span>
                         <span>{formatTimestamp(detail.analysis_summary?.analyzed_at)}</span>
                       </div>
                     </div>
+                  </div>
+                </div>
+                <div className="repo-two-col" style={{ marginTop: "16px" }}>
+                  <div className="card" style={{ padding: "14px" }}>
+                    <p className="card-label">Contradictions & Missing Evidence</p>
+                    <div className="repo-list-block" style={{ marginTop: "12px" }}>
+                      {[
+                        ...(detail.analysis_summary?.contradictions ?? []),
+                        ...(detail.analysis_summary?.missing_information ?? []),
+                      ].length > 0 ? (
+                        <ul style={{ margin: 0, paddingLeft: "18px", color: "var(--text-2)" }}>
+                          {[
+                            ...(detail.analysis_summary?.contradictions ?? []),
+                            ...(detail.analysis_summary?.missing_information ?? []),
+                          ].map((item) => (
+                            <li key={item} style={{ marginTop: "8px" }}>
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p style={{ color: "var(--text-2)", margin: 0 }}>
+                          No contradiction or missing-information signals are stored for this run.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="card" style={{ padding: "14px" }}>
+                    <p className="card-label">Deep Summary</p>
+                    <p style={{ marginTop: "10px", color: "var(--text-2)" }}>
+                      {detail.analysis_summary?.analysis_summary_long ??
+                        detail.analysis_summary?.evidence_summary ??
+                        "Long-form analyst summary is not available yet."}
+                    </p>
                   </div>
                 </div>
               </section>
@@ -879,6 +947,18 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                   "tag tag-agent",
                   "No suggested tags",
                 )}
+              </div>
+
+              <div className="repo-rail-section">
+                <p className="card-label">Score Breakdown</p>
+                <div className="repo-key-value-list" style={{ marginTop: "10px" }}>
+                  {scoreRows.map((row) => (
+                    <div key={row.label} className="repo-key-value-row">
+                      <span>{row.label}</span>
+                      <span>{row.value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="repo-rail-section">

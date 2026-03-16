@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from io import BytesIO
+import json
 from urllib.error import HTTPError
 
 import pytest
@@ -13,6 +14,13 @@ from agentic_workers.providers.github_provider import (
     GitHubPayloadError,
     GitHubRateLimitError,
     GitHubReadmeNotFoundError,
+    RepositoryCommit,
+    RepositoryContributor,
+    RepositoryFileSnapshot,
+    RepositoryMetadata,
+    RepositoryPullRequest,
+    RepositoryRelease,
+    RepositoryTreeEntry,
     UrllibGitHubTransport,
 )
 
@@ -395,24 +403,71 @@ def test_transport_raises_rate_limit_error_for_http_429(monkeypatch: pytest.Monk
 
 
 def test_transport_raises_rate_limit_error_for_rate_limit_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    reset_at = int(datetime.now(timezone.utc).timestamp()) + 90
+
     def fake_urlopen(*_args: object, **_kwargs: object) -> object:
         raise HTTPError(
             "https://api.github.com/search/repositories",
             403,
             "Forbidden",
-            {"X-RateLimit-Remaining": "0"},
+            {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": str(reset_at)},
             BytesIO(b""),
         )
 
     monkeypatch.setattr(github_provider_module, "urlopen", fake_urlopen)
     transport = UrllibGitHubTransport()
 
-    with pytest.raises(GitHubRateLimitError, match="status 403"):
+    with pytest.raises(GitHubRateLimitError, match="status 403") as excinfo:
         transport.get_json(
             url="https://api.github.com/search/repositories",
             headers={},
             params={"q": "created:>=2026-03-07"},
         )
+
+    assert excinfo.value.retry_after_seconds is not None
+    assert 1 <= excinfo.value.retry_after_seconds <= 90
+
+
+def test_transport_writes_shared_github_quota_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    class FakeResponse:
+        status = 200
+        headers = {
+            "X-RateLimit-Limit": "5000",
+            "X-RateLimit-Remaining": "4988",
+            "X-RateLimit-Used": "12",
+            "X-RateLimit-Reset": "1772870400",
+            "X-RateLimit-Resource": "core",
+        }
+
+        def read(self) -> bytes:
+            return b'{"items": []}'
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    monkeypatch.setattr(github_provider_module, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+    transport = UrllibGitHubTransport(runtime_dir=tmp_path)
+
+    payload = transport.get_json(
+        url="https://api.github.com/search/repositories",
+        headers={},
+        params={"q": "created:>=2026-03-07"},
+    )
+
+    assert payload == {"items": []}
+    snapshot = json.loads((tmp_path / "github" / "quota.json").read_text(encoding="utf-8"))
+    assert snapshot["provider"] == "github"
+    assert snapshot["limit"] == 5000
+    assert snapshot["remaining"] == 4988
+    assert snapshot["used"] == 12
+    assert snapshot["resource"] == "core"
+    assert snapshot["last_response_status"] == 200
 
 
 def test_provider_rejects_malformed_repository_payloads() -> None:
@@ -443,3 +498,107 @@ def test_provider_rejects_non_string_optional_description() -> None:
     repositories = provider.discover(mode=FirehoseMode.NEW)
 
     assert repositories[0].description is None
+
+
+def test_provider_fetches_repository_metadata() -> None:
+    transport = RecordingTransport(
+        {
+            "full_name": "octocat/hello-world",
+            "default_branch": "main",
+            "description": "Automation platform",
+            "homepage": "https://example.com",
+            "language": "Python",
+            "license": {"spdx_id": "MIT"},
+            "topics": ["automation", "workflow"],
+            "stargazers_count": 321,
+            "forks_count": 45,
+            "open_issues_count": 9,
+            "subscribers_count": 12,
+            "created_at": "2026-03-01T00:00:00Z",
+            "pushed_at": "2026-03-08T00:00:00Z",
+            "updated_at": "2026-03-09T00:00:00Z",
+        }
+    )
+    provider = GitHubFirehoseProvider(transport=transport, github_token=None, today=date(2026, 3, 9))
+
+    metadata = provider.get_repository_metadata(owner_login="octocat", repository_name="hello-world")
+
+    assert isinstance(metadata, RepositoryMetadata)
+    assert metadata.full_name == "octocat/hello-world"
+    assert metadata.default_branch == "main"
+    assert metadata.license_name == "MIT"
+    assert metadata.topics == ["automation", "workflow"]
+    assert metadata.open_issues_count == 9
+
+
+def test_provider_lists_repository_activity_and_tree() -> None:
+    transport = RecordingTransport(
+        [{"tree": [
+            {"path": "package.json", "type": "blob"},
+            {"path": ".github/workflows/ci.yml", "type": "blob"},
+            {"path": "src/app.ts", "type": "blob"},
+            {"path": "src/deep/nested/file.ts", "type": "blob"},
+        ]}],
+        text_responses=[
+            '[{"login":"octocat","contributions":12},{"login":"hubot","contributions":3}]',
+            '[{"tag_name":"v1.0.0","published_at":"2026-03-01T00:00:00Z","draft":false,"prerelease":false}]',
+            '[{"sha":"abc123","commit":{"committer":{"date":"2026-03-08T00:00:00Z"}}}]',
+            '[{"number":7,"state":"closed","merged_at":"2026-03-07T00:00:00Z","created_at":"2026-03-05T00:00:00Z","closed_at":"2026-03-07T00:00:00Z"}]',
+            '[{"number":9,"state":"open","created_at":"2026-03-06T00:00:00Z","updated_at":"2026-03-08T00:00:00Z"}]',
+        ],
+    )
+    provider = GitHubFirehoseProvider(transport=transport, github_token=None, today=date(2026, 3, 9))
+
+    contributors = provider.list_contributors(owner_login="octocat", repository_name="hello-world", limit=5)
+    releases = provider.list_releases(owner_login="octocat", repository_name="hello-world", limit=10)
+    commits = provider.list_recent_commits(owner_login="octocat", repository_name="hello-world", limit=10)
+    pulls = provider.list_recent_pull_requests(owner_login="octocat", repository_name="hello-world", limit=10)
+    issues = provider.list_recent_issues(owner_login="octocat", repository_name="hello-world", limit=10)
+    tree = provider.get_repository_tree(owner_login="octocat", repository_name="hello-world", ref="main", depth_limit=2)
+
+    assert contributors == [
+        RepositoryContributor(login="octocat", contributions=12),
+        RepositoryContributor(login="hubot", contributions=3),
+    ]
+    assert releases == [
+        RepositoryRelease(
+            tag_name="v1.0.0",
+            published_at=datetime(2026, 3, 1, 0, 0, tzinfo=timezone.utc),
+            draft=False,
+            prerelease=False,
+        )
+    ]
+    assert commits == [RepositoryCommit(sha="abc123", committed_at=datetime(2026, 3, 8, 0, 0, tzinfo=timezone.utc))]
+    assert pulls == [
+        RepositoryPullRequest(
+            number=7,
+            merged_at=datetime(2026, 3, 7, 0, 0, tzinfo=timezone.utc),
+            state="closed",
+            created_at=datetime(2026, 3, 5, 0, 0, tzinfo=timezone.utc),
+            closed_at=datetime(2026, 3, 7, 0, 0, tzinfo=timezone.utc),
+        )
+    ]
+    assert len(issues) == 1
+    assert tree == [
+        RepositoryTreeEntry(path="package.json", entry_type="blob"),
+        RepositoryTreeEntry(path=".github/workflows/ci.yml", entry_type="blob"),
+        RepositoryTreeEntry(path="src/app.ts", entry_type="blob"),
+    ]
+
+
+def test_provider_fetches_optional_file_contents() -> None:
+    transport = ReadmeTransport('{"name":"hello"}')
+    provider = GitHubFirehoseProvider(transport=transport, github_token=None, today=date(2026, 3, 9))
+
+    file_snapshot = provider.get_file_contents(
+        owner_login="octocat",
+        repository_name="hello-world",
+        path="package.json",
+    )
+
+    assert file_snapshot == RepositoryFileSnapshot(
+        path="package.json",
+        content='{"name":"hello"}',
+        fetched_at=file_snapshot.fetched_at,  # type: ignore[arg-type]
+        source_url="https://api.github.com/repos/octocat/hello-world/contents/package.json",
+    )

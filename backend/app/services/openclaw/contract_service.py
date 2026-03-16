@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import Protocol
 
 from app.core.errors import AppError
 from app.schemas.gateway_contract import (
+    GitHubApiBudgetSnapshot,
     GatewayAgentIntakeQueueSummary,
     GatewayAgentMonitoringPlaceholder,
     GatewayAgentQueue,
@@ -141,9 +144,11 @@ class GatewayContractService:
         self,
         adapter: GatewayContractAdapter | None = None,
         intake_runtime_service: GatewayIntakeRuntimeService | None = None,
+        runtime_dir: Path | None = None,
     ) -> None:
         self.adapter = adapter or SettingsGatewayContractAdapter()
         self.intake_runtime_service = intake_runtime_service
+        self.runtime_dir = runtime_dir
 
     def get_contract_metadata(self) -> GatewayContractResponse:
         target = self._resolve_target()
@@ -309,6 +314,7 @@ class GatewayContractService:
                 status="unknown",
                 route_owner="/api/v1/gateway/runtime",
                 agent_states=self._named_agent_summaries(queue_overrides=queue_overrides),
+                github_api_budget=self._load_github_api_budget(),
                 notes=[
                     "The runtime surface keeps Gateway routing metadata and Agentic-Workflow intake data on one backend-owned contract.",
                     "Gateway connectivity does not belong to the generic /health endpoint.",
@@ -387,6 +393,28 @@ class GatewayContractService:
             raise
         except Exception as exc:  # pragma: no cover - defensive guardrail
             raise map_gateway_transport_error(exc) from exc
+
+    def _load_github_api_budget(self) -> GitHubApiBudgetSnapshot | None:
+        if self.runtime_dir is None:
+            return None
+
+        snapshot_path = self.runtime_dir / "github" / "quota.json"
+        if not snapshot_path.is_file():
+            return None
+
+        try:
+            payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            logger.debug("GitHub quota snapshot could not be read.", exc_info=True)
+            return None
+        if not isinstance(payload, dict):
+            return None
+
+        try:
+            return GitHubApiBudgetSnapshot.model_validate(payload)
+        except Exception:
+            logger.debug("GitHub quota snapshot had unexpected shape.", exc_info=True)
+            return None
 
     @staticmethod
     def _as_transport_target(

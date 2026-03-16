@@ -1,0 +1,49 @@
+{
+  "checkpoint": {
+    "created_before_boundary": "2025-05-18",
+    "created_before_cursor": null,
+    "exhausted": false,
+    "last_checkpointed_at": "2026-03-16T01:24:16.261283+00:00",
+    "next_page": 1,
+    "pages_processed_in_run": 0,
+    "resume_required": false,
+    "source_provider": "github",
+    "window_end_date": "2025-05-17",
+    "window_start_date": "2025-04-18"
+  },
+  "generated_at": "2026-03-16T01:24:16.278562+00:00",
+  "operator_guidance": {
+    "checkpoint_interpretation": "A non-null created_before_cursor means Backfill is paging through a dense timestamp slice inside the current date window.",
+    "rate_limit_handling": "If an outcome includes rate_limit_backoff_seconds, the worker paused for that many seconds after a GitHub rate-limit response before ending the run.",
+    "stall_recovery": "If dense results exceed GitHub's accessible search window, Backfill shrinks created_before_cursor by one second and restarts at page 1."
+  },
+  "outcomes": [
+    {
+      "created_before_boundary": "2025-06-17",
+      "created_before_cursor": null,
+      "error": null,
+      "exhausted_after": false,
+      "fetched_count": 100,
+      "inserted_count": 100,
+      "page": 1,
+      "rate_limit_backoff_seconds": null,
+      "skipped_count": 0,
+      "window_end_date": "2025-06-16",
+      "window_start_date": "2025-05-18"
+    },
+    {
+      "created_before_boundary": "2025-06-17",
+      "created_before_cursor": "2025-05-18T09:07:43+00:00",
+      "error": null,
+      "exhausted_after": false,
+      "fetched_count": 0,
+      "inserted_count": 0,
+      "page": 1,
+      "rate_limit_backoff_seconds": null,
+      "skipped_count": 0,
+      "window_end_date": "2025-06-16",
+      "window_start_date": "2025-05-18"
+    }
+  ],
+  "status": "success"
+}

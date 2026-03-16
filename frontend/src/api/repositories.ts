@@ -104,6 +104,20 @@ export interface RepositoryAnalysisSummary {
   monetization_potential: RepositoryMonetizationPotential;
   category?: RepositoryCategory | null;
   category_confidence_score?: number | null;
+  analysis_mode?: string | null;
+  analysis_outcome?: string | null;
+  analysis_schema_version?: string | null;
+  analysis_evidence_version?: string | null;
+  insufficient_evidence_reason?: string | null;
+  evidence_summary?: string | null;
+  analysis_signals: Record<string, unknown>;
+  score_breakdown: Record<string, number>;
+  analysis_summary_short?: string | null;
+  analysis_summary_long?: string | null;
+  supporting_signals: string[];
+  red_flags: string[];
+  contradictions: string[];
+  missing_information: string[];
   agent_tags?: string[];
   suggested_new_categories: string[];
   suggested_new_tags: string[];
@@ -207,6 +221,7 @@ export interface RepositoryDetailResponse {
   has_analysis_artifact: boolean;
   is_starred: boolean;
   user_tags: string[];
+  idea_family_ids: number[];
 }
 
 export interface RepositoryCurationState {
@@ -384,6 +399,17 @@ export class RepositoryCurationRequestError extends Error {
     this.code = options.code;
     this.details = options.details ?? {};
   }
+}
+
+function buildRepositoryNetworkErrorMessage(action: string): string {
+  return `${action} failed because the backend API could not be reached at ${getRequiredApiBaseUrl()}. Make sure the backend server is running and NEXT_PUBLIC_API_URL is correct.`;
+}
+
+function buildNetworkErrorDetails(error: unknown): Record<string, unknown> {
+  return {
+    api_base_url: getRequiredApiBaseUrl(),
+    cause: error instanceof Error ? error.message : String(error),
+  };
 }
 
 function parsePositiveInt(value: string | null, fallback: number): number {
@@ -608,12 +634,24 @@ function buildRepositoryCatalogApiParams(
 export async function fetchRepositoryCatalog(
   state: RepositoryCatalogViewState,
 ): Promise<RepositoryCatalogPageResponse> {
-  const response = await fetch(
-    `${getRequiredApiBaseUrl()}/api/v1/repositories?${buildRepositoryCatalogApiParams(state).toString()}`,
-    {
-      cache: "no-store",
-    },
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `${getRequiredApiBaseUrl()}/api/v1/repositories?${buildRepositoryCatalogApiParams(state).toString()}`,
+      {
+        cache: "no-store",
+      },
+    );
+  } catch (error) {
+    throw new RepositoryCatalogRequestError(
+      buildRepositoryNetworkErrorMessage("Repository catalog request"),
+      {
+        status: 0,
+        code: "network_error",
+        details: buildNetworkErrorDetails(error),
+      },
+    );
+  }
 
   if (response.ok) {
     return (await response.json()) as RepositoryCatalogPageResponse;
@@ -642,12 +680,24 @@ export function getRepositoryBacklogSummaryQueryKey() {
 }
 
 export async function fetchRepositoryBacklogSummary(): Promise<RepositoryBacklogSummary> {
-  const response = await fetch(
-    `${getRequiredApiBaseUrl()}/api/v1/repositories/backlog/summary`,
-    {
-      cache: "no-store",
-    },
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `${getRequiredApiBaseUrl()}/api/v1/repositories/backlog/summary`,
+      {
+        cache: "no-store",
+      },
+    );
+  } catch (error) {
+    throw new RepositoryCatalogRequestError(
+      buildRepositoryNetworkErrorMessage("Repository backlog request"),
+      {
+        status: 0,
+        code: "network_error",
+        details: buildNetworkErrorDetails(error),
+      },
+    );
+  }
 
   if (response.ok) {
     return (await response.json()) as RepositoryBacklogSummary;
@@ -674,12 +724,24 @@ export async function fetchRepositoryBacklogSummary(): Promise<RepositoryBacklog
 export async function fetchRepositoryDetail(
   repositoryId: number,
 ): Promise<RepositoryDetailResponse> {
-  const response = await fetch(
-    `${getRequiredApiBaseUrl()}/api/v1/repositories/${repositoryId}`,
-    {
-      cache: "no-store",
-    },
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `${getRequiredApiBaseUrl()}/api/v1/repositories/${repositoryId}`,
+      {
+        cache: "no-store",
+      },
+    );
+  } catch (error) {
+    throw new RepositoryDetailRequestError(
+      buildRepositoryNetworkErrorMessage("Repository detail request"),
+      {
+        status: 0,
+        code: "network_error",
+        details: buildNetworkErrorDetails(error),
+      },
+    );
+  }
 
   if (response.ok) {
     return (await response.json()) as RepositoryDetailResponse;
@@ -707,16 +769,28 @@ export async function updateRepositoryStar(
   repositoryId: number,
   starred: boolean,
 ): Promise<RepositoryCurationState> {
-  const response = await fetch(
-    `${getRequiredApiBaseUrl()}/api/v1/repositories/${repositoryId}/star`,
-    {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
+  let response: Response;
+  try {
+    response = await fetch(
+      `${getRequiredApiBaseUrl()}/api/v1/repositories/${repositoryId}/star`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ starred }),
       },
-      body: JSON.stringify({ starred }),
-    },
-  );
+    );
+  } catch (error) {
+    throw new RepositoryCurationRequestError(
+      buildRepositoryNetworkErrorMessage("Repository star update"),
+      {
+        status: 0,
+        code: "network_error",
+        details: buildNetworkErrorDetails(error),
+      },
+    );
+  }
 
   if (response.ok) {
     return (await response.json()) as RepositoryCurationState;
@@ -744,16 +818,28 @@ export async function addRepositoryUserTag(
   repositoryId: number,
   tagLabel: string,
 ): Promise<RepositoryUserTagResponse> {
-  const response = await fetch(
-    `${getRequiredApiBaseUrl()}/api/v1/repositories/${repositoryId}/tags`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+  let response: Response;
+  try {
+    response = await fetch(
+      `${getRequiredApiBaseUrl()}/api/v1/repositories/${repositoryId}/tags`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ tag_label: tagLabel }),
       },
-      body: JSON.stringify({ tag_label: tagLabel }),
-    },
-  );
+    );
+  } catch (error) {
+    throw new RepositoryCurationRequestError(
+      buildRepositoryNetworkErrorMessage("Repository tag creation"),
+      {
+        status: 0,
+        code: "network_error",
+        details: buildNetworkErrorDetails(error),
+      },
+    );
+  }
 
   if (response.ok) {
     return (await response.json()) as RepositoryUserTagResponse;
@@ -781,12 +867,24 @@ export async function removeRepositoryUserTag(
   repositoryId: number,
   tagLabel: string,
 ): Promise<void> {
-  const response = await fetch(
-    `${getRequiredApiBaseUrl()}/api/v1/repositories/${repositoryId}/tags/${encodeURIComponent(tagLabel)}`,
-    {
-      method: "DELETE",
-    },
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `${getRequiredApiBaseUrl()}/api/v1/repositories/${repositoryId}/tags/${encodeURIComponent(tagLabel)}`,
+      {
+        method: "DELETE",
+      },
+    );
+  } catch (error) {
+    throw new RepositoryCurationRequestError(
+      buildRepositoryNetworkErrorMessage("Repository tag removal"),
+      {
+        status: 0,
+        code: "network_error",
+        details: buildNetworkErrorDetails(error),
+      },
+    );
+  }
 
   if (response.status === 204) {
     return;
