@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlmodel import Session
 
+from app.core.config import settings
 from app.models import (
     AGENT_NAMES,
     AgentPauseState,
@@ -18,6 +19,7 @@ from app.models import (
     RepositoryTriageStatus,
     SystemEvent,
 )
+from app.repositories.agent_event_repository import AgentEventRepository
 from app.repositories.repository_exploration_repository import RepositoryExplorationRepository
 from app.schemas.overview import (
     AgentHealthMetrics,
@@ -30,6 +32,7 @@ from app.schemas.overview import (
     TriageMetrics,
 )
 from app.services.agent_metadata import get_agent_metadata
+from app.services.agent_runtime_progress_service import AgentRuntimeProgressService
 
 
 class OverviewService:
@@ -153,41 +156,19 @@ class OverviewService:
         )
 
     def _get_agent_health_metrics(self) -> list[AgentHealthMetrics]:
-        from sqlalchemy import distinct, desc
-        from sqlalchemy.orm import aliased
-
-        subq = (
-            select(
-                AgentRun.agent_name,
-                AgentRun.id,
-                AgentRun.started_at,
-                AgentRun.status,
-                func.row_number()
-                .over(
-                    partition_by=AgentRun.agent_name,
-                    order_by=(desc(AgentRun.started_at), desc(AgentRun.id)),
-                )
-                .label("rn"),
-            )
-            .subquery()
-        )
-
-        latest_runs_query = select(
-            subq.c.agent_name,
-            subq.c.id,
-            subq.c.started_at,
-            subq.c.status,
-        ).where(subq.c.rn == 1)
-
         latest_runs = {
             row.agent_name: row
-            for row in self.session.execute(latest_runs_query)
+            for row in AgentEventRepository(self.session).get_latest_run_per_agent()
         }
 
         all_pause_states = list(self.session.execute(select(AgentPauseState)).scalars().all())
         pause_states = {state.agent_name: state for state in all_pause_states}
 
         usage_by_name = self._get_agent_usage_24h()
+        runtime_progress_service = AgentRuntimeProgressService(
+            self.session,
+            runtime_dir=getattr(settings, "AGENTIC_RUNTIME_DIR", None),
+        )
 
         return [
             AgentHealthMetrics(
@@ -210,6 +191,10 @@ class OverviewService:
                 token_usage_24h=usage_by_name.get(name, {}).get("total_tokens", 0),
                 input_tokens_24h=usage_by_name.get(name, {}).get("input_tokens", 0),
                 output_tokens_24h=usage_by_name.get(name, {}).get("output_tokens", 0),
+                runtime_progress=runtime_progress_service.build_for_agent(
+                    name,
+                    latest_runs.get(name),
+                ),
             )
             for name in AGENT_NAMES
         ]

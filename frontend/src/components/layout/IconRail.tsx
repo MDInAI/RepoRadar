@@ -8,6 +8,7 @@ export function IconRail() {
 
   const links = [
     { href: "/overview", icon: "📊", label: "Overview" },
+    { href: "/live", icon: "🛰️", label: "Live Ops" },
     { href: "/control", icon: "🎛️", label: "Control" },
     { href: "/agents", icon: "🤖", label: "Agents" },
     { href: "/repositories", icon: "📦", label: "Repos" },

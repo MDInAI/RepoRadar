@@ -52,6 +52,19 @@ export interface OverviewSummary {
     token_usage_24h: number;
     input_tokens_24h: number;
     output_tokens_24h: number;
+    runtime_progress: {
+      status_label: string;
+      current_activity: string;
+      current_target: string | null;
+      progress_percent: number | null;
+      completed_count: number | null;
+      total_count: number | null;
+      remaining_count: number | null;
+      unit_label: string | null;
+      updated_at: string | null;
+      source: string;
+      details: string[];
+    } | null;
   }>;
   failures: {
     total_failures: number;

@@ -23,6 +23,7 @@ from agentic_workers.storage.backend_models import (
     SynthesisRun,
     SynthesisRunStatus,
 )
+from agentic_workers.storage.agent_progress_snapshots import write_agent_progress_snapshot
 from agentic_workers.utils.synthesis_parser import parse_synthesis_output
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,41 @@ class CombinerRunResult:
     output_tokens: int = 0
     total_tokens: int = 0
     error_message: str | None = None
+
+
+def _write_combiner_progress_snapshot(
+    *,
+    runtime_dir: Path | None,
+    run: SynthesisRun,
+    completed_count: int,
+    current_target: str | None,
+    current_activity: str,
+    status_label: str = "running",
+) -> None:
+    total_inputs = len(run.input_repository_ids or [])
+    progress_percent = int(round((completed_count / total_inputs) * 100)) if total_inputs > 0 else None
+    try:
+        write_agent_progress_snapshot(
+            runtime_dir=runtime_dir,
+            agent_name="combiner",
+            payload={
+                "status_label": status_label,
+                "current_activity": current_activity,
+                "current_target": current_target,
+                "completed_count": completed_count,
+                "total_count": total_inputs,
+                "remaining_count": max(total_inputs - completed_count, 0),
+                "progress_percent": progress_percent,
+                "unit_label": "repos",
+                "source": "combiner synthesis snapshot",
+                "details": [
+                    f"Synthesis run id: {run.id}",
+                    f"Run type: {run.run_type}",
+                ],
+            },
+        )
+    except OSError:
+        logger.warning("Failed to write combiner progress snapshot", exc_info=True)
 
 
 def run_combiner_job(
@@ -79,6 +115,13 @@ def run_combiner_job(
         run.started_at = datetime.now(timezone.utc)
         session.add(run)
         session.commit()
+        _write_combiner_progress_snapshot(
+            runtime_dir=runtime_dir,
+            run=run,
+            completed_count=0,
+            current_target=None,
+            current_activity="Preparing synthesis inputs.",
+        )
 
         # Load previous memory if obsession context exists
         previous_insights = None
@@ -114,6 +157,14 @@ def run_combiner_job(
             if not repo:
                 raise ValueError(f"Repository {repo_id} not found")
 
+            _write_combiner_progress_snapshot(
+                runtime_dir=runtime_dir,
+                run=run,
+                completed_count=len(readme_contents),
+                current_target=repo.full_name,
+                current_activity="Loading README artifacts for synthesis.",
+            )
+
             readme_content = artifact_payload_repository.get_text_artifact(
                 repo.github_repository_id,
                 RepositoryArtifactKind.README_SNAPSHOT,
@@ -128,6 +179,14 @@ def run_combiner_job(
 
         if not readme_contents:
             raise ValueError("No README artifacts found for input repositories")
+
+        _write_combiner_progress_snapshot(
+            runtime_dir=runtime_dir,
+            run=run,
+            completed_count=len(readme_contents),
+            current_target=None,
+            current_activity="Generating synthesis output.",
+        )
 
         # Generate synthesis output with retry logic
         # Use LLM provider if API key available, fallback to heuristic
@@ -195,6 +254,15 @@ def run_combiner_job(
 
         session.commit()
 
+        _write_combiner_progress_snapshot(
+            runtime_dir=runtime_dir,
+            run=run,
+            completed_count=len(readme_contents),
+            current_target=None,
+            current_activity="Combiner run completed.",
+            status_label="success",
+        )
+
         logger.info(f"Combiner run {run.id} completed successfully")
         return CombinerRunResult(
             status=CombinerRunStatus.SUCCESS,
@@ -213,6 +281,15 @@ def run_combiner_job(
         run.completed_at = datetime.now(timezone.utc)
         session.add(run)
         session.commit()
+
+        _write_combiner_progress_snapshot(
+            runtime_dir=runtime_dir,
+            run=run,
+            completed_count=0,
+            current_target=None,
+            current_activity="Combiner run failed.",
+            status_label="failed",
+        )
 
         return CombinerRunResult(
             status=CombinerRunStatus.FAILED,

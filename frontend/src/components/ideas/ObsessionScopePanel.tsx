@@ -1,5 +1,7 @@
 'use client';
 
+import { formatAppDateTime } from "@/lib/time";
+
 interface Repository {
   id: number;
   full_name: string;
@@ -40,7 +42,7 @@ export function ObsessionScopePanel({ familyTitle, repositories, ideaFamilyId, s
         </div>
         {scopeUpdatedAt && (
           <div className="text-xs text-gray-500 mt-2">
-            Updated: {new Date(scopeUpdatedAt).toLocaleString()}
+            Updated: {formatAppDateTime(scopeUpdatedAt)}
           </div>
         )}
       </div>

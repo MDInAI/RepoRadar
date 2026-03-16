@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useObsessionContext, useUpdateObsessionContext, useTriggerRefresh } from '@/hooks/useObsession';
 import { useMemorySegments } from '@/hooks/useMemory';
+import { formatAppDateTime } from '@/lib/time';
 import { ObsessionContextFormDialog } from './ObsessionContextFormDialog';
 import { MemorySegmentViewer } from './MemorySegmentViewer';
 import { SynthesisRunTimeline } from './SynthesisRunTimeline';
@@ -120,8 +121,8 @@ export function ObsessionContextDetailDialog({ contextId, onClose }: ObsessionCo
             />
 
             <div className="text-xs text-gray-500">
-              Created: {new Date(context.created_at).toLocaleString()}
-              {context.last_refresh_at && ` • Last refresh: ${new Date(context.last_refresh_at).toLocaleString()}`}
+              Created: {formatAppDateTime(context.created_at)}
+              {context.last_refresh_at && ` • Last refresh: ${formatAppDateTime(context.last_refresh_at)}`}
             </div>
           </div>
         )}
@@ -146,7 +147,7 @@ export function ObsessionContextDetailDialog({ contextId, onClose }: ObsessionCo
                         <div className="font-medium text-sm">{segment.segment_key}</div>
                         <div className="text-xs text-gray-500">
                           <span className="bg-gray-200 px-2 py-0.5 rounded mr-2">{segment.content_type}</span>
-                          Updated: {new Date(segment.updated_at).toLocaleString()}
+                          Updated: {formatAppDateTime(segment.updated_at)}
                         </div>
                       </div>
                       <button

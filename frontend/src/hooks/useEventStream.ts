@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import {
+  getFailureEventsQueryKey,
   getAgentRunDetailQueryKey,
   getEventStreamUrl,
   getLatestAgentRunsQueryKey,
@@ -53,6 +54,7 @@ export function useEventStream(options: UseEventStreamOptions = {}) {
   const handleSystemEvent = useEffectEvent((event: SystemEventPayload) => {
     options.onSystemEvent?.(event);
     void queryClient.invalidateQueries({ queryKey: ["agents", "events"] });
+    void queryClient.invalidateQueries({ queryKey: getFailureEventsQueryKey() });
     void queryClient.invalidateQueries({ queryKey: ["incidents"] });
     void queryClient.invalidateQueries({ queryKey: ["overview", "summary"] });
     if (event.event_type === "agent_paused" || event.event_type === "agent_resumed") {

@@ -85,7 +85,7 @@ export function RepositoryCatalogTable({
 
   return (
     <div className="repo-table-shell">
-      <table className="tbl repo-table">
+      <table className="tbl repo-table repo-table-compact">
         <thead>
           <tr>
             <th style={{ width: "40px" }}>
@@ -151,13 +151,19 @@ export function RepositoryCatalogTable({
                     </span>
                   </div>
                 </td>
-                <td>{item.category ? <span className="tag">{formatCategory(item.category)}</span> : <span style={{ color: "var(--text-3)" }}>—</span>}</td>
+                <td>
+                  {item.category ? (
+                    <span className="tag">{formatCategory(item.category)}</span>
+                  ) : (
+                    <span style={{ color: "var(--text-3)" }}>—</span>
+                  )}
+                </td>
                 <td>
                   <span className={getFitClass(item.monetization_potential)}>
                     {formatToken(item.monetization_potential ?? "unscored")}
                   </span>
                 </td>
-                <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                <td className="repo-table-number-cell">
                   {item.stargazers_count.toLocaleString()}
                 </td>
                 <td>

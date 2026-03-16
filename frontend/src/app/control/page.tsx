@@ -8,10 +8,12 @@ import {
   fetchArtifactStorageStatus,
   fetchBackfillTimeline,
   fetchAgentPauseStates,
+  fetchFailureEvents,
   fetchLatestAgentRuns,
   getArtifactStorageStatusQueryKey,
   getAgentConfigQueryKey,
   getBackfillTimelineQueryKey,
+  getFailureEventsQueryKey,
   getAgentPauseStatesQueryKey,
   getLatestAgentRunsQueryKey,
   pauseAgent,
@@ -25,6 +27,10 @@ import {
   type AgentName,
   type AgentStatusEntry,
 } from "@/api/agents";
+import { AgentOperatorSummary } from "@/components/agents/AgentOperatorSummary";
+import { GitHubBudgetPanel } from "@/components/agents/GitHubBudgetPanel";
+import { OperationalAlertsPanel } from "@/components/agents/OperationalAlertsPanel";
+import { formatAppDateTime } from "@/lib/time";
 import { fetchGatewayRuntime, fetchSettingsSummary } from "@/api/readiness";
 import type {
   GatewayAgentIntakeQueueSummary,
@@ -44,12 +50,12 @@ const AGENTS: AgentDefinition[] = [
   { id: "firehose", label: "Firehose", icon: "🔥", fallbackDescription: "Real-time discovery" },
   { id: "backfill", label: "Backfill", icon: "⏮️", fallbackDescription: "Historical discovery" },
   { id: "bouncer", label: "Bouncer", icon: "🚪", fallbackDescription: "Rule-based triage" },
-  { id: "analyst", label: "Analyst", icon: "🔬", fallbackDescription: "README analysis" },
+  { id: "analyst", label: "Analyst", icon: "🔬", fallbackDescription: "Evidence-backed analysis" },
   { id: "combiner", label: "Combiner", icon: "🧠", fallbackDescription: "Opportunity synthesis" },
   { id: "obsession", label: "Obsession", icon: "🗂️", fallbackDescription: "Context tracking" },
 ];
 
-const EDITABLE_AGENT_IDS: AgentName[] = ["firehose", "backfill", "bouncer"];
+const EDITABLE_AGENT_IDS: AgentName[] = ["firehose", "backfill", "bouncer", "analyst"];
 
 function isLiveIntakeQueue(queue: GatewayAgentQueue): queue is GatewayAgentIntakeQueueSummary {
   return queue.status === "live";
@@ -63,14 +69,7 @@ function titleCase(value: string): string {
 }
 
 function formatTimestamp(value: string | null | undefined): string {
-  if (!value) {
-    return "Unavailable";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return "Unknown";
-  }
-  return `${parsed.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+  return formatAppDateTime(value);
 }
 
 function formatRelative(value: string | null | undefined): string {
@@ -452,7 +451,7 @@ function deriveCadenceForAgent({
       stateLabel: isPaused ? "Paused by policy" : "Queue-driven",
       explanation: isPaused
         ? (pauseReason ?? "Analyst is paused until an operator resumes it.")
-        : "Analyst runs when accepted repositories are waiting for README analysis.",
+        : "Analyst runs when accepted repositories are waiting for evidence-backed analysis.",
       intervalSeconds: null,
       remainingSeconds: null,
       nextDueAt: null,
@@ -533,6 +532,107 @@ function AgentBtn({
       {paused ? <span style={{ fontSize: "10px", color: "var(--red)" }}>●</span> : null}
     </button>
   );
+}
+
+function deriveAnalystReadiness(
+  summary: SettingsSummaryResponse | undefined,
+  entry: AgentStatusEntry | undefined,
+): {
+  status: "green" | "yellow" | "red";
+  label: string;
+  detail: string;
+  action: string;
+  provider: string;
+} {
+  const projectProvider = findSettingEntry(summary, ["ANALYST_PROVIDER"]);
+  const workerProvider = findSettingEntry(summary, ["workers.ANALYST_PROVIDER"]);
+  const projectAnthropicKey = findSettingEntry(summary, ["ANTHROPIC_API_KEY"]);
+  const workerAnthropicKey = findSettingEntry(summary, ["workers.ANTHROPIC_API_KEY"]);
+  const projectGeminiKey = findSettingEntry(summary, ["GEMINI_API_KEY"]);
+  const workerGeminiKey = findSettingEntry(summary, ["workers.GEMINI_API_KEY"]);
+  const projectModel = findSettingEntry(summary, ["ANALYST_MODEL_NAME"]);
+  const workerModel = findSettingEntry(summary, ["workers.ANALYST_MODEL_NAME"]);
+  const projectGeminiBaseUrl = findSettingEntry(summary, ["GEMINI_BASE_URL"]);
+  const workerGeminiBaseUrl = findSettingEntry(summary, ["workers.GEMINI_BASE_URL"]);
+  const projectGeminiModel = findSettingEntry(summary, ["GEMINI_MODEL_NAME"]);
+  const workerGeminiModel = findSettingEntry(summary, ["workers.GEMINI_MODEL_NAME"]);
+
+  const provider = workerProvider?.value ?? projectProvider?.value ?? entry?.configured_provider ?? "heuristic";
+  const anthropicConfigured = (workerAnthropicKey?.value ?? projectAnthropicKey?.value) === "configured";
+  const geminiConfigured = (workerGeminiKey?.value ?? projectGeminiKey?.value) === "configured";
+  const workerDrift =
+    (projectProvider?.value != null && workerProvider?.value != null && projectProvider.value !== workerProvider.value)
+    || (projectAnthropicKey?.value != null
+      && workerAnthropicKey?.value != null
+      && projectAnthropicKey.value !== workerAnthropicKey.value)
+    || (projectGeminiKey?.value != null
+      && workerGeminiKey?.value != null
+      && projectGeminiKey.value !== workerGeminiKey.value)
+    || (projectModel?.value != null && workerModel?.value != null && projectModel.value !== workerModel.value)
+    || (projectGeminiBaseUrl?.value != null
+      && workerGeminiBaseUrl?.value != null
+      && projectGeminiBaseUrl.value !== workerGeminiBaseUrl.value)
+    || (projectGeminiModel?.value != null
+      && workerGeminiModel?.value != null
+      && projectGeminiModel.value !== workerGeminiModel.value);
+
+  if (workerDrift) {
+    return {
+      status: "yellow",
+      label: "Pending worker sync",
+      detail: "Saved Analyst settings do not fully match the live worker view yet.",
+      action: "Restart the worker loop if new runs keep using the previous provider or model settings.",
+      provider,
+    };
+  }
+
+  if (provider === "llm" && !anthropicConfigured) {
+    return {
+      status: "red",
+      label: "Blocked by missing Anthropic key",
+      detail: "Analyst is set to llm mode, but the Anthropic API key is not configured for the live worker.",
+      action: "Add ANTHROPIC_API_KEY to backend/.env and workers/.env, then restart the worker loop.",
+      provider,
+    };
+  }
+
+  if (provider === "gemini" && !geminiConfigured) {
+    return {
+      status: "red",
+      label: "Blocked by missing Gemini key",
+      detail: "Analyst is set to gemini mode, but the Gemini-compatible API key is not configured for the live worker.",
+      action: "Add GEMINI_API_KEY to backend/.env and workers/.env, then restart the worker loop.",
+      provider,
+    };
+  }
+
+  if (provider === "heuristic") {
+    return {
+      status: "green",
+      label: "Ready in heuristic mode",
+      detail: "Analyst will run with deterministic and local evidence-backed analysis without an external model key.",
+      action: "No extra model configuration is required for runs to proceed.",
+      provider,
+    };
+  }
+
+  if (provider === "gemini") {
+    return {
+      status: "green",
+      label: "Ready in Gemini mode",
+      detail: "The live worker has the Gemini-compatible provider settings and key it needs for model-backed analysis.",
+      action: "Manual and automatic Analyst runs should use the configured Gemini-compatible endpoint.",
+      provider,
+    };
+  }
+
+  return {
+    status: "green",
+    label: "Ready in Anthropic mode",
+    detail: "The live worker has the Anthropic provider settings and key it needs for model-backed analysis.",
+    action: "Manual and automatic Analyst runs should use the configured Anthropic model.",
+    provider,
+  };
 }
 
 function ConfigPanel({ title, children }: { title?: string; children: React.ReactNode }) {
@@ -820,16 +920,32 @@ function AgentSettingsPanel({
       );
     }
 
+    if (field.input_kind === "select") {
+      return (
+        <select
+          value={value}
+          onChange={(event) => onFieldChange(field.key, event.target.value)}
+          style={baseStyle}
+        >
+          {field.options.map((option) => (
+            <option key={option} value={option}>
+              {titleCase(option)}
+            </option>
+          ))}
+        </select>
+      );
+    }
+
     return (
       <input
-        type={field.input_kind === "date" ? "date" : "number"}
+        type={field.input_kind === "date" ? "date" : field.input_kind === "text" ? "text" : "number"}
         value={value}
         min={field.min_value ?? undefined}
         onChange={(event) => onFieldChange(field.key, event.target.value)}
         placeholder={field.placeholder ?? undefined}
         style={{
           ...baseStyle,
-          fontFamily: field.input_kind === "date" ? "inherit" : "var(--mono)",
+          fontFamily: field.input_kind === "date" || field.input_kind === "text" ? "inherit" : "var(--mono)",
         }}
       />
     );
@@ -838,6 +954,27 @@ function AgentSettingsPanel({
   const panelTitle = agentId === "bouncer" ? "Bouncer Filters" : "Agent Settings";
   const editButtonLabel = agentId === "bouncer" ? "Edit Filters" : "Edit Settings";
   const saveButtonLabel = agentId === "bouncer" ? "Save Filters" : "Save Settings";
+  const editorButtonLabel =
+    agentId === "analyst"
+      ? "Open Analyst Editor"
+      : agentId === "bouncer"
+        ? "Open Filter Editor"
+        : "Open Runtime Editor";
+  const intakePacing = findSettingEntry(summary, ["workers.INTAKE_PACING_SECONDS", "INTAKE_PACING_SECONDS"]);
+  const githubRpm = findSettingEntry(summary, ["workers.GITHUB_REQUESTS_PER_MINUTE", "GITHUB_REQUESTS_PER_MINUTE"]);
+  const firehoseInterval = findSettingEntry(summary, ["workers.FIREHOSE_INTERVAL_SECONDS", "FIREHOSE_INTERVAL_SECONDS"]);
+  const firehosePerPage = findSettingEntry(summary, ["workers.FIREHOSE_PER_PAGE", "FIREHOSE_PER_PAGE"]);
+  const firehosePages = findSettingEntry(summary, ["workers.FIREHOSE_PAGES", "FIREHOSE_PAGES"]);
+  const backfillInterval = findSettingEntry(summary, ["workers.BACKFILL_INTERVAL_SECONDS", "BACKFILL_INTERVAL_SECONDS"]);
+  const backfillPerPage = findSettingEntry(summary, ["workers.BACKFILL_PER_PAGE", "BACKFILL_PER_PAGE"]);
+  const backfillPages = findSettingEntry(summary, ["workers.BACKFILL_PAGES", "BACKFILL_PAGES"]);
+  const backfillWindowDays = findSettingEntry(summary, ["workers.BACKFILL_WINDOW_DAYS", "BACKFILL_WINDOW_DAYS"]);
+  const backfillMinDate = findSettingEntry(summary, ["workers.BACKFILL_MIN_CREATED_DATE", "BACKFILL_MIN_CREATED_DATE"]);
+  const bouncerIncludeRules = findSettingEntry(summary, ["workers.BOUNCER_INCLUDE_RULES", "BOUNCER_INCLUDE_RULES"]);
+  const bouncerExcludeRules = findSettingEntry(summary, ["workers.BOUNCER_EXCLUDE_RULES", "BOUNCER_EXCLUDE_RULES"]);
+  const analystProvider = findSettingEntry(summary, ["workers.ANALYST_PROVIDER", "ANALYST_PROVIDER"]);
+  const anthropicKey = findSettingEntry(summary, ["workers.ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"]);
+  const geminiKey = findSettingEntry(summary, ["workers.GEMINI_API_KEY", "GEMINI_API_KEY"]);
 
   const sharedPanelHeader = (
     <div
@@ -915,10 +1052,82 @@ function AgentSettingsPanel({
     const backfillPagesValue = draftValues.BACKFILL_PAGES ?? fieldMap.get("BACKFILL_PAGES")?.value ?? "0";
     const firehoseEstimatedMax = Number(firehosePerPageValue) * Number(firehosePagesValue) * 2;
     const backfillEstimatedMax = Number(backfillPerPageValue) * Number(backfillPagesValue);
+    const editorStateTone = configError ? "var(--red)" : isEditing ? "var(--amber)" : "var(--blue)";
+    const editorStateBackground = configError
+      ? "rgba(220, 68, 55, 0.10)"
+      : isEditing
+        ? "rgba(201, 139, 27, 0.10)"
+        : "rgba(63, 96, 186, 0.10)";
 
     return (
       <ConfigPanel title="">
         {sharedPanelHeader}
+        <div
+          style={{
+            padding: "12px",
+            borderRadius: "10px",
+            border: `1px solid ${editorStateTone}`,
+            background: editorStateBackground,
+            marginBottom: "12px",
+          }}
+        >
+          {configError ? (
+            <>
+              <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--red)" }}>
+                Editable settings are not available yet
+              </div>
+              <div style={{ fontSize: "12px", color: "var(--text-1)", marginTop: "8px", lineHeight: 1.6 }}>
+                {configError}
+              </div>
+              <div style={{ fontSize: "11px", color: "var(--text-2)", marginTop: "8px", lineHeight: 1.6 }}>
+                If you only see static information here, restart the backend and refresh the page so the latest Analyst config API is loaded.
+              </div>
+            </>
+          ) : isLoadingConfig ? (
+            <>
+              <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--blue)" }}>
+                Loading editable settings
+              </div>
+              <div style={{ fontSize: "12px", color: "var(--text-1)", marginTop: "8px", lineHeight: 1.6 }}>
+                The control panel is fetching the editable runtime form for this agent.
+              </div>
+            </>
+          ) : isEditing ? (
+            <>
+              <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--amber)" }}>
+                Editor is open
+              </div>
+              <div style={{ fontSize: "12px", color: "var(--text-1)", marginTop: "8px", lineHeight: 1.6 }}>
+                Change the fields below, then click `{saveButtonLabel}` to apply them for future runs.
+              </div>
+            </>
+          ) : config?.editable ? (
+            <>
+              <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--blue)" }}>
+                This section is editable
+              </div>
+              <div style={{ fontSize: "12px", color: "var(--text-1)", marginTop: "8px", lineHeight: 1.6 }}>
+                Use the editor to change runtime settings for {titleCase(agentId)} directly from the control panel.
+              </div>
+              <button
+                type="button"
+                onClick={onStartEdit}
+                style={{
+                  marginTop: "10px",
+                  padding: "10px 14px",
+                  background: "var(--blue)",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                }}
+              >
+                {editorButtonLabel}
+              </button>
+            </>
+          ) : null}
+        </div>
         {isLoadingConfig ? <p style={{ color: "var(--text-2)", fontSize: "12px" }}>Loading editable settings…</p> : null}
         {configError ? (
           <div style={{ color: "var(--red)", fontSize: "12px", marginBottom: "12px" }}>{configError}</div>
@@ -969,6 +1178,20 @@ function AgentSettingsPanel({
                     value={Number.isFinite(backfillEstimatedMax) ? backfillEstimatedMax.toLocaleString() : "Unavailable"}
                   />
                 ) : null}
+                {agentId === "analyst" ? (
+                  <>
+                    <DetailRow
+                      label="Anthropic API key"
+                      value={anthropicKey?.value ?? "Unavailable"}
+                      tone={anthropicKey?.value === "configured" ? "good" : analystProvider?.value === "llm" ? "warn" : "default"}
+                    />
+                    <DetailRow
+                      label="Gemini API key"
+                      value={geminiKey?.value ?? "Unavailable"}
+                      tone={geminiKey?.value === "configured" ? "good" : analystProvider?.value === "gemini" ? "warn" : "default"}
+                    />
+                  </>
+                ) : null}
               </>
             )}
             <div style={{ marginTop: "14px", display: "grid", gap: "8px" }}>
@@ -983,19 +1206,6 @@ function AgentSettingsPanel({
       </ConfigPanel>
     );
   }
-
-  const intakePacing = findSettingEntry(summary, ["workers.INTAKE_PACING_SECONDS", "INTAKE_PACING_SECONDS"]);
-  const githubRpm = findSettingEntry(summary, ["workers.GITHUB_REQUESTS_PER_MINUTE", "GITHUB_REQUESTS_PER_MINUTE"]);
-  const firehoseInterval = findSettingEntry(summary, ["workers.FIREHOSE_INTERVAL_SECONDS", "FIREHOSE_INTERVAL_SECONDS"]);
-  const firehosePerPage = findSettingEntry(summary, ["workers.FIREHOSE_PER_PAGE", "FIREHOSE_PER_PAGE"]);
-  const firehosePages = findSettingEntry(summary, ["workers.FIREHOSE_PAGES", "FIREHOSE_PAGES"]);
-  const backfillInterval = findSettingEntry(summary, ["workers.BACKFILL_INTERVAL_SECONDS", "BACKFILL_INTERVAL_SECONDS"]);
-  const backfillPerPage = findSettingEntry(summary, ["workers.BACKFILL_PER_PAGE", "BACKFILL_PER_PAGE"]);
-  const backfillPages = findSettingEntry(summary, ["workers.BACKFILL_PAGES", "BACKFILL_PAGES"]);
-  const backfillWindowDays = findSettingEntry(summary, ["workers.BACKFILL_WINDOW_DAYS", "BACKFILL_WINDOW_DAYS"]);
-  const backfillMinDate = findSettingEntry(summary, ["workers.BACKFILL_MIN_CREATED_DATE", "BACKFILL_MIN_CREATED_DATE"]);
-  const bouncerIncludeRules = findSettingEntry(summary, ["workers.BOUNCER_INCLUDE_RULES", "BOUNCER_INCLUDE_RULES"]);
-  const bouncerExcludeRules = findSettingEntry(summary, ["workers.BOUNCER_EXCLUDE_RULES", "BOUNCER_EXCLUDE_RULES"]);
 
   if (agentId === "firehose") {
     const perPage = Number(firehosePerPage?.value ?? "0");
@@ -1137,8 +1347,10 @@ function RuntimeQueuePanels({
     Boolean(queue.checkpoint.last_checkpointed_at) &&
     (latestRun?.items_processed ?? 0) === 0;
 
-  const isBackfillCheckpoint = "window_start_date" in queue.checkpoint;
-  const isFirehoseCheckpoint = "active_mode" in queue.checkpoint;
+  const backfillCheckpoint = queue.checkpoint.kind === "backfill" ? queue.checkpoint : null;
+  const firehoseCheckpoint = queue.checkpoint.kind === "firehose" ? queue.checkpoint : null;
+  const isBackfillCheckpoint = backfillCheckpoint !== null;
+  const isFirehoseCheckpoint = firehoseCheckpoint !== null;
 
   const timelinePanel = isBackfillCheckpoint ? (
     <ConfigPanel title="Timeline Window">
@@ -1269,23 +1481,31 @@ function RuntimeQueuePanels({
       ) : null}
       <DetailRow
         label="Oldest date included in this window"
-        value={backfillTimeline?.oldest_date_in_window ?? queue.checkpoint.window_start_date ?? "Unavailable"}
+        value={backfillTimeline?.oldest_date_in_window ?? backfillCheckpoint?.window_start_date ?? "Unavailable"}
       />
       <DetailRow
         label="Newest boundary to start from"
-        value={backfillTimeline?.newest_boundary_exclusive ?? queue.checkpoint.created_before_boundary ?? "Unavailable"}
+        value={
+          backfillTimeline?.newest_boundary_exclusive
+          ?? backfillCheckpoint?.created_before_boundary
+          ?? "Unavailable"
+        }
       />
       <DetailRow
         label="Current timestamp cursor inside this window"
-        value={backfillTimeline?.current_cursor ?? queue.checkpoint.created_before_cursor ?? "Not currently narrowed inside the window"}
+        value={
+          backfillTimeline?.current_cursor
+          ?? backfillCheckpoint?.created_before_cursor
+          ?? "Not currently narrowed inside the window"
+        }
       />
       <DetailRow
         label="Current historical span"
         value={
-          (backfillTimeline?.oldest_date_in_window ?? queue.checkpoint.window_start_date) &&
-          (backfillTimeline?.newest_boundary_exclusive ?? queue.checkpoint.created_before_boundary)
-            ? `${backfillTimeline?.oldest_date_in_window ?? queue.checkpoint.window_start_date} through ${subtractOneDay(
-                backfillTimeline?.newest_boundary_exclusive ?? queue.checkpoint.created_before_boundary,
+          (backfillTimeline?.oldest_date_in_window ?? backfillCheckpoint?.window_start_date) &&
+          (backfillTimeline?.newest_boundary_exclusive ?? backfillCheckpoint?.created_before_boundary)
+            ? `${backfillTimeline?.oldest_date_in_window ?? backfillCheckpoint?.window_start_date} through ${subtractOneDay(
+                backfillTimeline?.newest_boundary_exclusive ?? backfillCheckpoint?.created_before_boundary,
               )}`
             : "Window not fully established yet"
         }
@@ -1305,9 +1525,9 @@ function RuntimeQueuePanels({
       >
         {(() => {
           const oldestDate =
-            backfillTimeline?.oldest_date_in_window ?? queue.checkpoint.window_start_date;
+            backfillTimeline?.oldest_date_in_window ?? backfillCheckpoint?.window_start_date;
           const newestBoundary =
-            backfillTimeline?.newest_boundary_exclusive ?? queue.checkpoint.created_before_boundary;
+            backfillTimeline?.newest_boundary_exclusive ?? backfillCheckpoint?.created_before_boundary;
           const newestIncludedDate = subtractOneDay(newestBoundary);
 
           if (!oldestDate || !newestBoundary || !newestIncludedDate) {
@@ -1327,24 +1547,24 @@ function RuntimeQueuePanels({
       <DetailRow label="Timeline Basis" value="Live GitHub feeds" />
       <DetailRow
         label="Active Feed"
-        value={queue.checkpoint.active_mode ? titleCase(queue.checkpoint.active_mode) : "Idle"}
+        value={firehoseCheckpoint?.active_mode ? titleCase(firehoseCheckpoint.active_mode) : "Idle"}
       />
       <DetailRow
         label="New Feed Anchor"
-        value={queue.checkpoint.new_anchor_date ?? "Unavailable"}
+        value={firehoseCheckpoint?.new_anchor_date ?? "Unavailable"}
       />
       <DetailRow
         label="Trending Feed Anchor"
-        value={queue.checkpoint.trending_anchor_date ?? "Unavailable"}
+        value={firehoseCheckpoint?.trending_anchor_date ?? "Unavailable"}
       />
       <DetailRow
         label="Currently Monitoring"
         value={
-          queue.checkpoint.active_mode === "new" && queue.checkpoint.new_anchor_date
-            ? `NEW feed since ${queue.checkpoint.new_anchor_date}`
-            : queue.checkpoint.active_mode === "trending" &&
-                queue.checkpoint.trending_anchor_date
-              ? `TRENDING feed anchored at ${queue.checkpoint.trending_anchor_date}`
+          firehoseCheckpoint?.active_mode === "new" && firehoseCheckpoint.new_anchor_date
+            ? `NEW feed since ${firehoseCheckpoint.new_anchor_date}`
+            : firehoseCheckpoint?.active_mode === "trending" &&
+                firehoseCheckpoint.trending_anchor_date
+              ? `TRENDING feed anchored at ${firehoseCheckpoint.trending_anchor_date}`
               : "Waiting for the next feed poll"
         }
       />
@@ -1387,19 +1607,19 @@ function RuntimeQueuePanels({
               : "Never"
           }
         />
-        {"window_start_date" in queue.checkpoint ? (
+        {backfillCheckpoint ? (
           <>
             <DetailRow
               label="Exhausted"
-              value={queue.checkpoint.exhausted ? "Yes" : "No"}
-              tone={queue.checkpoint.exhausted ? "good" : "default"}
+              value={backfillCheckpoint.exhausted ? "Yes" : "No"}
+              tone={backfillCheckpoint.exhausted ? "good" : "default"}
             />
           </>
         ) : (
           <>
             <DetailRow
               label="Resume Required"
-              value={queue.checkpoint.resume_required ? "Yes" : "No"}
+              value={firehoseCheckpoint?.resume_required ? "Yes" : "No"}
             />
           </>
         )}
@@ -1416,13 +1636,55 @@ function RuntimeQueuePanels({
   );
 }
 
-function AnalystPanels({ entry }: { entry: AgentStatusEntry | undefined }) {
+function AnalystPanels({
+  entry,
+  summary,
+}: {
+  entry: AgentStatusEntry | undefined;
+  summary: SettingsSummaryResponse | undefined;
+}) {
   if (!entry) {
     return null;
   }
 
+  const readiness = deriveAnalystReadiness(summary, entry);
+  const readinessColor =
+    readiness.status === "green" ? "var(--green)" : readiness.status === "yellow" ? "var(--amber)" : "var(--red)";
+  const readinessBackground =
+    readiness.status === "green"
+      ? "rgba(56, 193, 114, 0.10)"
+      : readiness.status === "yellow"
+        ? "rgba(201, 139, 27, 0.10)"
+        : "rgba(220, 68, 55, 0.10)";
+
   return (
     <>
+      <ConfigPanel title="Analyst Readiness">
+        <div
+          style={{
+            padding: "12px",
+            borderRadius: "10px",
+            border: `1px solid ${readinessColor}`,
+            background: readinessBackground,
+            marginBottom: "12px",
+          }}
+        >
+          <div style={{ fontSize: "12px", fontWeight: 700, color: readinessColor }}>{readiness.label}</div>
+          <div style={{ fontSize: "12px", color: "var(--text-1)", marginTop: "8px", lineHeight: 1.6 }}>
+            {readiness.detail}
+          </div>
+          <div style={{ fontSize: "11px", color: "var(--text-2)", marginTop: "8px", lineHeight: 1.6 }}>
+            {readiness.action}
+          </div>
+        </div>
+        <DetailRow label="Provider mode" value={titleCase(readiness.provider)} />
+        <DetailRow
+          label="Current status"
+          value={readiness.label}
+          tone={readiness.status === "green" ? "good" : readiness.status === "red" ? "warn" : "warn"}
+        />
+      </ConfigPanel>
+
       <ConfigPanel title="Analysis Runtime">
         <DetailRow label="Implementation" value={titleCase(entry.runtime_kind)} />
         <DetailRow label="Provider" value={entry.configured_provider ?? "Unavailable"} />
@@ -1475,6 +1737,8 @@ export default function ControlPanel() {
   const [isEditingConfig, setIsEditingConfig] = useState(false);
   const [draftConfigValues, setDraftConfigValues] = useState<Record<string, string>>({});
   const [configSaveMessage, setConfigSaveMessage] = useState<string | null>(null);
+  const [operatorActionMessage, setOperatorActionMessage] = useState<string | null>(null);
+  const [operatorActionError, setOperatorActionError] = useState<string | null>(null);
   const [isEditingBackfillTimeline, setIsEditingBackfillTimeline] = useState(false);
   const [backfillTimelineDraft, setBackfillTimelineDraft] = useState<{
     oldest_date_in_window: string;
@@ -1485,6 +1749,10 @@ export default function ControlPanel() {
   });
   const [backfillTimelineSaveMessage, setBackfillTimelineSaveMessage] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const recentFailureSince = useMemo(
+    () => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    [],
+  );
 
   const pauseStatesQuery = useQuery({
     queryKey: getAgentPauseStatesQueryKey(),
@@ -1495,6 +1763,18 @@ export default function ControlPanel() {
     queryKey: getLatestAgentRunsQueryKey(),
     queryFn: fetchLatestAgentRuns,
     refetchInterval: 30_000,
+  });
+  const failureEventsQuery = useQuery({
+    queryKey: getFailureEventsQueryKey({
+      since: recentFailureSince,
+      limit: 8,
+    }),
+    queryFn: () =>
+      fetchFailureEvents({
+        since: recentFailureSince,
+        limit: 8,
+      }),
+    refetchInterval: 10_000,
   });
   const gatewayRuntimeQuery = useQuery({
     queryKey: ["gateway", "runtime"],
@@ -1528,21 +1808,55 @@ export default function ControlPanel() {
     mutationFn: ({ agent, reason }: { agent: AgentName; reason: string }) =>
       pauseAgent(agent, reason, "manual"),
     onSuccess: () => {
+      setOperatorActionError(null);
+      setOperatorActionMessage(`${titleCase(selectedAgent)} paused successfully.`);
       void queryClient.invalidateQueries({ queryKey: getAgentPauseStatesQueryKey() });
+      void queryClient.invalidateQueries({ queryKey: getLatestAgentRunsQueryKey() });
+      void queryClient.invalidateQueries({ queryKey: ["gateway", "runtime"] });
+      void queryClient.invalidateQueries({
+        queryKey: getFailureEventsQueryKey({
+          since: recentFailureSince,
+          limit: 8,
+        }),
+      });
+    },
+    onError: (error: Error) => {
+      setOperatorActionMessage(null);
+      setOperatorActionError(error.message);
     },
   });
 
   const resumeMutation = useMutation({
     mutationFn: (agent: AgentName) => resumeAgent(agent),
     onSuccess: () => {
+      setOperatorActionError(null);
+      setOperatorActionMessage(`${titleCase(selectedAgent)} resumed successfully. You can run it now.`);
       void queryClient.invalidateQueries({ queryKey: getAgentPauseStatesQueryKey() });
+      void queryClient.invalidateQueries({ queryKey: getLatestAgentRunsQueryKey() });
+      void queryClient.invalidateQueries({ queryKey: ["gateway", "runtime"] });
+      void queryClient.invalidateQueries({
+        queryKey: getFailureEventsQueryKey({
+          since: recentFailureSince,
+          limit: 8,
+        }),
+      });
+    },
+    onError: (error: Error) => {
+      setOperatorActionMessage(null);
+      setOperatorActionError(error.message);
     },
   });
   const triggerRunMutation = useMutation({
     mutationFn: (agent: AgentName) => triggerAgentRun(agent),
     onSuccess: () => {
+      setOperatorActionError(null);
+      setOperatorActionMessage(`${titleCase(selectedAgent)} run requested successfully.`);
       void queryClient.invalidateQueries({ queryKey: getLatestAgentRunsQueryKey() });
       void queryClient.invalidateQueries({ queryKey: ["gateway", "runtime"] });
+    },
+    onError: (error: Error) => {
+      setOperatorActionMessage(null);
+      setOperatorActionError(error.message);
     },
   });
   const configSaveMutation = useMutation({
@@ -1576,15 +1890,20 @@ export default function ControlPanel() {
   const currentAgent = AGENTS.find((agent) => agent.id === selectedAgent) ?? AGENTS[0];
   const agentPauseState = pauseStatesQuery.data?.find((state) => state.agent_name === selectedAgent);
   const agentStatus = latestRunsQuery.data?.agents.find((agent) => agent.agent_name === selectedAgent);
+  const selectedFailureEvent = failureEventsQuery.data?.find((event) => event.agent_name === selectedAgent);
   const runtimeAgent = gatewayRuntimeQuery.data?.runtime.agent_states.find(
     (agent) => agent.agent_key === selectedAgent,
   );
   const runtimeQueue = runtimeAgent && isLiveIntakeQueue(runtimeAgent.queue) ? runtimeAgent.queue : null;
+  const runtimeBackfillCheckpoint =
+    runtimeQueue?.checkpoint.kind === "backfill" ? runtimeQueue.checkpoint : null;
   const isPaused = agentPauseState?.is_paused ?? false;
+  const effectiveIsPaused =
+    selectedAgent === resumeMutation.variables && resumeMutation.isSuccess ? false : isPaused;
   const usesModel = agentStatus?.uses_model ?? false;
   const cadence = deriveCadenceForAgent({
     agentId: selectedAgent,
-    isPaused,
+    isPaused: effectiveIsPaused,
     pauseReason: agentPauseState?.pause_reason,
     runtimeQueue,
     latestRun: agentStatus?.latest_run,
@@ -1631,12 +1950,17 @@ export default function ControlPanel() {
                   setIsEditingConfig(false);
                   setConfigSaveMessage(null);
                   setDraftConfigValues({});
+                  setOperatorActionMessage(null);
+                  setOperatorActionError(null);
                   setIsEditingBackfillTimeline(false);
                   setBackfillTimelineSaveMessage(null);
                   setBackfillTimelineDraft({
                     oldest_date_in_window: "",
                     newest_boundary_exclusive: "",
                   });
+                  pauseMutation.reset();
+                  resumeMutation.reset();
+                  triggerRunMutation.reset();
                   configSaveMutation.reset();
                   backfillTimelineMutation.reset();
                 }}
@@ -1647,6 +1971,15 @@ export default function ControlPanel() {
 
         <div style={{ flex: 1, padding: "24px", overflow: "auto", minHeight: 0 }}>
           <div style={{ maxWidth: "960px" }}>
+            <OperationalAlertsPanel
+              pauseStates={pauseStatesQuery.data ?? []}
+              failureEvents={failureEventsQuery.data ?? []}
+              agents={latestRunsQuery.data?.agents ?? []}
+              agentStatuses={latestRunsQuery.data?.agents ?? []}
+              title="Runtime Alerts"
+            />
+            <GitHubBudgetPanel snapshot={gatewayRuntimeQuery.data?.runtime.github_api_budget} />
+
             <div className="card" style={{ marginBottom: "20px" }}>
               <div
                 style={{
@@ -1682,7 +2015,7 @@ export default function ControlPanel() {
                 </div>
                 <span
                   className={`badge ${
-                    isPaused ? "badge-red" : cadence.mode === "interval" && cadence.remainingSeconds && cadence.remainingSeconds > 0 ? "badge-yellow" : "badge-green"
+                    effectiveIsPaused ? "badge-red" : cadence.mode === "interval" && cadence.remainingSeconds && cadence.remainingSeconds > 0 ? "badge-yellow" : "badge-green"
                   }`}
                 >
                   {cadence.stateLabel}
@@ -1690,7 +2023,7 @@ export default function ControlPanel() {
               </div>
 
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                {isPaused ? (
+                {effectiveIsPaused ? (
                   <button
                     type="button"
                     onClick={() => resumeMutation.mutate(selectedAgent)}
@@ -1762,6 +2095,38 @@ export default function ControlPanel() {
                   ⚡ {cadence.actionLabel}
                 </button>
               </div>
+
+              {operatorActionMessage ? (
+                <div
+                  style={{
+                    marginTop: "12px",
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid rgba(46, 160, 67, 0.35)",
+                    background: "rgba(46, 160, 67, 0.12)",
+                    color: "var(--text-0)",
+                    fontSize: "13px",
+                  }}
+                >
+                  {operatorActionMessage}
+                </div>
+              ) : null}
+
+              {operatorActionError ? (
+                <div
+                  style={{
+                    marginTop: "12px",
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid rgba(217, 79, 79, 0.35)",
+                    background: "rgba(217, 79, 79, 0.12)",
+                    color: "var(--text-0)",
+                    fontSize: "13px",
+                  }}
+                >
+                  {operatorActionError}
+                </div>
+              ) : null}
 
               <div style={{ display: "grid", gap: "10px", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", marginTop: "16px" }}>
                 <div style={{ background: "var(--bg-3)", border: "1px solid var(--border)", borderRadius: "8px", padding: "12px" }}>
@@ -1909,7 +2274,7 @@ export default function ControlPanel() {
                 >
                   <div>
                     <strong style={{ color: "var(--text-0)" }}>Paused at:</strong>{" "}
-                    {new Date(agentPauseState.paused_at).toLocaleString()}
+                    {formatAppDateTime(agentPauseState.paused_at)}
                   </div>
                   {agentPauseState.pause_reason ? (
                     <div style={{ marginTop: "4px" }}>
@@ -1919,6 +2284,15 @@ export default function ControlPanel() {
                   ) : null}
                 </div>
               ) : null}
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <AgentOperatorSummary
+                entry={agentStatus}
+                pauseState={agentPauseState}
+                failureEvent={selectedFailureEvent}
+                title="Runtime Clarity"
+              />
             </div>
 
             {loadingMessage ? (
@@ -2021,9 +2395,11 @@ export default function ControlPanel() {
                     const source = backfillTimelineQuery.data;
                     setBackfillTimelineDraft({
                       oldest_date_in_window:
-                        source?.oldest_date_in_window ?? runtimeQueue?.checkpoint.window_start_date ?? "",
+                        source?.oldest_date_in_window ?? runtimeBackfillCheckpoint?.window_start_date ?? "",
                       newest_boundary_exclusive:
-                        source?.newest_boundary_exclusive ?? runtimeQueue?.checkpoint.created_before_boundary ?? "",
+                        source?.newest_boundary_exclusive
+                        ?? runtimeBackfillCheckpoint?.created_before_boundary
+                        ?? "",
                     });
                     setBackfillTimelineSaveMessage(null);
                     setIsEditingBackfillTimeline(true);
@@ -2032,9 +2408,13 @@ export default function ControlPanel() {
                     setIsEditingBackfillTimeline(false);
                     setBackfillTimelineDraft({
                       oldest_date_in_window:
-                        backfillTimelineQuery.data?.oldest_date_in_window ?? runtimeQueue?.checkpoint.window_start_date ?? "",
+                        backfillTimelineQuery.data?.oldest_date_in_window
+                        ?? runtimeBackfillCheckpoint?.window_start_date
+                        ?? "",
                       newest_boundary_exclusive:
-                        backfillTimelineQuery.data?.newest_boundary_exclusive ?? runtimeQueue?.checkpoint.created_before_boundary ?? "",
+                        backfillTimelineQuery.data?.newest_boundary_exclusive
+                        ?? runtimeBackfillCheckpoint?.created_before_boundary
+                        ?? "",
                     });
                   }}
                   onChangeBackfillTimeline={(key, value) => {
@@ -2068,7 +2448,9 @@ export default function ControlPanel() {
               </>
             ) : null}
 
-            {selectedAgent === "analyst" ? <AnalystPanels entry={agentStatus} /> : null}
+            {selectedAgent === "analyst" ? (
+              <AnalystPanels entry={agentStatus} summary={settingsSummaryQuery.data} />
+            ) : null}
 
             {selectedAgent !== "firehose" &&
             selectedAgent !== "backfill" &&

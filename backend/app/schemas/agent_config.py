@@ -15,7 +15,7 @@ AgentName = Literal[
 ]
 
 
-AgentConfigInputKind = Literal["integer", "date", "csv"]
+AgentConfigInputKind = Literal["integer", "date", "csv", "text", "select"]
 
 
 class AgentConfigFieldResponse(BaseModel):
@@ -24,6 +24,7 @@ class AgentConfigFieldResponse(BaseModel):
     description: str
     input_kind: AgentConfigInputKind
     value: str
+    options: list[str] = Field(default_factory=list)
     unit: str | None = None
     min_value: int | None = None
     placeholder: str | None = None

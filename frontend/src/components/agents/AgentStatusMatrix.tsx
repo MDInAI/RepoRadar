@@ -13,6 +13,8 @@ import {
   formatAgentRunStatus,
   formatItemsSummary,
   formatRelativeTimestamp,
+  formatRuntimeProgressCounts,
+  formatRuntimeProgressHeadline,
   getRunStatusBadgeClassName,
 } from "./agentPresentation";
 import { PauseAgentButton } from "./PauseAgentButton";
@@ -41,6 +43,20 @@ export function AgentStatusMatrix({
   const orderedAgents = sortAgentStatusEntries(agents);
   const pauseMap = new Map(pauseStates.map((ps) => [ps.agent_name, ps]));
   const loadingCards = variant === "compact" ? AGENT_DISPLAY_ORDER : AGENT_DISPLAY_ORDER.slice(0, 6);
+
+  const renderProgressBar = (percent: number | null | undefined) => {
+    if (percent == null) {
+      return null;
+    }
+    return (
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+        <div
+          className="h-full rounded-full bg-orange-500 transition-[width]"
+          style={{ width: `${Math.max(0, Math.min(percent, 100))}%` }}
+        />
+      </div>
+    );
+  };
 
   return (
     <section
@@ -139,8 +155,12 @@ export function AgentStatusMatrix({
                       {formatAgentName(entry.agent_name)}
                     </p>
                     <p className="mt-1 text-sm text-slate-600">
-                      {formatItemsSummary(entry.latest_run)}
+                      {formatRuntimeProgressHeadline(entry.runtime_progress) || formatItemsSummary(entry.latest_run)}
                     </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {formatRuntimeProgressCounts(entry.runtime_progress)}
+                    </p>
+                    {renderProgressBar(entry.runtime_progress?.progress_percent)}
                   </div>
                   <div className="flex flex-col gap-1.5">
                     {pauseStateUnavailable ? (
@@ -167,7 +187,9 @@ export function AgentStatusMatrix({
                     </span>
                   </div>
                   <div className="text-sm text-slate-600">
-                    Last activity {formatRelativeTimestamp(entry.latest_run?.started_at ?? null)}
+                    {entry.runtime_progress?.updated_at
+                      ? `Live update ${formatRelativeTimestamp(entry.runtime_progress.updated_at)}`
+                      : `Last activity ${formatRelativeTimestamp(entry.latest_run?.started_at ?? null)}`}
                   </div>
                 </Link>
               </li>
@@ -271,12 +293,36 @@ export function AgentStatusMatrix({
                   </div>
                   <div>
                     <dt className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                      Live work
+                    </dt>
+                    <dd className="mt-1 text-slate-900">
+                      {formatRuntimeProgressHeadline(entry.runtime_progress)}
+                    </dd>
+                    <div className="mt-1 text-xs text-slate-600">
+                      {formatRuntimeProgressCounts(entry.runtime_progress)}
+                    </div>
+                    {renderProgressBar(entry.runtime_progress?.progress_percent)}
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-[0.2em] text-slate-500">
                       Error summary
                     </dt>
                     <dd className="mt-1 text-slate-700">
                       {entry.latest_run?.error_summary ?? "No active error context"}
                     </dd>
                   </div>
+                  {entry.runtime_progress?.details?.length ? (
+                    <div>
+                      <dt className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                        Runtime detail
+                      </dt>
+                      <dd className="mt-1 space-y-1 text-slate-700">
+                        {entry.runtime_progress.details.slice(0, 2).map((detail) => (
+                          <p key={detail}>{detail}</p>
+                        ))}
+                      </dd>
+                    </div>
+                  ) : null}
                 </dl>
               </li>
             );

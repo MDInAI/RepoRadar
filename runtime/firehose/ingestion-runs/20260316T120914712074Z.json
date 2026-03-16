@@ -1,0 +1,27 @@
+{
+  "checkpoint": {
+    "active_mode": "new",
+    "anchors": {
+      "new": "2026-03-15",
+      "trending": "2026-03-09"
+    },
+    "last_checkpointed_at": "2026-03-16T12:09:12.878849+00:00",
+    "next_page": 2,
+    "pages_processed_in_run": 1,
+    "resume_required": true,
+    "run_started_at": "2026-03-16T12:09:10.085257+00:00"
+  },
+  "generated_at": "2026-03-16T12:09:14.712136+00:00",
+  "outcomes": [
+    {
+      "anchor_date": "2026-03-15",
+      "error": "GitHub request failed with status 403: Forbidden",
+      "fetched_count": 0,
+      "inserted_count": 0,
+      "mode": "new",
+      "page": 2,
+      "skipped_count": 0
+    }
+  ],
+  "status": "failed"
+}

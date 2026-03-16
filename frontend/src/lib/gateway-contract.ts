@@ -172,6 +172,20 @@ export interface GatewayNamedAgentSummary {
   notes: string[];
 }
 
+export interface GitHubApiBudgetSnapshot {
+  provider: "github";
+  captured_at: string;
+  last_response_status: number | null;
+  request_url: string | null;
+  resource: string | null;
+  limit: number | null;
+  remaining: number | null;
+  used: number | null;
+  reset_at: string | null;
+  retry_after_seconds: number | null;
+  exhausted: boolean | null;
+}
+
 export interface GatewaySessionAgentContext {
   agent_key: GatewayAgentKey;
   display_name: GatewayAgentDisplayName;
@@ -203,6 +217,7 @@ export interface GatewayRuntimeSurfaceResponse {
     status: "unknown";
     route_owner: string;
     agent_states: GatewayNamedAgentSummary[];
+    github_api_budget: GitHubApiBudgetSnapshot | null;
     notes: string[];
   };
 }

@@ -1,0 +1,17 @@
+{
+  "completed_count": 341,
+  "current_activity": "Analyzing accepted repositories.",
+  "current_target": "viethoang1211/k8s-investigate",
+  "details": [
+    "Completed outcomes: 341",
+    "Failed outcomes: 0",
+    "Provider: heuristic-readme-analysis"
+  ],
+  "generated_at": "2026-03-16T15:22:55.443953+00:00",
+  "progress_percent": 35,
+  "remaining_count": 643,
+  "source": "analyst queue snapshot",
+  "status_label": "running",
+  "total_count": 984,
+  "unit_label": "repos"
+}

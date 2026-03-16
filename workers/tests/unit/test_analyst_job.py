@@ -14,10 +14,14 @@ from agentic_workers.providers.github_provider import (
     GitHubReadmeNotFoundError,
     RepositoryReadme,
 )
+from agentic_workers.providers.readme_analyst import ReadmeAnalysisUsage
 from agentic_workers.storage.backend_models import (
     AgentPauseState,
     AgentRun,
     AgentRunStatus,
+    FailureClassification,
+    FailureSeverity,
+    RepositoryCategory,
     RepositoryAnalysisFailureCode,
     RepositoryAnalysisResult,
     RepositoryAnalysisStatus,
@@ -50,10 +54,21 @@ class StubGitHubProvider:
 
 
 class StaticAnalysisProvider:
-    def __init__(self, payload: str) -> None:
-        self.payload = payload
+    provider_name = "static-analysis"
+    model_name = "static-model"
 
-    def analyze(self, *, repository_full_name: str, readme: object) -> str:
+    def __init__(self, payload: str, *, usage: ReadmeAnalysisUsage | None = None) -> None:
+        self.payload = payload
+        self.last_usage = usage or ReadmeAnalysisUsage()
+
+    def analyze(
+        self,
+        *,
+        repository_full_name: str,
+        readme: object,
+        evidence: dict[str, object] | None = None,
+    ) -> str:
+        del repository_full_name, readme, evidence
         return self.payload
 
 
@@ -61,8 +76,14 @@ class RaisingAnalysisProvider:
     def __init__(self, error: Exception) -> None:
         self.error = error
 
-    def analyze(self, *, repository_full_name: str, readme: object) -> str:
-        del repository_full_name, readme
+    def analyze(
+        self,
+        *,
+        repository_full_name: str,
+        readme: object,
+        evidence: dict[str, object] | None = None,
+    ) -> str:
+        del repository_full_name, readme, evidence
         raise self.error
 
 
@@ -98,6 +119,27 @@ def _accepted_row(repository_id: int, full_name: str) -> RepositoryIntake:
     )
 
 
+def _current_analysis_row(repository_id: int) -> RepositoryAnalysisResult:
+    analyzed_at = datetime(2026, 3, 8, 13, repository_id % 60, tzinfo=timezone.utc)
+    return RepositoryAnalysisResult(
+        github_repository_id=repository_id,
+        source_provider="github",
+        source_kind="repository_readme",
+        source_metadata={
+            "analysis_schema_version": analysis_store_module.CURRENT_ANALYSIS_SCHEMA_VERSION,
+            "analysis_mode": "fast",
+            "analysis_outcome": "completed",
+            "analysis_evidence_version": "fast-evidence-v1",
+            "analysis_summary_short": "Current evidence-backed analysis is present.",
+            "score_breakdown": {"technical_maturity_score": 50},
+        },
+        monetization_potential="medium",
+        category=RepositoryCategory.WORKFLOW,
+        agent_tags=["workflow"],
+        analyzed_at=analyzed_at,
+    )
+
+
 def test_analyst_job_processes_only_accepted_repositories_without_completed_analysis(
     tmp_path: Path,
 ) -> None:
@@ -129,6 +171,7 @@ def test_analyst_job_processes_only_accepted_repositories_without_completed_anal
         session.add(already_done)
         session.add(rejected)
         session.add(pending)
+        session.add(_current_analysis_row(202))
         session.commit()
 
         result = run_analyst_job(
@@ -150,7 +193,7 @@ def test_analyst_job_processes_only_accepted_repositories_without_completed_anal
 
     assert result.status is AnalystRunStatus.SUCCESS
     assert provider.calls == [("octocat", "analyze-me")]
-    assert [row.github_repository_id for row in analysis_rows] == [101]
+    assert sorted(row.github_repository_id for row in analysis_rows) == [101, 202]
     assert [
         (row.github_repository_id, row.artifact_kind) for row in artifact_rows
     ] == [
@@ -161,6 +204,87 @@ def test_analyst_job_processes_only_accepted_repositories_without_completed_anal
     assert rows[1].analysis_status is RepositoryAnalysisStatus.COMPLETED
     assert rows[2].analysis_status is RepositoryAnalysisStatus.PENDING
     assert rows[3].analysis_status is RepositoryAnalysisStatus.PENDING
+
+
+def test_analyst_job_reprocesses_completed_repositories_with_legacy_analysis_metadata(
+    tmp_path: Path,
+) -> None:
+    provider = StubGitHubProvider(
+        {
+            111: RepositoryReadme(
+                owner_login="octocat",
+                repository_name="legacy-analysis",
+                content="# Product\n\nTeam workflow automation with analytics and API access.",
+                fetched_at=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc),
+                source_url="https://api.github.com/repos/octocat/legacy-analysis/readme",
+            )
+        }
+    )
+    analysis_provider = StaticAnalysisProvider(
+        '{"monetization_potential":"high","pros":["Clear workflow"],'
+        '"cons":["Pricing unclear"],"missing_feature_signals":["Missing billing"]}'
+    )
+
+    with _make_session(tmp_path) as session:
+        legacy = _accepted_row(111, "octocat/legacy-analysis")
+        legacy.analysis_status = RepositoryAnalysisStatus.COMPLETED
+        session.add(legacy)
+        session.add(
+            RepositoryAnalysisResult(
+                github_repository_id=111,
+                source_provider="github",
+                source_kind="repository_readme",
+                source_metadata={},
+                monetization_potential="low",
+                analyzed_at=datetime(2026, 3, 8, 11, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+
+        result = run_analyst_job(
+            session=session,
+            provider=provider,  # type: ignore[arg-type]
+            runtime_dir=tmp_path / "runtime",
+            analysis_provider=analysis_provider,
+        )
+        analysis_row = session.get(RepositoryAnalysisResult, 111)
+
+    assert result.status is AnalystRunStatus.SUCCESS
+    assert provider.calls == [("octocat", "legacy-analysis")]
+    assert analysis_row is not None
+    assert (
+        analysis_row.source_metadata["analysis_schema_version"]
+        == analysis_store_module.CURRENT_ANALYSIS_SCHEMA_VERSION
+    )
+    assert analysis_row.source_metadata["analysis_mode"] == "fast"
+
+
+def test_missing_readme_failure_event_does_not_pause_analyst(tmp_path: Path) -> None:
+    with _make_session(tmp_path) as session:
+        session.add(_accepted_row(112, "octocat/no-readme"))
+        session.commit()
+
+        analyst_job_module._emit_analysis_failure_event(
+            session,
+            agent_run_id=None,
+            repository_id=112,
+            full_name="octocat/no-readme",
+            failure_code=RepositoryAnalysisFailureCode.MISSING_README,
+            message="Repository README not found for octocat/no-readme",
+            classification=FailureClassification.BLOCKING,
+            failure_severity=FailureSeverity.CRITICAL,
+            consecutive_failures=1,
+            upstream_provider="github",
+        )
+        session.commit()
+
+        pause_state = session.get(AgentPauseState, "analyst")
+        events = session.exec(select(SystemEvent).order_by(SystemEvent.id)).all()
+
+    assert pause_state is None
+    assert [event.event_type for event in events] == ["repository_analysis_failed"]
+    assert events[0].failure_classification is FailureClassification.RETRYABLE
+    assert events[0].failure_severity is FailureSeverity.WARNING
 
 
 def test_analyst_job_records_invalid_analysis_output_without_overwriting_unrelated_state(
@@ -206,7 +330,7 @@ def test_analyst_job_records_invalid_analysis_output_without_overwriting_unrelat
     assert analysis_row is None
 
 
-def test_analyst_job_records_missing_readme_failures_for_retry_review(tmp_path: Path) -> None:
+def test_analyst_job_completes_with_insufficient_evidence_when_readme_is_missing(tmp_path: Path) -> None:
     provider = StubGitHubProvider(
         {606: GitHubReadmeNotFoundError("Repository README not found for octocat/missing")}
     )
@@ -224,20 +348,20 @@ def test_analyst_job_records_missing_readme_failures_for_retry_review(tmp_path: 
             ),
         )
         row = session.get(RepositoryIntake, 606)
-        pause_state = session.exec(
-            select(AgentPauseState).where(AgentPauseState.agent_name == "analyst")
-        ).first()
-        event = session.exec(
-            select(SystemEvent).where(SystemEvent.event_type == "repository_analysis_failed")
-        ).one()
+        analysis_row = session.get(RepositoryAnalysisResult, 606)
+        events = session.exec(select(SystemEvent)).all()
 
-    assert result.status is AnalystRunStatus.FAILED
+    assert result.status is AnalystRunStatus.SUCCESS
     assert row is not None
-    assert row.analysis_status is RepositoryAnalysisStatus.FAILED
-    assert row.analysis_failure_code is RepositoryAnalysisFailureCode.MISSING_README
-    assert pause_state is None
-    assert event.failure_classification.value == "retryable"
-    assert event.failure_severity.value == "warning"
+    assert row.analysis_status is RepositoryAnalysisStatus.COMPLETED
+    assert row.analysis_failure_code is None
+    assert analysis_row is not None
+    assert analysis_row.source_kind == "repository_evidence"
+    assert analysis_row.source_metadata["analysis_outcome"] == "insufficient_evidence"
+    assert analysis_row.source_metadata["insufficient_evidence_reason"]
+    assert analysis_row.source_metadata["score_breakdown"]["hosted_gap_score"] >= 0
+    assert analysis_row.source_metadata["analysis_summary_short"]
+    assert events == []
 
 
 def test_analyst_job_fails_when_durable_artifact_directories_are_unwritable(
@@ -281,6 +405,49 @@ def test_analyst_job_fails_when_durable_artifact_directories_are_unwritable(
     assert row.analysis_status is RepositoryAnalysisStatus.COMPLETED
     assert row.analysis_failure_code is None
     assert analysis_row is not None
+
+
+def test_analyst_job_accumulates_and_persists_usage_metadata(tmp_path: Path) -> None:
+    provider = StubGitHubProvider(
+        {
+            718: RepositoryReadme(
+                owner_login="octocat",
+                repository_name="usage-check",
+                content="# Product\n\nWorkflow automation with analytics.",
+                fetched_at=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc),
+                source_url="https://api.github.com/repos/octocat/usage-check/readme",
+            )
+        }
+    )
+    analysis_provider = StaticAnalysisProvider(
+        '{"monetization_potential":"medium","pros":["Automation"],'
+        '"cons":["Pricing unclear"],"missing_feature_signals":["Missing billing"]}',
+        usage=ReadmeAnalysisUsage(input_tokens=120, output_tokens=45, total_tokens=165),
+    )
+
+    with _make_session(tmp_path) as session:
+        session.add(_accepted_row(718, "octocat/usage-check"))
+        session.commit()
+
+        result = run_analyst_job(
+            session=session,
+            provider=provider,  # type: ignore[arg-type]
+            runtime_dir=tmp_path / "runtime",
+            analysis_provider=analysis_provider,
+        )
+        analysis_row = session.get(RepositoryAnalysisResult, 718)
+
+    assert result.status is AnalystRunStatus.SUCCESS
+    assert result.input_tokens == 120
+    assert result.output_tokens == 45
+    assert result.total_tokens == 165
+    assert analysis_row is not None
+    assert analysis_row.source_metadata["analysis_provider"] == "static-analysis"
+    assert analysis_row.source_metadata["analysis_model_name"] == "static-model"
+    assert analysis_row.source_metadata["input_tokens"] == 120
+    assert analysis_row.source_metadata["output_tokens"] == 45
+    assert analysis_row.source_metadata["total_tokens"] == 165
+    assert analysis_row.source_metadata["score_breakdown"]["technical_maturity_score"] >= 0
 
 
 def test_analyst_job_returns_skipped_paused_when_agent_is_paused(
@@ -400,6 +567,7 @@ def test_analyst_github_rate_limit_does_not_pause_analyst(tmp_path: Path) -> Non
     """
     with _make_session(tmp_path) as session:
         session.add(_accepted_row(1001, "octocat/github-rl-repo"))
+        session.add(_accepted_row(1002, "octocat/github-rl-next"))
         session.add(AgentRun(agent_name="analyst", status=AgentRunStatus.RUNNING))
         session.commit()
         run = session.exec(select(AgentRun)).one()
@@ -414,6 +582,8 @@ def test_analyst_github_rate_limit_does_not_pause_analyst(tmp_path: Path) -> Non
             runtime_dir=tmp_path / "runtime",
             agent_run_id=run.id,
         )
+        first_row = session.get(RepositoryIntake, 1001)
+        second_row = session.get(RepositoryIntake, 1002)
         pause_state = session.exec(
             select(AgentPauseState).where(AgentPauseState.agent_name == "analyst")
         ).first()
@@ -421,6 +591,12 @@ def test_analyst_github_rate_limit_does_not_pause_analyst(tmp_path: Path) -> Non
     assert result.status is AnalystRunStatus.FAILED
     # The critical assertion: analyst must NOT be paused by a GitHub rate limit
     assert pause_state is None
+    assert provider.calls == [("octocat", "github-rl-repo")]
+    assert first_row is not None
+    assert first_row.analysis_status is RepositoryAnalysisStatus.PENDING
+    assert first_row.analysis_failure_code is RepositoryAnalysisFailureCode.RATE_LIMITED
+    assert second_row is not None
+    assert second_row.analysis_status is RepositoryAnalysisStatus.PENDING
 
 
 def test_analyst_three_consecutive_retryable_failures_trigger_pause(tmp_path: Path) -> None:

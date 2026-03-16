@@ -1,0 +1,13 @@
+{
+  "captured_at": "2026-03-16T15:22:55.350204+00:00",
+  "exhausted": false,
+  "last_response_status": 200,
+  "limit": 5000,
+  "provider": "github",
+  "remaining": 4098,
+  "request_url": "https://api.github.com/repos/zymphp/php-ext-opkit/git/trees/dev?recursive=1",
+  "reset_at": "2026-03-16T16:13:09+00:00",
+  "resource": "core",
+  "retry_after_seconds": 3014,
+  "used": 902
+}

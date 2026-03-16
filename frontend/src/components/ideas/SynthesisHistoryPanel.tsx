@@ -2,6 +2,7 @@
 
 import { useSynthesisRuns } from "@/hooks/useSynthesis";
 import { useState, useEffect } from "react";
+import { formatAppDateTime } from "@/lib/time";
 import { SynthesisRunDetailDialog } from "./SynthesisRunDetailDialog";
 import { SynthesisComparisonView } from "./SynthesisComparisonView";
 
@@ -180,7 +181,7 @@ export function SynthesisHistoryPanel({ familyId }: SynthesisHistoryPanelProps) 
                       </div>
                     </div>
                     <div className="text-xs text-neutral-600 mt-2">
-                      {new Date(run.created_at).toLocaleString()}
+                      {formatAppDateTime(run.created_at)}
                     </div>
                   </div>
                 ))}

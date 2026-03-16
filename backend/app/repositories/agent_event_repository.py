@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -115,6 +115,7 @@ class AgentEventRepository:
         return self.session.get(AgentRun, run_id)
 
     def has_running_agent_run(self, agent_name: str) -> bool:
+        self.reconcile_stale_running_agent_runs(agent_name)
         statement = (
             select(func.count())
             .select_from(AgentRun)
@@ -122,6 +123,49 @@ class AgentEventRepository:
             .where(AgentRun.status == AgentRunStatus.RUNNING)
         )
         return bool(self.session.exec(statement).one() or 0)
+
+    def reconcile_stale_running_agent_runs(self, agent_name: str) -> int:
+        now = datetime.now(timezone.utc)
+        stale_before = now - timedelta(minutes=10)
+        running_runs = list(
+            self.session.exec(
+                select(AgentRun)
+                .where(AgentRun.agent_name == agent_name)
+                .where(AgentRun.status == AgentRunStatus.RUNNING)
+                .order_by(AgentRun.started_at.asc(), AgentRun.id.asc())
+            ).all()
+        )
+        if not running_runs:
+            return 0
+
+        recovered = 0
+        for run in running_runs:
+            newer_run_count = self.session.exec(
+                select(func.count())
+                .select_from(AgentRun)
+                .where(AgentRun.agent_name == agent_name)
+                .where(AgentRun.id > run.id)
+            ).one()
+            has_newer_run = bool(newer_run_count or 0)
+            timed_out = run.started_at <= stale_before
+            if not has_newer_run and not timed_out:
+                continue
+
+            run.status = AgentRunStatus.FAILED
+            run.completed_at = now
+            run.duration_seconds = max((now - run.started_at).total_seconds(), 0.0)
+            run.error_summary = "Recovered stale running job after worker state drift."
+            run.error_context = (
+                "This run was marked failed automatically because it remained running "
+                "after a newer run or beyond the stale timeout window."
+            )
+            self.session.add(run)
+            recovered += 1
+
+        if recovered > 0:
+            self.session.commit()
+
+        return recovered
 
     def get_latest_run_per_agent(self) -> list[AgentRun]:
         ranked_runs = (

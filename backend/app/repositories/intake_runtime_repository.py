@@ -43,6 +43,7 @@ class FirehoseIntakeRuntimeRecord:
     counts: IntakeStateCounts
     active_mode: str | None
     next_page: int
+    pages_processed_in_run: int
     resume_required: bool | None
     new_anchor_date: date | None
     trending_anchor_date: date | None
@@ -59,6 +60,7 @@ class BackfillIntakeRuntimeRecord:
     created_before_boundary: date | None
     created_before_cursor: datetime | None
     next_page: int
+    pages_processed_in_run: int
     resume_required: bool | None
     exhausted: bool | None
     last_checkpointed_at: datetime | None
@@ -90,6 +92,7 @@ class IntakeRuntimeRepository:
             counts=self._load_counts(RepositoryDiscoverySource.FIREHOSE),
             active_mode=progress.active_mode.value if progress and progress.active_mode else None,
             next_page=progress.next_page if progress else 1,
+            pages_processed_in_run=progress.pages_processed_in_run if progress else 0,
             resume_required=progress.resume_required if progress else None,
             new_anchor_date=progress.new_anchor_date if progress else None,
             trending_anchor_date=progress.trending_anchor_date if progress else None,
@@ -108,6 +111,7 @@ class IntakeRuntimeRepository:
             created_before_boundary=progress.created_before_boundary if progress else None,
             created_before_cursor=progress.created_before_cursor if progress else None,
             next_page=progress.next_page if progress else 1,
+            pages_processed_in_run=progress.pages_processed_in_run if progress else 0,
             resume_required=progress.resume_required if progress else None,
             exhausted=progress.exhausted if progress else None,
             last_checkpointed_at=progress.last_checkpointed_at if progress else None,

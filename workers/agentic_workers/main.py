@@ -27,6 +27,7 @@ from agentic_workers.core.events import (
     mark_agent_run_skipped,
     start_agent_run,
 )
+from agentic_workers.core.pause_manager import is_agent_paused
 from agentic_workers.core.recovery import validate_startup_recovery
 from agentic_workers.jobs.backfill_job import (
     BackfillRunResult,
@@ -62,6 +63,7 @@ from agentic_workers.storage.backend_models import (
     SynthesisRunStatus,
 )
 from agentic_workers.storage.firehose_progress import load_firehose_progress
+from agentic_workers.storage.analysis_store import list_pending_analysis_targets
 
 # Configure root logger
 logging.basicConfig(
@@ -100,6 +102,10 @@ def calculate_firehose_pacing_seconds() -> int:
 
 def calculate_backfill_pacing_seconds() -> int:
     return calculate_intake_pacing_seconds()
+
+
+def calculate_paused_poll_seconds() -> int:
+    return max(15, calculate_intake_pacing_seconds())
 
 
 def _calculate_shared_minimum_cycle_seconds(
@@ -144,7 +150,10 @@ def run_configured_firehose_job(
     sleep_fn: Callable[[int], None] = time.sleep,
     should_stop: Callable[[], bool] | None = None,
 ) -> FirehoseRunResult:
-    provider = GitHubFirehoseProvider(github_token=settings.github_provider_token_value)
+    provider = GitHubFirehoseProvider(
+        github_token=settings.github_provider_token_value,
+        runtime_dir=settings.runtime.runtime_dir,
+    )
     with Session(engine) as session:
         return _run_tracked_job(
             session=session,
@@ -178,7 +187,10 @@ def run_configured_backfill_job(
     sleep_fn: Callable[[int], None] = time.sleep,
     should_stop: Callable[[], bool] | None = None,
 ) -> BackfillRunResult:
-    provider = GitHubFirehoseProvider(github_token=settings.github_provider_token_value)
+    provider = GitHubFirehoseProvider(
+        github_token=settings.github_provider_token_value,
+        runtime_dir=settings.runtime.runtime_dir,
+    )
     with Session(engine) as session:
         return _run_tracked_job(
             session=session,
@@ -240,7 +252,10 @@ def run_configured_analyst_job(
     *,
     should_stop: Callable[[], bool] | None = None,
 ) -> AnalystRunResult:
-    provider = GitHubFirehoseProvider(github_token=settings.github_provider_token_value)
+    provider = GitHubFirehoseProvider(
+        github_token=settings.github_provider_token_value,
+        runtime_dir=settings.runtime.runtime_dir,
+    )
     api_key = settings.ANTHROPIC_API_KEY.get_secret_value() if settings.ANTHROPIC_API_KEY else None
     gemini_key = settings.GEMINI_API_KEY.get_secret_value() if settings.GEMINI_API_KEY else None
     analysis_provider = create_analysis_provider(
@@ -291,12 +306,7 @@ def has_pending_bouncer_work() -> bool:
 
 def has_pending_analyst_work() -> bool:
     with Session(engine) as session:
-        pending_count = session.exec(
-            select(func.count(RepositoryIntake.github_repository_id))
-            .where(RepositoryIntake.triage_status == RepositoryTriageStatus.ACCEPTED)
-            .where(RepositoryIntake.analysis_status != RepositoryAnalysisStatus.COMPLETED)
-        ).one()
-    return int(pending_count or 0) > 0
+        return bool(list_pending_analysis_targets(session))
 
 
 def has_pending_combiner_work() -> bool:
@@ -355,7 +365,9 @@ def _log_firehose_result(result: FirehoseRunResult) -> None:
     )
     if result.artifact_error:
         logger.warning("Firehose runtime artifact write failed: %s", result.artifact_error)
-    if result.status is not FirehoseRunStatus.SUCCESS:
+    if result.status is FirehoseRunStatus.SKIPPED_PAUSED:
+        logger.info("Firehose remains paused; next automatic pause check will back off.")
+    elif result.status is not FirehoseRunStatus.SUCCESS:
         logger.warning("Firehose run completed with non-success status: %s", result.status)
 
 
@@ -368,7 +380,9 @@ def _log_backfill_result(result: BackfillRunResult) -> None:
     )
     if result.artifact_error:
         logger.warning("Backfill runtime artifact write failed: %s", result.artifact_error)
-    if result.status is not BackfillRunStatus.SUCCESS:
+    if result.status is BackfillRunStatus.SKIPPED_PAUSED:
+        logger.info("Backfill remains paused; next automatic pause check will back off.")
+    elif result.status is not BackfillRunStatus.SUCCESS:
         logger.warning("Backfill run completed with non-success status: %s", result.status)
 
 
@@ -380,7 +394,9 @@ def _log_bouncer_result(result: BouncerRunResult) -> None:
     )
     if result.artifact_error:
         logger.warning("Bouncer runtime artifact write failed: %s", result.artifact_error)
-    if result.status is not BouncerRunStatus.SUCCESS:
+    if result.status is BouncerRunStatus.SKIPPED_PAUSED:
+        logger.info("Bouncer remains paused; queue polling will back off.")
+    elif result.status is not BouncerRunStatus.SUCCESS:
         logger.warning("Bouncer run completed with non-success status: %s", result.status)
 
 
@@ -392,7 +408,9 @@ def _log_analyst_result(result: AnalystRunResult) -> None:
     )
     if result.artifact_error:
         logger.warning("Analyst runtime artifact write failed: %s", result.artifact_error)
-    if result.status is not AnalystRunStatus.SUCCESS:
+    if result.status is AnalystRunStatus.SKIPPED_PAUSED:
+        logger.info("Analyst remains paused; queue polling will back off.")
+    elif result.status is not AnalystRunStatus.SUCCESS:
         logger.warning("Analyst run completed with non-success status: %s", result.status)
 
 
@@ -796,6 +814,10 @@ async def _run_bouncer_if_pending(
     if stop_event.is_set():
         return False
 
+    with Session(engine) as session:
+        if is_agent_paused(session, "bouncer"):
+            return False
+
     try:
         if not has_pending_bouncer_work():
             return False
@@ -818,6 +840,10 @@ async def _run_analyst_if_pending(
 ) -> bool:
     if stop_event.is_set():
         return False
+
+    with Session(engine) as session:
+        if is_agent_paused(session, "analyst"):
+            return False
 
     try:
         if not has_pending_analyst_work():
@@ -969,7 +995,10 @@ async def main():
                         should_stop=_thread_stop.is_set,
                     )
                     _log_firehose_result(firehose_result)
-                    next_firehose_run_at = time.monotonic() + seconds_until_next_firehose_run()
+                    if firehose_result.status is FirehoseRunStatus.SKIPPED_PAUSED:
+                        next_firehose_run_at = time.monotonic() + calculate_paused_poll_seconds()
+                    else:
+                        next_firehose_run_at = time.monotonic() + seconds_until_next_firehose_run()
                 else:
                     backfill_result = await asyncio.to_thread(
                         run_configured_backfill_job,
@@ -977,7 +1006,10 @@ async def main():
                         should_stop=_thread_stop.is_set,
                     )
                     _log_backfill_result(backfill_result)
-                    next_backfill_run_at = time.monotonic() + seconds_until_next_backfill_run()
+                    if backfill_result.status is BackfillRunStatus.SKIPPED_PAUSED:
+                        next_backfill_run_at = time.monotonic() + calculate_paused_poll_seconds()
+                    else:
+                        next_backfill_run_at = time.monotonic() + seconds_until_next_backfill_run()
             except Exception:
                 logger.exception("%s run failed. Continuing to next interval.", job_name.title())
                 if job_name == "firehose":

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from app.models import AgentRunStatus
+from app.schemas.agent_event import AgentRuntimeProgress
 
 
 class IngestionMetrics(BaseModel):
@@ -60,6 +61,7 @@ class AgentHealthMetrics(BaseModel):
     token_usage_24h: int = 0
     input_tokens_24h: int = 0
     output_tokens_24h: int = 0
+    runtime_progress: AgentRuntimeProgress | None = None
 
 
 class FailureMetrics(BaseModel):

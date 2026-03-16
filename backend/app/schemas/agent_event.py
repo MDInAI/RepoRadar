@@ -51,6 +51,20 @@ class AgentRunDetailResponse(AgentRunResponse):
     events: list[SystemEventResponse] = Field(default_factory=list)
 
 
+class AgentRuntimeProgress(BaseModel):
+    status_label: str
+    current_activity: str
+    current_target: str | None = None
+    progress_percent: int | None = None
+    completed_count: int | None = None
+    total_count: int | None = None
+    remaining_count: int | None = None
+    unit_label: str | None = None
+    updated_at: datetime | None = None
+    source: str
+    details: list[str] = Field(default_factory=list)
+
+
 class AgentRunListParams(BaseModel):
     agent_name: str | None = None
     status: AgentRunStatus | None = None
@@ -86,6 +100,7 @@ class AgentStatusEntry(BaseModel):
     has_run: bool
     latest_run: AgentRunResponse | None = None
     latest_intake_summary: dict[str, int] | None = None
+    runtime_progress: AgentRuntimeProgress | None = None
 
 
 class AgentLatestRunsResponse(BaseModel):

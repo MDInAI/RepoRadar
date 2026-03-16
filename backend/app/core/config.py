@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import BaseModel, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class BackendRuntimeSettings(BaseModel):
@@ -29,6 +30,12 @@ class BackendProviderSettings(BaseModel):
     backfill_min_created_date: date
     bouncer_include_rules: tuple[str, ...]
     bouncer_exclude_rules: tuple[str, ...]
+    analyst_provider: str
+    anthropic_api_key_configured: bool
+    analyst_model_name: str
+    gemini_api_key_configured: bool
+    gemini_base_url: str
+    gemini_model_name: str
 
 
 class OpenClawReferenceSettings(BaseModel):
@@ -64,8 +71,14 @@ class Settings(BaseSettings):
     BACKFILL_PAGES: int = 2
     BACKFILL_WINDOW_DAYS: int = 30
     BACKFILL_MIN_CREATED_DATE: date = date(2008, 1, 1)
-    BOUNCER_INCLUDE_RULES: tuple[str, ...] = ()
-    BOUNCER_EXCLUDE_RULES: tuple[str, ...] = ()
+    BOUNCER_INCLUDE_RULES: Annotated[tuple[str, ...], NoDecode] = ()
+    BOUNCER_EXCLUDE_RULES: Annotated[tuple[str, ...], NoDecode] = ()
+    ANALYST_PROVIDER: str = "heuristic"
+    ANTHROPIC_API_KEY: SecretStr | None = None
+    ANALYST_MODEL_NAME: str = "claude-3-5-haiku-20241022"
+    GEMINI_API_KEY: SecretStr | None = None
+    GEMINI_BASE_URL: str = "https://api.haimaker.ai/v1"
+    GEMINI_MODEL_NAME: str = "google/gemini-2.0-flash-001"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -81,12 +94,22 @@ class Settings(BaseSettings):
             return value.strip()
         return value
 
-    @field_validator("SECRET_KEY", "GITHUB_PROVIDER_TOKEN", mode="before")
+    @field_validator("SECRET_KEY", "GITHUB_PROVIDER_TOKEN", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", mode="before")
     @classmethod
     def _normalize_secret_strings(cls, value: object) -> object:
         if isinstance(value, str):
             candidate = value.strip()
             return candidate or None
+        return value
+
+    @field_validator("ANALYST_PROVIDER", mode="before")
+    @classmethod
+    def _validate_analyst_provider(cls, value: object) -> object:
+        if isinstance(value, str):
+            candidate = value.strip().lower()
+            if candidate not in ("heuristic", "llm", "gemini"):
+                raise ValueError("must be 'heuristic', 'llm', or 'gemini'")
+            return candidate
         return value
 
     @field_validator(
@@ -185,6 +208,12 @@ class Settings(BaseSettings):
             backfill_min_created_date=self.BACKFILL_MIN_CREATED_DATE,
             bouncer_include_rules=self.BOUNCER_INCLUDE_RULES,
             bouncer_exclude_rules=self.BOUNCER_EXCLUDE_RULES,
+            analyst_provider=self.ANALYST_PROVIDER,
+            anthropic_api_key_configured=bool(self.ANTHROPIC_API_KEY),
+            analyst_model_name=self.ANALYST_MODEL_NAME,
+            gemini_api_key_configured=bool(self.GEMINI_API_KEY),
+            gemini_base_url=self.GEMINI_BASE_URL,
+            gemini_model_name=self.GEMINI_MODEL_NAME,
         )
 
     @property

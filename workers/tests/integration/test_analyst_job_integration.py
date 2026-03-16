@@ -11,7 +11,9 @@ import agentic_workers.jobs.analyst_job as analyst_job_module
 import agentic_workers.storage.analysis_store as analysis_store_module
 from agentic_workers.jobs.analyst_job import AnalystRunStatus, run_analyst_job
 from agentic_workers.providers.github_provider import RepositoryReadme
+from agentic_workers.providers.readme_analyst import ReadmeAnalysisUsage
 from agentic_workers.storage.backend_models import (
+    RepositoryCategory,
     RepositoryAnalysisFailureCode,
     RepositoryAnalysisResult,
     RepositoryAnalysisStatus,
@@ -36,10 +38,21 @@ class StubGitHubProvider:
 
 
 class StaticAnalysisProvider:
-    def __init__(self, payload: str) -> None:
-        self.payload = payload
+    provider_name = "static-analysis"
+    model_name = "static-model"
 
-    def analyze(self, *, repository_full_name: str, readme: object) -> str:
+    def __init__(self, payload: str, *, usage: ReadmeAnalysisUsage | None = None) -> None:
+        self.payload = payload
+        self.last_usage = usage or ReadmeAnalysisUsage()
+
+    def analyze(
+        self,
+        *,
+        repository_full_name: str,
+        readme: object,
+        evidence: dict[str, object] | None = None,
+    ) -> str:
+        del repository_full_name, readme, evidence
         return self.payload
 
 
@@ -68,6 +81,27 @@ def _accepted_row(repository_id: int, full_name: str) -> RepositoryIntake:
     )
 
 
+def _current_analysis_row(repository_id: int) -> RepositoryAnalysisResult:
+    analyzed_at = datetime(2026, 3, 8, 13, repository_id % 60, tzinfo=timezone.utc)
+    return RepositoryAnalysisResult(
+        github_repository_id=repository_id,
+        source_provider="github",
+        source_kind="repository_readme",
+        source_metadata={
+            "analysis_schema_version": analysis_store_module.CURRENT_ANALYSIS_SCHEMA_VERSION,
+            "analysis_mode": "fast",
+            "analysis_outcome": "completed",
+            "analysis_evidence_version": "fast-evidence-v1",
+            "analysis_summary_short": "Current evidence-backed analysis is present.",
+            "score_breakdown": {"technical_maturity_score": 50},
+        },
+        monetization_potential="medium",
+        category=RepositoryCategory.WORKFLOW,
+        agent_tags=["workflow"],
+        analyzed_at=analyzed_at,
+    )
+
+
 def test_analyst_job_success_persists_result_and_runtime_artifacts(tmp_path: Path) -> None:
     runtime_dir = tmp_path / "runtime"
     provider = StubGitHubProvider(
@@ -81,7 +115,8 @@ def test_analyst_job_success_persists_result_and_runtime_artifacts(tmp_path: Pat
     )
     analysis_provider = StaticAnalysisProvider(
         '{"monetization_potential":"high","pros":["API surface"],'
-        '"cons":["Pricing unclear"],"missing_feature_signals":["Missing billing"]}'
+        '"cons":["Pricing unclear"],"missing_feature_signals":["Missing billing"]}',
+        usage=ReadmeAnalysisUsage(input_tokens=210, output_tokens=34, total_tokens=244),
     )
 
     with _make_session(tmp_path) as session:
@@ -111,6 +146,17 @@ def test_analyst_job_success_persists_result_and_runtime_artifacts(tmp_path: Pat
     assert analysis_row.missing_feature_signals == ["Missing billing"]
     assert analysis_row.source_metadata["readme_artifact_path"] == "data/readmes/707.md"
     assert analysis_row.source_metadata["analysis_artifact_path"] == "data/analyses/707.json"
+    assert analysis_row.source_metadata["input_tokens"] == 210
+    assert analysis_row.source_metadata["output_tokens"] == 34
+    assert analysis_row.source_metadata["total_tokens"] == 244
+    assert analysis_row.source_metadata["analysis_mode"] == "fast"
+    assert analysis_row.source_metadata["analysis_outcome"] == "completed_low_confidence"
+    assert analysis_row.source_metadata["analysis_evidence_version"] == "fast-evidence-v1"
+    assert analysis_row.source_metadata["analysis_signals"]["has_readme"] is True
+    assert analysis_row.source_metadata["score_breakdown"]["technical_maturity_score"] >= 0
+    assert analysis_row.source_metadata["analysis_summary_short"]
+    assert "contradictions" in analysis_row.source_metadata
+    assert "missing_information" in analysis_row.source_metadata
 
     assert [(row.github_repository_id, row.artifact_kind) for row in artifact_rows] == [
         (707, RepositoryArtifactKind.ANALYSIS_RESULT),
@@ -130,6 +176,16 @@ def test_analyst_job_success_persists_result_and_runtime_artifacts(tmp_path: Pat
     analysis_payload = json.loads(analysis_payload_row.content_text)
     assert analysis_payload["analysis"]["monetization_potential"] == "high"
     assert analysis_payload["source"]["readme_artifact_path"] == "data/readmes/707.md"
+    assert analysis_payload["input_tokens"] == 210
+    assert analysis_payload["output_tokens"] == 34
+    assert analysis_payload["total_tokens"] == 244
+    assert analysis_payload["analysis_mode"] == "fast"
+    assert analysis_payload["analysis_outcome"] == "completed_low_confidence"
+    assert analysis_payload["evidence"]["signals"]["has_readme"] is True
+    assert analysis_payload["evidence"]["score_breakdown"]["hosted_gap_score"] >= 0
+    assert analysis_payload["evidence"]["analysis_summary_short"]
+    assert "contradictions" in analysis_payload["evidence"]
+    assert "missing_information" in analysis_payload["evidence"]
     assert not (runtime_dir / "data" / "readmes" / "707.md").exists()
     assert not (runtime_dir / "data" / "analyses" / "707.json").exists()
 
@@ -138,6 +194,41 @@ def test_analyst_job_success_persists_result_and_runtime_artifacts(tmp_path: Pat
     assert artifact["summary"] == {"completed": 1, "failed": 0}
     assert artifact["outcomes"][0]["runtime_readme_artifact_path"] == "data/readmes/707.md"
     assert artifact["outcomes"][0]["runtime_analysis_artifact_path"] == "data/analyses/707.json"
+    assert result.input_tokens == 210
+    assert result.output_tokens == 34
+    assert result.total_tokens == 244
+
+
+def test_analyst_job_skips_repositories_with_current_analysis_schema(tmp_path: Path) -> None:
+    provider = StubGitHubProvider(
+        RepositoryReadme(
+            owner_login="octocat",
+            repository_name="fresh-analysis",
+            content="# Product\n\nTeam workflow automation with analytics and API access.",
+            fetched_at=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc),
+            source_url="https://api.github.com/repos/octocat/fresh-analysis/readme",
+        )
+    )
+
+    with _make_session(tmp_path) as session:
+        row = _accepted_row(708, "octocat/fresh-analysis")
+        row.analysis_status = RepositoryAnalysisStatus.COMPLETED
+        session.add(row)
+        session.add(_current_analysis_row(708))
+        session.commit()
+
+        result = run_analyst_job(
+            session=session,
+            provider=provider,  # type: ignore[arg-type]
+            runtime_dir=tmp_path / "runtime",
+            analysis_provider=StaticAnalysisProvider(
+                '{"monetization_potential":"medium","pros":["Automation"],'
+                '"cons":["Pricing unclear"],"missing_feature_signals":["Missing billing"]}'
+            ),
+        )
+
+    assert result.status is AnalystRunStatus.SUCCESS
+    assert result.outcomes == []
 
 
 def test_analyst_job_persistence_failure_does_not_leave_completed_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,4 +1,11 @@
-import type { AgentName, AgentRunEvent, AgentRunStatus, EventSeverity } from "@/api/agents";
+import type {
+  AgentName,
+  AgentRunEvent,
+  AgentRunStatus,
+  AgentRuntimeProgress,
+  EventSeverity,
+} from "@/api/agents";
+import { formatAppDateTime } from "@/lib/time";
 
 const RELATIVE_DATE_FORMATTER = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 const INTEGER_FORMATTER = new Intl.NumberFormat("en-US");
@@ -62,16 +69,7 @@ export function formatRelativeTimestamp(value: string | null): string {
 }
 
 export function formatTimestampLabel(value: string | null): string {
-  if (!value) {
-    return "Unavailable";
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return "Unknown";
-  }
-
-  return `${parsed.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+  return formatAppDateTime(value);
 }
 
 export function formatRunDuration(durationSeconds: number | null): string {
@@ -101,6 +99,29 @@ export function formatItemsSummary(run: AgentRunEvent | null): string {
   return `${formatItemsCount(run.items_processed)} processed / ${formatItemsCount(
     run.items_succeeded,
   )} ok / ${formatItemsCount(run.items_failed)} failed`;
+}
+
+export function formatRuntimeProgressCounts(progress: AgentRuntimeProgress | null | undefined): string {
+  if (!progress) {
+    return "No live progress snapshot";
+  }
+
+  const unitLabel = progress.unit_label ?? "items";
+  if (progress.completed_count != null && progress.total_count != null) {
+    return `${formatItemsCount(progress.completed_count)} / ${formatItemsCount(progress.total_count)} ${unitLabel}`;
+  }
+  if (progress.remaining_count != null) {
+    return `${formatItemsCount(progress.remaining_count)} ${unitLabel} remaining`;
+  }
+  return progress.status_label;
+}
+
+export function formatRuntimeProgressHeadline(progress: AgentRuntimeProgress | null | undefined): string {
+  if (!progress) {
+    return "No live runtime snapshot";
+  }
+  const currentTarget = progress.current_target ? ` ${progress.current_target}` : "";
+  return `${progress.current_activity}${currentTarget}`;
 }
 
 export function getRunStatusBadgeClassName(

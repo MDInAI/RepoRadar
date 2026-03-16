@@ -38,8 +38,9 @@ from agentic_workers import main
 
 
 class DummyProvider:
-    def __init__(self, *, github_token: str | None) -> None:
+    def __init__(self, *, github_token: str | None, runtime_dir: Path | None = None) -> None:
         self.github_token = github_token
+        self.runtime_dir = runtime_dir
 
 
 class DummySession:
@@ -94,12 +95,12 @@ def test_configured_firehose_job_uses_settings_and_runtime_paths(monkeypatch, tm
     monkeypatch.setattr(
         main,
         "finalize_agent_run",
-        lambda session, run_id, items_processed, items_succeeded, items_failed: None,
+        lambda session, run_id, items_processed, items_succeeded, items_failed, **kwargs: None,
     )
     monkeypatch.setattr(
         main,
         "record_failed_agent_run",
-        lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed: None,
+        lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed, **kwargs: None,
     )
 
     result = main.run_configured_firehose_job()
@@ -152,12 +153,12 @@ def test_configured_backfill_job_uses_settings_and_runtime_paths(monkeypatch, tm
     monkeypatch.setattr(
         main,
         "finalize_agent_run",
-        lambda session, run_id, items_processed, items_succeeded, items_failed: None,
+        lambda session, run_id, items_processed, items_succeeded, items_failed, **kwargs: None,
     )
     monkeypatch.setattr(
         main,
         "record_failed_agent_run",
-        lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed: None,
+        lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed, **kwargs: None,
     )
 
     result = main.run_configured_backfill_job()
@@ -202,12 +203,12 @@ def test_configured_bouncer_job_uses_settings_and_runtime_paths(monkeypatch, tmp
     monkeypatch.setattr(
         main,
         "finalize_agent_run",
-        lambda session, run_id, items_processed, items_succeeded, items_failed: None,
+        lambda session, run_id, items_processed, items_succeeded, items_failed, **kwargs: None,
     )
     monkeypatch.setattr(
         main,
         "record_failed_agent_run",
-        lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed: None,
+        lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed, **kwargs: None,
     )
 
     result = main.run_configured_bouncer_job()
@@ -224,6 +225,12 @@ def test_configured_analyst_job_uses_settings_and_runtime_paths(monkeypatch, tmp
 
     class StubSettings:
         github_provider_token_value = "worker-token"
+        ANALYST_PROVIDER = "heuristic"
+        ANTHROPIC_API_KEY = None
+        ANALYST_MODEL_NAME = "test-model"
+        GEMINI_API_KEY = None
+        GEMINI_BASE_URL = "https://example.test"
+        GEMINI_MODEL_NAME = "gemini-test"
 
         class runtime:
             runtime_dir = tmp_path
@@ -239,7 +246,7 @@ def test_configured_analyst_job_uses_settings_and_runtime_paths(monkeypatch, tmp
 
     monkeypatch.setattr(main, "settings", StubSettings())
     monkeypatch.setattr(main, "GitHubFirehoseProvider", DummyProvider)
-    monkeypatch.setattr(main, "HeuristicReadmeAnalysisProvider", lambda: "heuristic-provider")
+    monkeypatch.setattr(main, "create_analysis_provider", lambda *args: "heuristic-provider")
     monkeypatch.setattr(main, "Session", DummySession)
     monkeypatch.setattr(main, "engine", object())
     monkeypatch.setattr(main, "run_analyst_job", fake_run_analyst_job)
@@ -247,12 +254,12 @@ def test_configured_analyst_job_uses_settings_and_runtime_paths(monkeypatch, tmp
     monkeypatch.setattr(
         main,
         "finalize_agent_run",
-        lambda session, run_id, items_processed, items_succeeded, items_failed: None,
+        lambda session, run_id, items_processed, items_succeeded, items_failed, **kwargs: None,
     )
     monkeypatch.setattr(
         main,
         "record_failed_agent_run",
-        lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed: None,
+        lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed, **kwargs: None,
     )
 
     result = main.run_configured_analyst_job()
@@ -302,8 +309,9 @@ def test_configured_firehose_job_records_terminal_write_failures_as_failed_runs(
         items_processed: int,
         items_succeeded: int,
         items_failed: int,
+        **kwargs: object,
     ) -> None:
-        del session, run_id, items_processed, items_succeeded, items_failed
+        del session, run_id, items_processed, items_succeeded, items_failed, kwargs
         raise RuntimeError("cannot persist terminal state")
 
     def capture_failed_run(
@@ -314,8 +322,9 @@ def test_configured_firehose_job_records_terminal_write_failures_as_failed_runs(
         items_processed: int | None,
         items_succeeded: int | None,
         items_failed: int | None,
+        **kwargs: object,
     ) -> None:
-        del session
+        del session, kwargs
         recorded_failure.update(
             {
                 "run_id": run_id,
@@ -490,12 +499,16 @@ def test_calculate_backfill_interval_rejects_non_positive_config(monkeypatch) ->
 
 def test_has_pending_analyst_work_queries_for_accepted_repositories(monkeypatch) -> None:
     class StubResult:
-        def one(self) -> int:
-            return 2
+        def __init__(self, values: list[object]) -> None:
+            self.values = values
+
+        def all(self) -> list[object]:
+            return self.values
 
     class StubSession:
         def __init__(self, engine: object) -> None:
             self.engine = engine
+            self.exec_calls = 0
 
         def __enter__(self) -> "StubSession":
             return self
@@ -504,7 +517,18 @@ def test_has_pending_analyst_work_queries_for_accepted_repositories(monkeypatch)
             return None
 
         def exec(self, _statement: object) -> StubResult:
-            return StubResult()
+            self.exec_calls += 1
+            if self.exec_calls == 1:
+                repository = type(
+                    "Repository",
+                    (),
+                    {
+                        "github_repository_id": 123,
+                        "analysis_status": RepositoryAnalysisStatus.PENDING,
+                    },
+                )()
+                return StubResult([repository])
+            return StubResult([])
 
     monkeypatch.setattr(main, "Session", StubSession)
     monkeypatch.setattr(main, "engine", object())
@@ -1055,3 +1079,31 @@ def test_main_runs_firehose_on_interval_then_stops_on_signal(monkeypatch) -> Non
     asyncio.run(main.main())
 
     assert run_calls == ["firehose", "backfill", "firehose", "backfill"]
+
+
+def test_run_analyst_if_pending_skips_quietly_when_paused(monkeypatch) -> None:
+    called = {"run": False}
+
+    async def run_once() -> bool:
+        stop_event = asyncio.Event()
+        thread_stop = type("ThreadStop", (), {"is_set": lambda self: False})()
+        return await main._run_analyst_if_pending(stop_event=stop_event, thread_stop=thread_stop)
+
+    monkeypatch.setattr(main, "Session", DummySession)
+    monkeypatch.setattr(main, "engine", object())
+    monkeypatch.setattr(main, "is_agent_paused", lambda session, agent_name: True)
+    monkeypatch.setattr(main, "has_pending_analyst_work", lambda: True)
+
+    async def fake_to_thread(func: object, *args: object, **kwargs: object) -> object:
+        called["run"] = True
+        return None
+
+    monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+    assert asyncio.run(run_once()) is False
+    assert called["run"] is False
+
+
+def test_calculate_paused_poll_seconds_uses_floor(monkeypatch) -> None:
+    monkeypatch.setattr(main, "calculate_intake_pacing_seconds", lambda: 3)
+    assert main.calculate_paused_poll_seconds() == 15

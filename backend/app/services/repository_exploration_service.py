@@ -75,10 +75,46 @@ class RepositoryExplorationService:
 
         analysis_summary = None
         if record.analysis_summary is not None:
+            analysis_metadata = record.analysis_summary.source_metadata
             analysis_summary = RepositoryAnalysisSummaryResponse(
                 monetization_potential=record.analysis_summary.monetization_potential,
                 category=record.analysis_summary.category,
                 category_confidence_score=record.analysis_summary.category_confidence_score,
+                analysis_mode=self._get_str_metadata(analysis_metadata, "analysis_mode"),
+                analysis_outcome=self._get_str_metadata(analysis_metadata, "analysis_outcome"),
+                analysis_schema_version=self._get_str_metadata(
+                    analysis_metadata,
+                    "analysis_schema_version",
+                ),
+                analysis_evidence_version=self._get_str_metadata(
+                    analysis_metadata,
+                    "analysis_evidence_version",
+                ),
+                insufficient_evidence_reason=self._get_str_metadata(
+                    analysis_metadata,
+                    "insufficient_evidence_reason",
+                ),
+                evidence_summary=self._get_str_metadata(analysis_metadata, "evidence_summary"),
+                analysis_signals=self._get_dict_metadata(analysis_metadata, "analysis_signals"),
+                score_breakdown=self._get_int_dict_metadata(analysis_metadata, "score_breakdown"),
+                analysis_summary_short=self._get_str_metadata(
+                    analysis_metadata,
+                    "analysis_summary_short",
+                ),
+                analysis_summary_long=self._get_str_metadata(
+                    analysis_metadata,
+                    "analysis_summary_long",
+                ),
+                supporting_signals=self._get_str_list_metadata(
+                    analysis_metadata,
+                    "supporting_signals",
+                ),
+                red_flags=self._get_str_list_metadata(analysis_metadata, "red_flags"),
+                contradictions=self._get_str_list_metadata(analysis_metadata, "contradictions"),
+                missing_information=self._get_str_list_metadata(
+                    analysis_metadata,
+                    "missing_information",
+                ),
                 agent_tags=record.analysis_summary.agent_tags,
                 suggested_new_categories=record.analysis_summary.suggested_new_categories,
                 suggested_new_tags=record.analysis_summary.suggested_new_tags,
@@ -128,21 +164,21 @@ class RepositoryExplorationService:
                 "normalization_version",
             )
             or self._get_str_metadata(readme_source_metadata, "normalization_version"),
-            raw_character_count=self._get_int_metadata(
+            raw_character_count=self._coalesce_int_metadata(
                 readme_artifact.provenance_metadata if readme_artifact is not None else {},
+                readme_source_metadata,
                 "raw_character_count",
-            )
-            or self._get_int_metadata(readme_source_metadata, "raw_character_count"),
-            normalized_character_count=self._get_int_metadata(
+            ),
+            normalized_character_count=self._coalesce_int_metadata(
                 readme_artifact.provenance_metadata if readme_artifact is not None else {},
+                readme_source_metadata,
                 "normalized_character_count",
-            )
-            or self._get_int_metadata(readme_source_metadata, "normalized_character_count"),
-            removed_line_count=self._get_int_metadata(
+            ),
+            removed_line_count=self._coalesce_int_metadata(
                 readme_artifact.provenance_metadata if readme_artifact is not None else {},
+                readme_source_metadata,
                 "removed_line_count",
-            )
-            or self._get_int_metadata(readme_source_metadata, "removed_line_count"),
+            ),
         )
 
         analysis_artifact_response = RepositoryAnalysisArtifactResponse(
@@ -332,3 +368,38 @@ class RepositoryExplorationService:
     def _get_int_metadata(metadata: dict[str, object], key: str) -> int | None:
         value = metadata.get(key)
         return value if isinstance(value, int) else None
+
+    @staticmethod
+    def _get_dict_metadata(metadata: dict[str, object], key: str) -> dict[str, object]:
+        value = metadata.get(key)
+        return dict(value) if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _get_int_dict_metadata(metadata: dict[str, object], key: str) -> dict[str, int]:
+        value = metadata.get(key)
+        if not isinstance(value, dict):
+            return {}
+        return {
+            raw_key: raw_value
+            for raw_key, raw_value in value.items()
+            if isinstance(raw_key, str) and isinstance(raw_value, int) and not isinstance(raw_value, bool)
+        }
+
+    @staticmethod
+    def _get_str_list_metadata(metadata: dict[str, object], key: str) -> list[str]:
+        value = metadata.get(key)
+        if not isinstance(value, list):
+            return []
+        return [item for item in value if isinstance(item, str)]
+
+    @classmethod
+    def _coalesce_int_metadata(
+        cls,
+        primary_metadata: dict[str, object],
+        fallback_metadata: dict[str, object],
+        key: str,
+    ) -> int | None:
+        primary = cls._get_int_metadata(primary_metadata, key)
+        if primary is not None:
+            return primary
+        return cls._get_int_metadata(fallback_metadata, key)

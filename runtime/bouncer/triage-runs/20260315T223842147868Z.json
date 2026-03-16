@@ -1,0 +1,37 @@
+{
+  "exclude_rules": [],
+  "generated_at": "2026-03-15T22:38:42.147880+00:00",
+  "include_rules": [],
+  "outcomes": [
+    {
+      "error": null,
+      "explained_at": "2026-03-15T22:38:42.144025+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "git-pkgs/brief",
+      "github_repository_id": 1182218269,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-15T22:38:42.146512+00:00",
+      "explanation_kind": "pass_through",
+      "explanation_summary": "Accepted because no include allowlist is configured and no exclude rules matched.",
+      "full_name": "jeankassio/ComfyUI-AceStep_SFT",
+      "github_repository_id": 1182425371,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    }
+  ],
+  "status": "success",
+  "summary": {
+    "accepted": 2,
+    "failed": 0,
+    "rejected": 0
+  }
+}

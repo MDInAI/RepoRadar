@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { fetchIncidents, getIncidentsQueryKey, type Incident } from "@/api/incidents";
 import { fetchOverviewSummary, getOverviewSummaryQueryKey } from "@/api/overview";
+import { formatAppDateTime } from "@/lib/time";
 
 export default function IncidentsClient() {
   const [selected, setSelected] = useState<Incident | null>(null);
@@ -97,7 +98,7 @@ export default function IncidentsClient() {
                       {inc.event_type}
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text-3)', marginTop: '2px' }}>
-                      {inc.agent_name} · {new Date(inc.created_at).toLocaleString()}
+                      {inc.agent_name} · {formatAppDateTime(inc.created_at)}
                     </div>
                   </div>
                 </div>
@@ -134,7 +135,7 @@ export default function IncidentsClient() {
                 <div><strong>Type:</strong> {selected.event_type}</div>
                 <div><strong>Agent:</strong> {selected.agent_name}</div>
                 <div><strong>Severity:</strong> {selected.severity}</div>
-                <div><strong>Time:</strong> {new Date(selected.created_at).toLocaleString()}</div>
+                <div><strong>Time:</strong> {formatAppDateTime(selected.created_at)}</div>
                 {selected.message && <div style={{ marginTop: '12px' }}>{selected.message}</div>}
               </div>
             </div>

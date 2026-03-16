@@ -4,6 +4,7 @@ import { useSynthesisRun } from "@/hooks/useSynthesis";
 import { useQuery } from "@tanstack/react-query";
 import { fetchRepositoryDetail } from "@/api/repositories";
 import { fetchIdeaFamily } from "@/api/idea-families";
+import { formatAppDateTime } from "@/lib/time";
 
 interface SynthesisRunDetailDialogProps {
   runId: number;
@@ -56,8 +57,8 @@ export function SynthesisRunDetailDialog({ runId, onClose }: SynthesisRunDetailD
     const repoNames = getRepoNames();
     const content = `# ${run.title || `Synthesis Run #${run.id}`}
 
-**Created:** ${new Date(run.created_at).toLocaleString()}
-${run.completed_at ? `**Completed:** ${new Date(run.completed_at).toLocaleString()}\n` : ""}
+**Created:** ${formatAppDateTime(run.created_at)}
+${run.completed_at ? `**Completed:** ${formatAppDateTime(run.completed_at)}\n` : ""}
 **Summary:** ${run.summary || "N/A"}
 
 **Key Insights:**
@@ -111,8 +112,8 @@ ${run.output_text || ""}`;
     const content = `Synthesis Run #${run.id}
 
 Title: ${run.title || "N/A"}
-Created: ${new Date(run.created_at).toLocaleString()}
-${run.completed_at ? `Completed: ${new Date(run.completed_at).toLocaleString()}\n` : ""}
+Created: ${formatAppDateTime(run.created_at)}
+${run.completed_at ? `Completed: ${formatAppDateTime(run.completed_at)}\n` : ""}
 Summary: ${run.summary || "N/A"}
 
 Key Insights:
@@ -263,9 +264,9 @@ ${run.output_text || ""}`;
             )}
 
             <div className="text-xs text-neutral-600 space-y-1">
-              <div>Created: {new Date(run.created_at).toLocaleString()}</div>
-              {run.started_at && <div>Started: {new Date(run.started_at).toLocaleString()}</div>}
-              {run.completed_at && <div>Completed: {new Date(run.completed_at).toLocaleString()}</div>}
+              <div>Created: {formatAppDateTime(run.created_at)}</div>
+              {run.started_at && <div>Started: {formatAppDateTime(run.started_at)}</div>}
+              {run.completed_at && <div>Completed: {formatAppDateTime(run.completed_at)}</div>}
             </div>
           </div>
         ) : (

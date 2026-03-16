@@ -2,6 +2,7 @@
 
 import { useSynthesisRuns } from "@/hooks/useSynthesis";
 import { useState } from "react";
+import { formatAppDateTime } from "@/lib/time";
 import { SynthesisRunDetailDialog } from "./SynthesisRunDetailDialog";
 
 interface SynthesisRunsListProps {
@@ -54,7 +55,7 @@ export function SynthesisRunsList({ familyId }: SynthesisRunsListProps) {
             )}
             <div className="flex items-center justify-between">
               <span className="text-xs text-neutral-600">
-                {new Date(run.created_at).toLocaleString()}
+                {formatAppDateTime(run.created_at)}
               </span>
               <button
                 onClick={() => setSelectedRunId(run.id)}

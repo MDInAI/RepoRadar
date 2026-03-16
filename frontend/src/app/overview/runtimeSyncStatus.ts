@@ -1,3 +1,5 @@
+import { formatAppDateTime } from "@/lib/time";
+
 interface RuntimeRefreshStatus {
   refreshInFlight: boolean;
   consecutiveFailures: number;
@@ -5,11 +7,8 @@ interface RuntimeRefreshStatus {
 }
 
 function formatTimestamp(value: string, timeZone: string): string {
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone,
-  }).format(new Date(value));
+  void timeZone;
+  return formatAppDateTime(value);
 }
 
 export function formatLastUpdatedLabel(

@@ -312,6 +312,50 @@ def test_gateway_contract_service_returns_live_intake_runtime_surface(
     assert bouncer.queue.status == "reserved"
 
 
+def test_gateway_contract_service_exposes_github_budget_snapshot(tmp_path: Path) -> None:
+    (tmp_path / "github").mkdir()
+    (tmp_path / "github" / "quota.json").write_text(
+        json.dumps(
+            {
+                "provider": "github",
+                "captured_at": "2026-03-16T10:00:00+00:00",
+                "last_response_status": 403,
+                "resource": "core",
+                "limit": 5000,
+                "remaining": 0,
+                "used": 5000,
+                "reset_at": "2026-03-16T10:15:00+00:00",
+                "retry_after_seconds": 900,
+                "exhausted": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    service = GatewayContractService(
+        adapter=FakeAdapter(
+            GatewayTargetResolution(
+                configured=False,
+                url=None,
+                scheme=None,
+                token_configured=False,
+                allow_insecure_tls=False,
+                source="settings-placeholder",
+            )
+        ),
+        runtime_dir=tmp_path,
+    )
+
+    response = service.get_runtime_surface()
+
+    assert response.runtime.github_api_budget is not None
+    assert response.runtime.github_api_budget.provider == "github"
+    assert response.runtime.github_api_budget.remaining == 0
+    assert response.runtime.github_api_budget.limit == 5000
+    assert response.runtime.github_api_budget.resource == "core"
+    assert response.runtime.github_api_budget.exhausted is True
+
+
 def test_gateway_contract_service_returns_zero_value_buckets_for_empty_intake_state(
     tmp_path: Path,
 ) -> None:

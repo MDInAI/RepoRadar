@@ -1,12 +1,14 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   AGENT_DISPLAY_ORDER,
+  fetchFailureEvents,
   fetchAgentPauseStates,
   fetchAgentRuns,
   fetchLatestAgentRuns,
+  getFailureEventsQueryKey,
   getAgentPauseStatesQueryKey,
   getAgentRunsQueryKey,
   getLatestAgentRunsQueryKey,
@@ -23,7 +25,11 @@ import type {
   MaskedSettingSummary,
   SettingsSummaryResponse,
 } from "@/lib/settings-contract";
+import { formatAppDateTime } from "@/lib/time";
 import { AgentRunHistoryTable } from "@/components/agents/AgentRunHistoryTable";
+import { GitHubBudgetPanel } from "@/components/agents/GitHubBudgetPanel";
+import { AgentOperatorSummary } from "@/components/agents/AgentOperatorSummary";
+import { OperationalAlertsPanel } from "@/components/agents/OperationalAlertsPanel";
 import { PauseAgentButton } from "@/components/agents/PauseAgentButton";
 import { ResumeAgentButton } from "@/components/agents/ResumeAgentButton";
 
@@ -58,14 +64,7 @@ function formatTokenCount(value: number) {
 }
 
 function formatTimestamp(value: string | null | undefined): string {
-  if (!value) {
-    return "Unavailable";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return "Unknown";
-  }
-  return `${parsed.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+  return formatAppDateTime(value);
 }
 
 function formatRelative(value: string | null | undefined): string {
@@ -363,6 +362,10 @@ export default function AgentsClient() {
   const [agentFilter, setAgentFilter] = useState<AgentName | null>(null);
   const [statusFilter, setStatusFilter] = useState<AgentRunStatus | null>(null);
   const [runLimit, setRunLimit] = useState(RUN_PAGE_SIZE);
+  const recentFailureSince = useMemo(
+    () => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    [],
+  );
 
   const latestRunsQuery = useQuery({
     queryKey: getLatestAgentRunsQueryKey(),
@@ -376,6 +379,19 @@ export default function AgentsClient() {
     queryFn: fetchAgentPauseStates,
     staleTime: 30_000,
     refetchInterval: 30_000,
+  });
+  const failureEventsQuery = useQuery({
+    queryKey: getFailureEventsQueryKey({
+      since: recentFailureSince,
+      limit: 8,
+    }),
+    queryFn: () =>
+      fetchFailureEvents({
+        since: recentFailureSince,
+        limit: 8,
+      }),
+    staleTime: 10_000,
+    refetchInterval: 10_000,
   });
 
   const gatewayRuntimeQuery = useQuery({
@@ -426,10 +442,12 @@ export default function AgentsClient() {
       has_run: false,
       latest_run: null,
       latest_intake_summary: null,
+      runtime_progress: null,
     }));
 
   const selectedAgentData = agents.find((a) => a.agent_name === selectedAgent);
   const selectedPauseState = pauseStatesQuery.data?.find((p) => p.agent_name === selectedAgent);
+  const selectedFailureEvent = failureEventsQuery.data?.find((event) => event.agent_name === selectedAgent);
   const isPaused = selectedPauseState?.is_paused || false;
   const runtimeAgent = gatewayRuntimeQuery.data?.runtime.agent_states.find(
     (agent) => agent.agent_key === selectedAgent,
@@ -471,6 +489,7 @@ export default function AgentsClient() {
   const notes = [
     ...(selectedAgentData?.notes ?? []),
     ...(selectedAgentData?.latest_run?.error_summary ? [`Latest run: ${selectedAgentData.latest_run.error_summary}`] : []),
+    ...((selectedAgentData?.runtime_progress?.details ?? []).slice(0, 2)),
     cadence.schedulerStatusExplanation,
   ];
 
@@ -485,6 +504,34 @@ export default function AgentsClient() {
   const intakePacing = findSettingEntry(settingsSummaryQuery.data, [
     "workers.INTAKE_PACING_SECONDS",
     "INTAKE_PACING_SECONDS",
+  ]);
+  const githubBudget = findSettingEntry(settingsSummaryQuery.data, [
+    "workers.GITHUB_REQUESTS_PER_MINUTE",
+    "GITHUB_REQUESTS_PER_MINUTE",
+  ]);
+  const analystProvider = findSettingEntry(settingsSummaryQuery.data, [
+    "workers.ANALYST_PROVIDER",
+    "ANALYST_PROVIDER",
+  ]);
+  const anthropicKey = findSettingEntry(settingsSummaryQuery.data, [
+    "workers.ANTHROPIC_API_KEY",
+    "ANTHROPIC_API_KEY",
+  ]);
+  const analystModel = findSettingEntry(settingsSummaryQuery.data, [
+    "workers.ANALYST_MODEL_NAME",
+    "ANALYST_MODEL_NAME",
+  ]);
+  const geminiKey = findSettingEntry(settingsSummaryQuery.data, [
+    "workers.GEMINI_API_KEY",
+    "GEMINI_API_KEY",
+  ]);
+  const geminiBaseUrl = findSettingEntry(settingsSummaryQuery.data, [
+    "workers.GEMINI_BASE_URL",
+    "GEMINI_BASE_URL",
+  ]);
+  const geminiModel = findSettingEntry(settingsSummaryQuery.data, [
+    "workers.GEMINI_MODEL_NAME",
+    "GEMINI_MODEL_NAME",
   ]);
 
   return (
@@ -506,6 +553,14 @@ export default function AgentsClient() {
             <span className="badge badge-muted">{idleCount} Idle</span>
           </div>
         </div>
+
+        <OperationalAlertsPanel
+          pauseStates={pauseStatesQuery.data ?? []}
+          failureEvents={failureEventsQuery.data ?? []}
+          agents={agents}
+          agentStatuses={agents}
+        />
+        <GitHubBudgetPanel snapshot={gatewayRuntimeQuery.data?.runtime.github_api_budget} />
 
         <div style={{ display: "grid", gridTemplateColumns: "200px 1fr 280px", gap: "16px" }}>
           <div className="flex flex-col gap-8">
@@ -562,15 +617,15 @@ export default function AgentsClient() {
                   </div>
                 </div>
                 <div>
-                  <div className="card-label">Provider</div>
-                  <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--green)", marginTop: "4px", fontFamily: "var(--mono)" }}>
-                    {selectedAgentData?.latest_run?.provider_name ?? selectedAgentData?.configured_provider ?? "local-only"}
+                  <div className="card-label">Live Work</div>
+                  <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-0)", marginTop: "4px", lineHeight: "1.5" }}>
+                    {selectedAgentData?.runtime_progress?.current_activity ?? "No live runtime snapshot"}
                   </div>
                 </div>
                 <div>
-                  <div className="card-label">Model</div>
-                  <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-0)", marginTop: "4px", fontFamily: "var(--mono)" }}>
-                    {selectedAgentData?.latest_run?.model_name ?? selectedAgentData?.configured_model ?? "none"}
+                  <div className="card-label">Provider</div>
+                  <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--green)", marginTop: "4px", fontFamily: "var(--mono)" }}>
+                    {selectedAgentData?.latest_run?.provider_name ?? selectedAgentData?.configured_provider ?? "local-only"}
                   </div>
                 </div>
               </div>
@@ -589,12 +644,20 @@ export default function AgentsClient() {
               </div>
             </div>
 
+            <div className="mb-12">
+              <AgentOperatorSummary
+                entry={selectedAgentData}
+                pauseState={selectedPauseState}
+                failureEvent={selectedFailureEvent}
+              />
+            </div>
+
             <div className="section-head"><span className="section-title">Runtime Notes</span><div className="section-line"></div></div>
             <div className="card mb-12">
-              <div style={{ fontSize: "12px", color: "var(--text-2)", lineHeight: "1.6" }}>
+              <div style={{ fontSize: "13px", color: "var(--text-1)", lineHeight: "1.75" }}>
                 {notes.length ? (
                   notes.map((note, index) => (
-                    <div key={`${note}-${index}`} style={{ padding: "6px 0", borderBottom: index < notes.length - 1 ? "1px solid var(--border)" : "none" }}>
+                    <div key={`${note}-${index}`} style={{ padding: "10px 0", borderBottom: index < notes.length - 1 ? "1px solid var(--border)" : "none" }}>
                       {note}
                     </div>
                   ))
@@ -687,7 +750,9 @@ export default function AgentsClient() {
               <div className="flex gap-8" style={{ flexDirection: "column" }}>
                 {isPaused ? <ResumeAgentButton agentName={selectedAgent} /> : <PauseAgentButton agentName={selectedAgent} />}
                 <div style={{ fontSize: "12px", color: "var(--text-2)", lineHeight: "1.6" }}>
-                  Use the Control Panel for editable cadence and timeline changes. This page mirrors live runtime state and pause controls.
+                  {selectedAgent === "analyst"
+                    ? "Use the Control Panel to change Analyst provider mode, model routing, and shared intake pacing. This page mirrors the current live runtime state and pause controls."
+                    : "Use the Control Panel for editable cadence and timeline changes. This page mirrors live runtime state and pause controls."}
                 </div>
               </div>
             </div>
@@ -720,12 +785,42 @@ export default function AgentsClient() {
             <div className="card mb-12">
               <div style={{ fontSize: "12px", color: "var(--text-2)", lineHeight: "1.6" }}>
                 <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                  <strong style={{ color: "var(--text-0)" }}>Current activity:</strong>{" "}
+                  {selectedAgentData?.runtime_progress?.current_activity ?? "No live runtime snapshot"}
+                </div>
+                <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                  <strong style={{ color: "var(--text-0)" }}>Current target:</strong>{" "}
+                  {selectedAgentData?.runtime_progress?.current_target ?? "Unavailable"}
+                </div>
+                <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                  <strong style={{ color: "var(--text-0)" }}>Progress:</strong>{" "}
+                  {selectedAgentData?.runtime_progress?.completed_count != null &&
+                  selectedAgentData?.runtime_progress?.total_count != null
+                    ? `${selectedAgentData.runtime_progress.completed_count} / ${selectedAgentData.runtime_progress.total_count} ${selectedAgentData.runtime_progress.unit_label ?? "items"}`
+                    : selectedAgentData?.runtime_progress?.remaining_count != null
+                      ? `${selectedAgentData.runtime_progress.remaining_count} ${selectedAgentData.runtime_progress.unit_label ?? "items"} remaining`
+                      : "Unavailable"}
+                  {selectedAgentData?.runtime_progress?.progress_percent != null
+                    ? ` (${selectedAgentData.runtime_progress.progress_percent}%)`
+                    : ""}
+                </div>
+                <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
                   <strong style={{ color: cadence.schedulerStatusTone === "good" ? "var(--green)" : cadence.schedulerStatusTone === "warn" ? "var(--amber)" : "var(--text-0)" }}>
                     {cadence.schedulerStatusLabel}
                   </strong>
                 </div>
                 <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
                   {cadence.schedulerStatusExplanation}
+                </div>
+                <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                  <strong style={{ color: "var(--text-0)" }}>Snapshot source:</strong>{" "}
+                  {selectedAgentData?.runtime_progress?.source ?? "Unavailable"}
+                </div>
+                <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                  <strong style={{ color: "var(--text-0)" }}>Runtime updated at:</strong>{" "}
+                  {selectedAgentData?.runtime_progress?.updated_at
+                    ? `${formatRelative(selectedAgentData.runtime_progress.updated_at)} (${formatTimestamp(selectedAgentData.runtime_progress.updated_at)})`
+                    : "Unavailable"}
                 </div>
                 <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
                   <strong style={{ color: "var(--text-0)" }}>Last scheduler evidence:</strong>{" "}
@@ -763,16 +858,32 @@ export default function AgentsClient() {
                   <>
                     <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
                       <strong style={{ color: "var(--text-0)" }}>Provider:</strong>{" "}
-                      {selectedAgentData?.configured_provider ?? "none"}
+                      {selectedAgent === "analyst"
+                        ? analystProvider?.value ?? selectedAgentData?.configured_provider ?? "none"
+                        : selectedAgentData?.configured_provider ?? "none"}
                     </div>
                     <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
                       <strong style={{ color: "var(--text-0)" }}>Model:</strong>{" "}
-                      {selectedAgentData?.configured_model ?? "none"}
+                      {selectedAgent === "analyst"
+                        ? analystModel?.value ?? selectedAgentData?.configured_model ?? "none"
+                        : selectedAgentData?.configured_model ?? "none"}
                     </div>
-                    <div style={{ padding: "8px 0" }}>
+                    <div style={{ padding: "8px 0", borderBottom: selectedAgent === "analyst" ? "1px solid var(--border)" : "none" }}>
                       <strong style={{ color: "var(--text-0)" }}>Uses GitHub token:</strong>{" "}
                       {selectedAgentData?.uses_github_token ? "yes" : "no"}
                     </div>
+                    {selectedAgent === "analyst" ? (
+                      <>
+                        <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                          <strong style={{ color: "var(--text-0)" }}>Anthropic key:</strong>{" "}
+                          {anthropicKey?.value ?? "Unavailable"}
+                        </div>
+                        <div style={{ padding: "8px 0" }}>
+                          <strong style={{ color: "var(--text-0)" }}>Gemini key:</strong>{" "}
+                          {geminiKey?.value ?? "Unavailable"}
+                        </div>
+                      </>
+                    ) : null}
                   </>
                 ) : null}
               </div>
@@ -802,9 +913,40 @@ export default function AgentsClient() {
                   </>
                 ) : null}
                 {selectedAgent !== "firehose" && selectedAgent !== "backfill" ? (
-                  <div>
-                    Use the Control Panel for editable runtime settings. This page mirrors the current live values and scheduling state.
-                  </div>
+                  <>
+                    {selectedAgent === "analyst" ? (
+                      <>
+                        <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                          Provider mode: {analystProvider?.value ?? "Unavailable"}
+                        </div>
+                        <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                          Anthropic model: {analystModel?.value ?? "Unavailable"}
+                        </div>
+                        <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                          Gemini base URL: {geminiBaseUrl?.value ?? "Unavailable"}
+                        </div>
+                        <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                          Gemini model: {geminiModel?.value ?? "Unavailable"}
+                        </div>
+                        <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                          GitHub request budget: {githubBudget?.value ? `${githubBudget.value} req/min` : "Unavailable"}
+                        </div>
+                        <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                          Shared intake pacing: {intakePacing?.value ? formatDuration(Number(intakePacing.value)) : "Unavailable"}
+                        </div>
+                        <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                          Anthropic key: {anthropicKey?.value ?? "Unavailable"}
+                        </div>
+                        <div style={{ padding: "8px 0" }}>
+                          Gemini key: {geminiKey?.value ?? "Unavailable"}
+                        </div>
+                      </>
+                    ) : (
+                      <div>
+                        Use the Control Panel for editable runtime settings. This page mirrors the current live values and scheduling state.
+                      </div>
+                    )}
+                  </>
                 ) : null}
               </div>
             </div>

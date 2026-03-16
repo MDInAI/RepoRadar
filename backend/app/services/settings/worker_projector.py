@@ -38,6 +38,12 @@ class WorkerSettingsProjection:
     backfill_min_created_date: date
     bouncer_include_rules: tuple[str, ...]
     bouncer_exclude_rules: tuple[str, ...]
+    analyst_provider: str
+    anthropic_api_key_configured: bool
+    analyst_model_name: str
+    gemini_api_key_configured: bool
+    gemini_base_url: str
+    gemini_model_name: str
     source: str
     overrides_loaded: bool
 
@@ -225,6 +231,37 @@ def _tuple_override(
     logger.debug("Worker override applied: %s=%s", key, normalized)
     applied_override_keys.add(key)
     return normalized
+
+
+def _analyst_provider_override(
+    overrides: dict[str, str],
+    key: str,
+    fallback: str,
+    *,
+    issues: list[ConfigurationValidationIssue],
+    applied_override_keys: set[str],
+) -> str:
+    raw_value = overrides.get(key)
+    if raw_value is None or key in os.environ:
+        return fallback
+
+    candidate = raw_value.strip().lower()
+    if candidate in {"heuristic", "llm", "gemini"}:
+        logger.debug("Worker override applied: %s=%s", key, candidate)
+        applied_override_keys.add(key)
+        return candidate
+
+    issues.append(
+        ConfigurationValidationIssue(
+            severity="error",
+            field=f"workers.{key}",
+            owner="agentic-workflow",
+            code="worker_setting_invalid_provider",
+            message=f"{key} must be one of: heuristic, llm, gemini.",
+            source="workers-env",
+        )
+    )
+    return fallback
 
 
 def _process_env_int(key: str, *, default: int) -> int:
@@ -426,6 +463,54 @@ def _detect_worker_drift(
             "worker_backfill_min_created_date_differs",
             "Worker backfill oldest created-date cutoff differs from the backend process view.",
         ),
+        (
+            "workers.ANALYST_PROVIDER",
+            "agentic-workflow",
+            worker.analyst_provider,
+            app_settings.ANALYST_PROVIDER,
+            "worker_analyst_provider_differs",
+            "Worker analyst provider mode differs from the backend process view.",
+        ),
+        (
+            "workers.ANTHROPIC_API_KEY",
+            "agentic-workflow",
+            str(worker.anthropic_api_key_configured).lower(),
+            str(app_settings.backend_provider.anthropic_api_key_configured).lower(),
+            "worker_anthropic_api_key_differs",
+            "Worker Anthropic API key configured-state differs from the backend process view.",
+        ),
+        (
+            "workers.ANALYST_MODEL_NAME",
+            "agentic-workflow",
+            worker.analyst_model_name,
+            app_settings.ANALYST_MODEL_NAME,
+            "worker_analyst_model_name_differs",
+            "Worker analyst Anthropic model differs from the backend process view.",
+        ),
+        (
+            "workers.GEMINI_API_KEY",
+            "agentic-workflow",
+            str(worker.gemini_api_key_configured).lower(),
+            str(app_settings.backend_provider.gemini_api_key_configured).lower(),
+            "worker_gemini_api_key_differs",
+            "Worker Gemini-compatible API key configured-state differs from the backend process view.",
+        ),
+        (
+            "workers.GEMINI_BASE_URL",
+            "agentic-workflow",
+            worker.gemini_base_url,
+            app_settings.GEMINI_BASE_URL,
+            "worker_gemini_base_url_differs",
+            "Worker Gemini-compatible base URL differs from the backend process view.",
+        ),
+        (
+            "workers.GEMINI_MODEL_NAME",
+            "agentic-workflow",
+            worker.gemini_model_name,
+            app_settings.GEMINI_MODEL_NAME,
+            "worker_gemini_model_name_differs",
+            "Worker Gemini-compatible model differs from the backend process view.",
+        ),
     ]
 
     for field, owner, worker_value, backend_value, code, message in comparisons:
@@ -568,6 +653,45 @@ def build_worker_projection(
         app_settings.BOUNCER_EXCLUDE_RULES,
         applied_override_keys=applied_override_keys,
     )
+    analyst_provider = _analyst_provider_override(
+        overrides,
+        "ANALYST_PROVIDER",
+        app_settings.ANALYST_PROVIDER,
+        issues=issues,
+        applied_override_keys=applied_override_keys,
+    )
+    anthropic_api_key = _optional_string_override(
+        overrides,
+        "ANTHROPIC_API_KEY",
+        app_settings.ANTHROPIC_API_KEY.get_secret_value()
+        if app_settings.ANTHROPIC_API_KEY is not None
+        else None,
+        applied_override_keys=applied_override_keys,
+    )
+    analyst_model_name = _env_override(
+        overrides,
+        "ANALYST_MODEL_NAME",
+        app_settings.ANALYST_MODEL_NAME,
+        applied_override_keys=applied_override_keys,
+    )
+    gemini_api_key = _optional_string_override(
+        overrides,
+        "GEMINI_API_KEY",
+        app_settings.GEMINI_API_KEY.get_secret_value() if app_settings.GEMINI_API_KEY is not None else None,
+        applied_override_keys=applied_override_keys,
+    )
+    gemini_base_url = _env_override(
+        overrides,
+        "GEMINI_BASE_URL",
+        app_settings.GEMINI_BASE_URL,
+        applied_override_keys=applied_override_keys,
+    )
+    gemini_model_name = _env_override(
+        overrides,
+        "GEMINI_MODEL_NAME",
+        app_settings.GEMINI_MODEL_NAME,
+        applied_override_keys=applied_override_keys,
+    )
     source = "workers-env" if applied_override_keys else "shared-project-env"
 
     projection = WorkerSettingsProjection(
@@ -587,6 +711,12 @@ def build_worker_projection(
         backfill_min_created_date=backfill_min_created_date,
         bouncer_include_rules=bouncer_include_rules,
         bouncer_exclude_rules=bouncer_exclude_rules,
+        analyst_provider=analyst_provider,
+        anthropic_api_key_configured=bool(anthropic_api_key),
+        analyst_model_name=analyst_model_name,
+        gemini_api_key_configured=bool(gemini_api_key),
+        gemini_base_url=gemini_base_url,
+        gemini_model_name=gemini_model_name,
         source=source,
         overrides_loaded=bool(applied_override_keys),
     )
@@ -813,6 +943,74 @@ def worker_setting_summaries(
             configured=True,
             required=False,
             value=", ".join(worker.bouncer_exclude_rules) if worker.bouncer_exclude_rules else "none",
+            notes=[source_notes],
+        ),
+        MaskedSettingSummary(
+            key="workers.ANALYST_PROVIDER",
+            label="Worker analyst provider mode",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=True,
+            required=True,
+            value=worker.analyst_provider,
+            notes=[source_notes],
+        ),
+        MaskedSettingSummary(
+            key="workers.ANTHROPIC_API_KEY",
+            label="Worker Anthropic API key",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=worker.anthropic_api_key_configured,
+            required=worker.analyst_provider == "llm",
+            secret=True,
+            value="configured" if worker.anthropic_api_key_configured else "missing",
+            notes=[
+                source_notes,
+                "Required when ANALYST_PROVIDER=llm.",
+            ],
+        ),
+        MaskedSettingSummary(
+            key="workers.ANALYST_MODEL_NAME",
+            label="Worker analyst Anthropic model",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=True,
+            required=False,
+            value=worker.analyst_model_name,
+            notes=[source_notes],
+        ),
+        MaskedSettingSummary(
+            key="workers.GEMINI_API_KEY",
+            label="Worker Gemini-compatible API key",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=worker.gemini_api_key_configured,
+            required=worker.analyst_provider == "gemini",
+            secret=True,
+            value="configured" if worker.gemini_api_key_configured else "missing",
+            notes=[
+                source_notes,
+                "Required when ANALYST_PROVIDER=gemini.",
+            ],
+        ),
+        MaskedSettingSummary(
+            key="workers.GEMINI_BASE_URL",
+            label="Worker Gemini-compatible base URL",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=True,
+            required=False,
+            value=worker.gemini_base_url,
+            notes=[source_notes],
+        ),
+        MaskedSettingSummary(
+            key="workers.GEMINI_MODEL_NAME",
+            label="Worker Gemini-compatible model",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=True,
+            required=False,
+            value=worker.gemini_model_name,
             notes=[source_notes],
         ),
     ]

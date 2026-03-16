@@ -21,6 +21,23 @@ class AgentMetadata:
 
 def get_agent_metadata(agent_name: str) -> AgentMetadata:
     has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    analyst_provider = (os.environ.get("ANALYST_PROVIDER") or "heuristic").strip().lower()
+    analyst_uses_model = analyst_provider in {"llm", "gemini"}
+    analyst_configured_provider = {
+        "llm": "anthropic",
+        "gemini": "gemini-compatible",
+    }.get(analyst_provider, "heuristic-readme-analysis")
+    analyst_configured_model = (
+        (os.environ.get("ANALYST_MODEL_NAME") or "claude-3-5-haiku-20241022").strip()
+        if analyst_provider == "llm"
+        else (os.environ.get("GEMINI_MODEL_NAME") or "google/gemini-2.0-flash-001").strip()
+        if analyst_provider == "gemini"
+        else None
+    )
+    analyst_runtime_kind = {
+        "llm": "evidence-backed-llm-analysis",
+        "gemini": "evidence-backed-llm-analysis",
+    }.get(analyst_provider, "evidence-backed-analysis")
 
     catalog: dict[str, AgentMetadata] = {
         "overlord": AgentMetadata(
@@ -91,16 +108,22 @@ def get_agent_metadata(agent_name: str) -> AgentMetadata:
             agent_name="analyst",
             display_name="Analyst",
             role_label="README analysis",
-            description="Fetches READMEs from GitHub and scores monetization heuristically.",
+            description="Fetches READMEs plus repository intelligence from GitHub and produces evidence-backed repository analysis.",
             implementation_status="live",
-            runtime_kind="heuristic-analysis",
+            runtime_kind=analyst_runtime_kind,
             uses_github_token=True,
-            uses_model=False,
-            configured_provider="heuristic-readme-analysis",
-            configured_model=None,
+            uses_model=analyst_uses_model,
+            configured_provider=analyst_configured_provider,
+            configured_model=analyst_configured_model,
             notes=(
-                "Fetches README content through the GitHub provider.",
-                "Current implementation uses HeuristicReadmeAnalysisProvider, not an LLM.",
+                "Builds deterministic evidence from README, metadata, activity, tree signals, and selected manifests.",
+                (
+                    "Uses Anthropic when ANALYST_PROVIDER=llm and ANTHROPIC_API_KEY is configured."
+                    if analyst_provider == "llm"
+                    else "Uses Gemini-compatible inference when ANALYST_PROVIDER=gemini and GEMINI_API_KEY is configured."
+                    if analyst_provider == "gemini"
+                    else "Falls back to a deterministic heuristic provider when ANALYST_PROVIDER=heuristic."
+                ),
             ),
         ),
         "combiner": AgentMetadata(

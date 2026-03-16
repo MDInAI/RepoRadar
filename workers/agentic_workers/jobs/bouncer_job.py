@@ -25,6 +25,7 @@ from agentic_workers.storage.backend_models import (
     RepositoryTriageExplanationKind,
     RepositoryTriageStatus,
 )
+from agentic_workers.storage.agent_progress_snapshots import write_agent_progress_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -103,10 +104,26 @@ def run_bouncer_job(
 
     outcomes: list[BouncerRepositoryOutcome] = []
     interrupted = False
+    total_items = len(queue_rows)
+    _write_bouncer_progress_snapshot(
+        runtime_dir=runtime_dir,
+        total_items=total_items,
+        outcomes=outcomes,
+        current_target=queue_rows[0].full_name if queue_rows else None,
+        current_activity="Preparing pending repositories for triage.",
+    )
     for row in queue_rows:
         if should_stop is not None and should_stop():
             interrupted = True
             break
+
+        _write_bouncer_progress_snapshot(
+            runtime_dir=runtime_dir,
+            total_items=total_items,
+            outcomes=outcomes,
+            current_target=row.full_name,
+            current_activity="Evaluating repository triage rules.",
+        )
 
         started_at = datetime.now(timezone.utc)
         try:
@@ -147,6 +164,13 @@ def run_bouncer_job(
                     matched_include_rules=decision.matched_include_rules,
                     matched_exclude_rules=decision.matched_exclude_rules,
                 )
+            )
+            _write_bouncer_progress_snapshot(
+                runtime_dir=runtime_dir,
+                total_items=total_items,
+                outcomes=outcomes,
+                current_target=row.full_name,
+                current_activity="Persisted triage decision.",
             )
         except Exception as exc:
             rollback_error = _rollback_after_failure(session)
@@ -224,6 +248,13 @@ def run_bouncer_job(
                     ),
                 )
             )
+            _write_bouncer_progress_snapshot(
+                runtime_dir=runtime_dir,
+                total_items=total_items,
+                outcomes=outcomes,
+                current_target=row.full_name,
+                current_activity="Recorded triage failure.",
+            )
 
     status = _determine_status(
         outcomes,
@@ -244,12 +275,61 @@ def run_bouncer_job(
         if status is BouncerRunStatus.SUCCESS:
             status = BouncerRunStatus.PARTIAL_FAILURE
 
+    _write_bouncer_progress_snapshot(
+        runtime_dir=runtime_dir,
+        total_items=total_items,
+        outcomes=outcomes,
+        current_target=None,
+        current_activity=(
+            "Bouncer run completed."
+            if status is BouncerRunStatus.SUCCESS
+            else "Bouncer run finished with warnings or failures."
+        ),
+        status_label=status.value.replace("_", " "),
+    )
+
     return BouncerRunResult(
         status=status,
         outcomes=outcomes,
         artifact_path=artifact_path,
         artifact_error=artifact_error,
     )
+
+
+def _write_bouncer_progress_snapshot(
+    *,
+    runtime_dir: Path | None,
+    total_items: int,
+    outcomes: list[BouncerRepositoryOutcome],
+    current_target: str | None,
+    current_activity: str,
+    status_label: str = "running",
+) -> None:
+    completed_count = len(outcomes)
+    failed_count = sum(1 for outcome in outcomes if outcome.error is not None)
+    progress_percent = int(round((completed_count / total_items) * 100)) if total_items > 0 else None
+    try:
+        write_agent_progress_snapshot(
+            runtime_dir=runtime_dir,
+            agent_name="bouncer",
+            payload={
+                "status_label": status_label,
+                "current_activity": current_activity,
+                "current_target": current_target,
+                "completed_count": completed_count,
+                "total_count": total_items,
+                "remaining_count": max(total_items - completed_count, 0),
+                "progress_percent": progress_percent,
+                "unit_label": "repos",
+                "source": "triage queue snapshot",
+                "details": [
+                    f"Completed decisions: {completed_count}",
+                    f"Failed decisions: {failed_count}",
+                ],
+            },
+        )
+    except OSError:
+        logger.warning("Failed to write bouncer progress snapshot", exc_info=True)
 
 
 def evaluate_repository(

@@ -5,10 +5,13 @@ from datetime import date, datetime, time, timezone, timedelta
 from enum import StrEnum
 import json
 import logging
+from pathlib import Path
 from typing import Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+from agentic_workers.storage.github_quota_snapshots import write_github_quota_snapshot
 
 
 logger = logging.getLogger(__name__)
@@ -37,6 +40,79 @@ class DiscoveredRepository:
 class RepositoryReadme:
     owner_login: str
     repository_name: str
+    content: str
+    fetched_at: datetime
+    source_url: str
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryMetadata:
+    owner_login: str
+    repository_name: str
+    full_name: str
+    default_branch: str | None
+    description: str | None
+    homepage: str | None
+    primary_language: str | None
+    license_name: str | None
+    topics: list[str]
+    stargazers_count: int
+    forks_count: int
+    open_issues_count: int
+    subscribers_count: int
+    created_at: datetime | None
+    pushed_at: datetime | None
+    updated_at: datetime | None
+    source_url: str
+    fetched_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryContributor:
+    login: str
+    contributions: int
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryRelease:
+    tag_name: str
+    published_at: datetime | None
+    draft: bool
+    prerelease: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryCommit:
+    sha: str
+    committed_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryPullRequest:
+    number: int
+    merged_at: datetime | None
+    state: str
+    created_at: datetime | None
+    closed_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryIssue:
+    number: int
+    state: str
+    created_at: datetime | None
+    updated_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryTreeEntry:
+    path: str
+    entry_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryFileSnapshot:
+    path: str
     content: str
     fetched_at: datetime
     source_url: str
@@ -88,8 +164,14 @@ class GitHubTransport(Protocol):
 
 
 class UrllibGitHubTransport:
-    def __init__(self, *, timeout_seconds: float = 15.0) -> None:
+    def __init__(
+        self,
+        *,
+        timeout_seconds: float = 15.0,
+        runtime_dir: Path | None = None,
+    ) -> None:
         self.timeout_seconds = timeout_seconds
+        self.runtime_dir = runtime_dir
 
     def get_json(
         self,
@@ -101,8 +183,18 @@ class UrllibGitHubTransport:
         request = Request(f"{url}?{urlencode(params)}", headers=headers)
         try:
             with urlopen(request, timeout=self.timeout_seconds) as response:
+                self._record_quota_snapshot(
+                    status_code=getattr(response, "status", None),
+                    headers=response.headers,
+                    request_url=request.full_url,
+                )
                 payload = json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
+            self._record_quota_snapshot(
+                status_code=exc.code,
+                headers=exc.headers,
+                request_url=request.full_url,
+            )
             if _is_rate_limited_response(exc):
                 raise GitHubRateLimitError(
                     status_code=exc.code,
@@ -128,8 +220,18 @@ class UrllibGitHubTransport:
         request = Request(_build_url(url=url, params=params), headers=headers)
         try:
             with urlopen(request, timeout=self.timeout_seconds) as response:
+                self._record_quota_snapshot(
+                    status_code=getattr(response, "status", None),
+                    headers=response.headers,
+                    request_url=request.full_url,
+                )
                 payload = response.read().decode("utf-8")
         except HTTPError as exc:
+            self._record_quota_snapshot(
+                status_code=exc.code,
+                headers=exc.headers,
+                request_url=request.full_url,
+            )
             if _is_rate_limited_response(exc):
                 raise GitHubRateLimitError(
                     status_code=exc.code,
@@ -150,10 +252,35 @@ class UrllibGitHubTransport:
             raise GitHubPayloadError("GitHub README response was empty")
         return candidate
 
+    def _record_quota_snapshot(
+        self,
+        *,
+        status_code: int | None,
+        headers: object,
+        request_url: str | None,
+    ) -> None:
+        try:
+            write_github_quota_snapshot(
+                runtime_dir=self.runtime_dir,
+                status_code=status_code,
+                headers=headers,
+                request_url=request_url,
+            )
+        except Exception:
+            logger.debug("Failed to write GitHub quota snapshot.", exc_info=True)
+
 
 class GitHubFirehoseProvider:
     SEARCH_REPOSITORIES_URL = "https://api.github.com/search/repositories"
     README_URL_TEMPLATE = "https://api.github.com/repos/{owner}/{repository}/readme"
+    REPOSITORY_URL_TEMPLATE = "https://api.github.com/repos/{owner}/{repository}"
+    CONTRIBUTORS_URL_TEMPLATE = "https://api.github.com/repos/{owner}/{repository}/contributors"
+    RELEASES_URL_TEMPLATE = "https://api.github.com/repos/{owner}/{repository}/releases"
+    COMMITS_URL_TEMPLATE = "https://api.github.com/repos/{owner}/{repository}/commits"
+    PULLS_URL_TEMPLATE = "https://api.github.com/repos/{owner}/{repository}/pulls"
+    ISSUES_URL_TEMPLATE = "https://api.github.com/repos/{owner}/{repository}/issues"
+    TREE_URL_TEMPLATE = "https://api.github.com/repos/{owner}/{repository}/git/trees/{ref}"
+    CONTENTS_URL_TEMPLATE = "https://api.github.com/repos/{owner}/{repository}/contents/{path}"
     MAX_SEARCH_PER_PAGE = 100
 
     def __init__(
@@ -161,9 +288,10 @@ class GitHubFirehoseProvider:
         *,
         transport: GitHubTransport | None = None,
         github_token: str | None,
+        runtime_dir: Path | None = None,
         today: date | None = None,
     ) -> None:
-        self.transport = transport or UrllibGitHubTransport()
+        self.transport = transport or UrllibGitHubTransport(runtime_dir=runtime_dir)
         self.github_token = github_token
         self.today = today or _utc_today()
 
@@ -246,6 +374,244 @@ class GitHubFirehoseProvider:
                 owner=owner_login,
                 repository=repository_name,
             ),
+        )
+
+    def get_repository_metadata(
+        self,
+        *,
+        owner_login: str,
+        repository_name: str,
+    ) -> RepositoryMetadata:
+        source_url = self.REPOSITORY_URL_TEMPLATE.format(
+            owner=owner_login,
+            repository=repository_name,
+        )
+        payload = self.transport.get_json(
+            url=source_url,
+            headers=self._build_headers(user_agent="agentic-workflow-analyst"),
+            params={},
+        )
+        return RepositoryMetadata(
+            owner_login=owner_login,
+            repository_name=repository_name,
+            full_name=self._optional_string(payload, "full_name") or f"{owner_login}/{repository_name}",
+            default_branch=self._optional_string(payload, "default_branch"),
+            description=self._optional_string(payload, "description"),
+            homepage=self._optional_string(payload, "homepage"),
+            primary_language=self._optional_string(payload, "language"),
+            license_name=self._extract_license_name(payload),
+            topics=self._extract_topics(payload),
+            stargazers_count=self._optional_non_negative_int(payload, "stargazers_count"),
+            forks_count=self._optional_non_negative_int(payload, "forks_count"),
+            open_issues_count=self._optional_non_negative_int(payload, "open_issues_count"),
+            subscribers_count=self._optional_non_negative_int(payload, "subscribers_count"),
+            created_at=self._optional_datetime(payload, "created_at"),
+            pushed_at=self._optional_datetime(payload, "pushed_at"),
+            updated_at=self._optional_datetime(payload, "updated_at"),
+            source_url=source_url,
+            fetched_at=datetime.now(timezone.utc),
+        )
+
+    def list_contributors(
+        self,
+        *,
+        owner_login: str,
+        repository_name: str,
+        limit: int = 5,
+    ) -> list[RepositoryContributor]:
+        payload = self._request_json_list(
+            url=self.CONTRIBUTORS_URL_TEMPLATE.format(owner=owner_login, repository=repository_name),
+            user_agent="agentic-workflow-analyst",
+            params={"per_page": str(limit)},
+        )
+        contributors: list[RepositoryContributor] = []
+        for item in payload[:limit]:
+            if not isinstance(item, dict):
+                continue
+            login = self._optional_string(item, "login")
+            contributions = self._optional_non_negative_int(item, "contributions")
+            if login:
+                contributors.append(
+                    RepositoryContributor(login=login, contributions=contributions)
+                )
+        return contributors
+
+    def list_releases(
+        self,
+        *,
+        owner_login: str,
+        repository_name: str,
+        limit: int = 10,
+    ) -> list[RepositoryRelease]:
+        payload = self._request_json_list(
+            url=self.RELEASES_URL_TEMPLATE.format(owner=owner_login, repository=repository_name),
+            user_agent="agentic-workflow-analyst",
+            params={"per_page": str(limit)},
+        )
+        releases: list[RepositoryRelease] = []
+        for item in payload[:limit]:
+            if not isinstance(item, dict):
+                continue
+            tag_name = self._optional_string(item, "tag_name")
+            if not tag_name:
+                continue
+            releases.append(
+                RepositoryRelease(
+                    tag_name=tag_name,
+                    published_at=self._optional_datetime(item, "published_at"),
+                    draft=bool(item.get("draft", False)),
+                    prerelease=bool(item.get("prerelease", False)),
+                )
+            )
+        return releases
+
+    def list_recent_commits(
+        self,
+        *,
+        owner_login: str,
+        repository_name: str,
+        limit: int = 100,
+    ) -> list[RepositoryCommit]:
+        payload = self._request_json_list(
+            url=self.COMMITS_URL_TEMPLATE.format(owner=owner_login, repository=repository_name),
+            user_agent="agentic-workflow-analyst",
+            params={"per_page": str(limit)},
+        )
+        commits: list[RepositoryCommit] = []
+        for item in payload[:limit]:
+            if not isinstance(item, dict):
+                continue
+            sha = self._optional_string(item, "sha")
+            commit = item.get("commit")
+            committed_at = None
+            if isinstance(commit, dict):
+                committer = commit.get("committer")
+                if isinstance(committer, dict):
+                    committed_at = self._optional_datetime(committer, "date")
+            if sha:
+                commits.append(RepositoryCommit(sha=sha, committed_at=committed_at))
+        return commits
+
+    def list_recent_pull_requests(
+        self,
+        *,
+        owner_login: str,
+        repository_name: str,
+        limit: int = 50,
+    ) -> list[RepositoryPullRequest]:
+        payload = self._request_json_list(
+            url=self.PULLS_URL_TEMPLATE.format(owner=owner_login, repository=repository_name),
+            user_agent="agentic-workflow-analyst",
+            params={"state": "all", "per_page": str(limit)},
+        )
+        pull_requests: list[RepositoryPullRequest] = []
+        for item in payload[:limit]:
+            if not isinstance(item, dict):
+                continue
+            number = item.get("number")
+            state = self._optional_string(item, "state")
+            if not isinstance(number, int) or not state:
+                continue
+            pull_requests.append(
+                RepositoryPullRequest(
+                    number=number,
+                    merged_at=self._optional_datetime(item, "merged_at"),
+                    state=state,
+                    created_at=self._optional_datetime(item, "created_at"),
+                    closed_at=self._optional_datetime(item, "closed_at"),
+                )
+            )
+        return pull_requests
+
+    def list_recent_issues(
+        self,
+        *,
+        owner_login: str,
+        repository_name: str,
+        limit: int = 50,
+    ) -> list[RepositoryIssue]:
+        payload = self._request_json_list(
+            url=self.ISSUES_URL_TEMPLATE.format(owner=owner_login, repository=repository_name),
+            user_agent="agentic-workflow-analyst",
+            params={"state": "all", "per_page": str(limit)},
+        )
+        issues: list[RepositoryIssue] = []
+        for item in payload[:limit]:
+            if not isinstance(item, dict):
+                continue
+            if isinstance(item.get("pull_request"), dict):
+                continue
+            number = item.get("number")
+            state = self._optional_string(item, "state")
+            if not isinstance(number, int) or not state:
+                continue
+            issues.append(
+                RepositoryIssue(
+                    number=number,
+                    state=state,
+                    created_at=self._optional_datetime(item, "created_at"),
+                    updated_at=self._optional_datetime(item, "updated_at"),
+                )
+            )
+        return issues
+
+    def get_repository_tree(
+        self,
+        *,
+        owner_login: str,
+        repository_name: str,
+        ref: str = "HEAD",
+        depth_limit: int = 2,
+    ) -> list[RepositoryTreeEntry]:
+        payload = self.transport.get_json(
+            url=self.TREE_URL_TEMPLATE.format(owner=owner_login, repository=repository_name, ref=ref),
+            headers=self._build_headers(user_agent="agentic-workflow-analyst"),
+            params={"recursive": "1"},
+        )
+        tree = payload.get("tree")
+        if not isinstance(tree, list):
+            raise GitHubPayloadError("GitHub tree response missing tree list")
+        entries: list[RepositoryTreeEntry] = []
+        for item in tree:
+            if not isinstance(item, dict):
+                continue
+            path = self._optional_string(item, "path")
+            entry_type = self._optional_string(item, "type")
+            if not path or not entry_type:
+                continue
+            if path.count("/") > depth_limit:
+                continue
+            entries.append(RepositoryTreeEntry(path=path, entry_type=entry_type))
+        return entries
+
+    def get_file_contents(
+        self,
+        *,
+        owner_login: str,
+        repository_name: str,
+        path: str,
+    ) -> RepositoryFileSnapshot | None:
+        source_url = self.CONTENTS_URL_TEMPLATE.format(
+            owner=owner_login,
+            repository=repository_name,
+            path=path.lstrip("/"),
+        )
+        try:
+            content = self.transport.get_text(
+                url=source_url,
+                headers=self._build_headers(
+                    user_agent="agentic-workflow-analyst",
+                    accept="application/vnd.github.raw+json",
+                ),
+                params={},
+            )
+        except GitHubReadmeNotFoundError:
+            return None
+        return RepositoryFileSnapshot(
+            path=path,
+            content=content,
+            fetched_at=datetime.now(timezone.utc),
+            source_url=source_url,
         )
 
     def _build_headers(
@@ -465,6 +831,63 @@ class GitHubFirehoseProvider:
             )
         return value
 
+    def _request_json_list(
+        self,
+        *,
+        url: str,
+        user_agent: str,
+        params: dict[str, str],
+    ) -> list[object]:
+        payload = self.transport.get_text(
+            url=url,
+            headers=self._build_headers(user_agent=user_agent),
+            params=params,
+        )
+        try:
+            decoded = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise GitHubPayloadError(f"GitHub response from {url} must be valid JSON") from exc
+        if not isinstance(decoded, list):
+            raise GitHubPayloadError(f"GitHub response from {url} must be a JSON list")
+        return decoded
+
+    @staticmethod
+    def _optional_datetime(payload: dict[str, object], key: str) -> datetime | None:
+        value = payload.get(key)
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value.strip():
+            raise GitHubPayloadError(f"Repository payload field {key} must be an ISO 8601 datetime or null")
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise GitHubPayloadError(
+                f"Repository payload field {key} must be an ISO 8601 datetime"
+            ) from exc
+        if parsed.tzinfo is None:
+            raise GitHubPayloadError(
+                f"Repository payload field {key} must include a timezone offset"
+            )
+        return parsed.astimezone(timezone.utc)
+
+    @staticmethod
+    def _extract_topics(payload: dict[str, object]) -> list[str]:
+        value = payload.get("topics")
+        if value is None:
+            return []
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            raise GitHubPayloadError("Repository payload field topics must be list[str] or null")
+        return [item.strip() for item in value if item.strip()]
+
+    @staticmethod
+    def _extract_license_name(payload: dict[str, object]) -> str | None:
+        value = payload.get("license")
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise GitHubPayloadError("Repository payload field license must be an object or null")
+        return GitHubFirehoseProvider._optional_string(value, "spdx_id") or GitHubFirehoseProvider._optional_string(value, "name")
+
 
 def _format_github_timestamp(value: datetime) -> str:
     return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace(
@@ -478,12 +901,22 @@ def _parse_retry_after_seconds(headers: object) -> int | None:
         return None
 
     raw_value = getattr(headers, "get", lambda _key, _default=None: None)("Retry-After")
-    if raw_value is None:
+    if raw_value is not None:
+        try:
+            return max(0, int(str(raw_value).strip()))
+        except ValueError:
+            pass
+
+    reset_value = getattr(headers, "get", lambda _key, _default=None: None)("X-RateLimit-Reset")
+    if reset_value is None:
         return None
     try:
-        return max(0, int(str(raw_value).strip()))
+        reset_timestamp = int(str(reset_value).strip())
     except ValueError:
         return None
+
+    current_timestamp = int(datetime.now(timezone.utc).timestamp())
+    return max(0, reset_timestamp - current_timestamp)
 
 
 def _is_rate_limited_response(error: HTTPError) -> bool:

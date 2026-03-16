@@ -653,41 +653,81 @@ tbody tr:hover {
 
 .repo-table-shell {
   overflow: auto;
-  border: 1px solid var(--border);
+  max-height: 700px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
   border-radius: var(--radius-lg);
-  background: var(--bg-2);
+  background: linear-gradient(180deg, var(--bg-2), color-mix(in srgb, var(--bg-2) 92%, white 1%));
 }
 
 .repo-table {
-  min-width: 1280px;
+  min-width: 1200px;
+}
+
+.repo-table-compact th {
+  padding: 7px 10px;
+  background: color-mix(in srgb, var(--bg-3) 90%, transparent);
+}
+
+.repo-table-compact td {
+  padding: 8px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+}
+
+.repo-table-compact tbody tr {
+  transition: background 120ms ease;
+}
+
+.repo-table-compact tbody tr:hover {
+  background: color-mix(in srgb, var(--bg-3) 94%, transparent);
+}
+
+.repo-table-compact tbody tr.selected {
+  background: color-mix(in srgb, var(--amber-dim) 45%, var(--bg-3));
+}
+
+.repo-table-compact .tag {
+  padding: 1px 6px;
+  font-size: 9px;
 }
 
 .repo-table-name {
-  min-width: 260px;
+  min-width: 320px;
+  max-width: 420px;
 }
 
 .repo-table-name-stack {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .repo-table-title {
   color: var(--text-0);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 650;
 }
 
 .repo-table-subtitle {
   color: var(--text-2);
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 11px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .repo-tag-cluster {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
+}
+
+.repo-table-number-cell {
+  text-align: right;
+  white-space: nowrap;
+  color: var(--text-0);
+  font-variant-numeric: tabular-nums;
 }
 
 .repo-star-button {

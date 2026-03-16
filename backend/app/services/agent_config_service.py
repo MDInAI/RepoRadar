@@ -17,7 +17,7 @@ from app.schemas.agent_config import (
     AgentConfigUpdateResponse,
 )
 
-FieldKind = Literal["integer", "date", "csv"]
+FieldKind = Literal["integer", "date", "csv", "text", "select"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +29,7 @@ class ConfigFieldDefinition:
     unit: str | None = None
     min_value: int | None = None
     placeholder: str | None = None
+    options: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +191,62 @@ AGENT_CONFIG_DEFINITIONS: dict[AgentName, AgentConfigDefinition] = {
             ),
         ),
     ),
+    "analyst": AgentConfigDefinition(
+        display_name="Analyst",
+        summary="Control Analyst provider mode, model routing, and the shared intake settings that affect queue pickup.",
+        apply_notes=(
+            "Saved to both backend/.env and workers/.env so the control surface stays in sync.",
+            "Manual Run uses the new provider and model settings immediately.",
+            "Restart the always-on worker loop if you want queue workers to adopt these values without waiting for a process restart.",
+            "API keys stay masked and must already be present in backend/.env and workers/.env when you select Anthropic or Gemini-compatible modes.",
+        ),
+        fields=(
+            ConfigFieldDefinition(
+                key="ANALYST_PROVIDER",
+                label="Provider mode",
+                description="Choose whether Analyst runs heuristically, with Anthropic, or through a Gemini-compatible endpoint.",
+                input_kind="select",
+                options=("heuristic", "llm", "gemini"),
+            ),
+            ConfigFieldDefinition(
+                key="ANALYST_MODEL_NAME",
+                label="Anthropic model",
+                description="Anthropic model name used when Provider mode is set to llm.",
+                input_kind="text",
+                placeholder="claude-3-5-haiku-20241022",
+            ),
+            ConfigFieldDefinition(
+                key="GEMINI_BASE_URL",
+                label="Gemini-compatible base URL",
+                description="Base URL used when Provider mode is set to gemini.",
+                input_kind="text",
+                placeholder="https://api.haimaker.ai/v1",
+            ),
+            ConfigFieldDefinition(
+                key="GEMINI_MODEL_NAME",
+                label="Gemini-compatible model",
+                description="Model name used when Provider mode is set to gemini.",
+                input_kind="text",
+                placeholder="google/gemini-2.0-flash-001",
+            ),
+            ConfigFieldDefinition(
+                key="GITHUB_REQUESTS_PER_MINUTE",
+                label="GitHub request budget",
+                description="Shared GitHub pacing cap that affects evidence gathering and intake throughput.",
+                input_kind="integer",
+                unit="req/min",
+                min_value=1,
+            ),
+            ConfigFieldDefinition(
+                key="INTAKE_PACING_SECONDS",
+                label="Inter-job pacing",
+                description="Shared pacing delay between queue-driven analyst jobs.",
+                input_kind="integer",
+                unit="seconds",
+                min_value=1,
+            ),
+        ),
+    ),
 }
 
 
@@ -261,6 +318,7 @@ class AgentConfigService:
                 description=field.description,
                 input_kind=field.input_kind,
                 value=self._resolve_value(field.key, backend_values, worker_values),
+                options=list(field.options),
                 unit=field.unit,
                 min_value=field.min_value,
                 placeholder=field.placeholder,
@@ -347,6 +405,20 @@ class AgentConfigService:
                 return ""
             normalized = [part.strip() for part in candidate.split(",") if part.strip()]
             return ", ".join(normalized)
+
+        if field.input_kind == "text":
+            return candidate
+
+        if field.input_kind == "select":
+            normalized = candidate.lower()
+            if normalized not in field.options:
+                raise AppError(
+                    message=f"{field.label} must be one of: {', '.join(field.options)}.",
+                    code="agent_config_invalid_option",
+                    status_code=400,
+                    details={"field": field.key, "options": list(field.options)},
+                )
+            return normalized
 
         raise AppError(
             message=f"Unsupported config field type for '{field.key}'.",

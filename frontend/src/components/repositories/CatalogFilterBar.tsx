@@ -70,9 +70,19 @@ const MONETIZATION_OPTIONS: Array<{
 const SORT_OPTIONS: Array<{ label: string; value: RepositoryCatalogSortBy }> = [
   { label: "Stars", value: "stars" },
   { label: "Forks", value: "forks" },
-  { label: "Pushed At", value: "pushed_at" },
-  { label: "Ingested", value: "ingested_at" },
+  { label: "Last pushed to GitHub", value: "pushed_at" },
+  { label: "Added to website", value: "ingested_at" },
 ];
+
+function getSortOrderLabel(
+  sort: RepositoryCatalogSortBy,
+  order: RepositoryCatalogSortOrder,
+): string {
+  if (sort === "pushed_at" || sort === "ingested_at") {
+    return order === "desc" ? "Newest first" : "Oldest first";
+  }
+  return order === "desc" ? "High to low" : "Low to high";
+}
 
 function FilterSelect({
   ariaLabel,
@@ -370,7 +380,7 @@ export function CatalogFilterBar({
           type="button"
           onClick={() => onOrderChange(order === "desc" ? "asc" : "desc")}
         >
-          {order === "desc" ? "Descending" : "Ascending"}
+          {getSortOrderLabel(sort, order)}
         </button>
       </div>
 
