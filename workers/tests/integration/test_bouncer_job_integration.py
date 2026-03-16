@@ -103,6 +103,8 @@ def test_bouncer_job_persists_triage_outcomes_and_runtime_artifact(tmp_path: Pat
     )
     assert explanations[0].matched_include_rules == ["saas", "developer tools"]
     assert explanations[0].matched_exclude_rules == []
+    assert explanations[0].triage_logic_version == bouncer_job.TRIAGE_LOGIC_VERSION
+    assert explanations[0].triage_config_fingerprint is not None
     assert explanations[1].github_repository_id == 202
     assert explanations[1].explanation_kind is RepositoryTriageExplanationKind.EXCLUDE_RULE
     assert explanations[1].explanation_summary == (
@@ -110,6 +112,8 @@ def test_bouncer_job_persists_triage_outcomes_and_runtime_artifact(tmp_path: Pat
     )
     assert explanations[1].matched_include_rules == []
     assert explanations[1].matched_exclude_rules == ["gaming", "tutorial"]
+    assert explanations[1].triage_logic_version == bouncer_job.TRIAGE_LOGIC_VERSION
+    assert explanations[1].triage_config_fingerprint is not None
 
     artifact = json.loads(result.artifact_path.read_text())  # type: ignore[union-attr]
     assert artifact["status"] == "success"

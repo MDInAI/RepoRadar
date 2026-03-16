@@ -33,7 +33,7 @@ from agentic_workers.storage.readme_store import build_readme_artifact
 
 logger = logging.getLogger(__name__)
 
-CURRENT_ANALYSIS_SCHEMA_VERSION = "story-3.4-v2"
+CURRENT_ANALYSIS_SCHEMA_VERSION = "story-3.5-v1"
 _REQUIRED_ANALYSIS_METADATA_KEYS = frozenset(
     {
         "analysis_mode",

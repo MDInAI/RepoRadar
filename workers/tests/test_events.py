@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 from sqlmodel import Session, create_engine, select
 
 from agentic_workers.core.events import (
+    DuplicateActiveAgentRunError,
     complete_agent_run,
     emit_event,
     emit_failure_event,
@@ -100,6 +102,37 @@ def test_start_agent_run_rolls_back_if_started_event_persistence_fails(
 
         assert session.exec(select(AgentRun)).all() == []
         assert session.exec(select(SystemEvent)).all() == []
+
+
+def test_start_agent_run_rejects_duplicate_active_run(tmp_path: Path) -> None:
+    with _make_session(tmp_path) as session:
+        start_agent_run(session, "analyst")
+
+        with pytest.raises(DuplicateActiveAgentRunError, match="already has an active run"):
+            start_agent_run(session, "analyst")
+
+
+def test_start_agent_run_recovers_stale_active_run_before_starting_new_one(tmp_path: Path) -> None:
+    with _make_session(tmp_path) as session:
+        stale_started = datetime.now(timezone.utc) - timedelta(minutes=15)
+        stale_run = AgentRun(
+            agent_name="analyst",
+            status=AgentRunStatus.RUNNING,
+            started_at=stale_started,
+        )
+        session.add(stale_run)
+        session.commit()
+
+        new_run_id = start_agent_run(session, "analyst")
+        refreshed_stale = session.get(AgentRun, stale_run.id)
+        new_run = session.get(AgentRun, new_run_id)
+
+    assert refreshed_stale is not None
+    assert refreshed_stale.status is AgentRunStatus.FAILED
+    assert refreshed_stale.completed_at is not None
+    assert refreshed_stale.error_summary == "Recovered stale running job before a new run started."
+    assert new_run is not None
+    assert new_run.status is AgentRunStatus.RUNNING
 
 
 def test_complete_agent_run_rolls_back_if_completion_event_persistence_fails(

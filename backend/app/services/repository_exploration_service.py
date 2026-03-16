@@ -326,7 +326,11 @@ class RepositoryExplorationService:
                         else None
                     ),
                     category=item.category,
+                    category_confidence_score=item.category_confidence_score,
+                    confidence_score=item.confidence_score,
+                    analysis_outcome=item.analysis_outcome,
                     agent_tags=item.agent_tags,
+                    suggested_new_tags=item.suggested_new_tags,
                     monetization_potential=item.monetization_potential,
                     has_readme_artifact=item.has_readme_artifact,
                     has_analysis_artifact=item.has_analysis_artifact,

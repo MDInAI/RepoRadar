@@ -156,7 +156,11 @@ class RepositoryCatalogItemRecord:
     analysis_failed_at: datetime | None
     failure: "RepositoryFailureContextRecord | None"
     category: RepositoryCategory | None
+    category_confidence_score: int | None
+    confidence_score: int | None
+    analysis_outcome: str | None
     agent_tags: list[str]
+    suggested_new_tags: list[str]
     monetization_potential: RepositoryMonetizationPotential | None
     has_readme_artifact: bool
     has_analysis_artifact: bool
@@ -505,7 +509,11 @@ class RepositoryExplorationRepository:
                 RepositoryIntake.analysis_failure_code,
                 RepositoryIntake.analysis_failure_message,
                 RepositoryAnalysisResult.category,
+                RepositoryAnalysisResult.category_confidence_score,
+                RepositoryAnalysisResult.confidence_score,
+                RepositoryAnalysisResult.source_metadata,
                 RepositoryAnalysisResult.agent_tags,
+                RepositoryAnalysisResult.suggested_new_tags,
                 RepositoryAnalysisResult.monetization_potential,
                 readme_exists.label("has_readme_artifact"),
                 analysis_exists.label("has_analysis_artifact"),
@@ -579,11 +587,20 @@ class RepositoryExplorationRepository:
                     analysis_failed_at=row.analysis_failed_at,
                 ),
                 category=row.category,
+                category_confidence_score=row.category_confidence_score,
+                confidence_score=row.confidence_score,
+                analysis_outcome=(
+                    row.source_metadata.get("analysis_outcome")
+                    if isinstance(row.source_metadata, dict)
+                    and isinstance(row.source_metadata.get("analysis_outcome"), str)
+                    else None
+                ),
                 agent_tags=self._build_agent_tags(
                     row.agent_tags or [],
                     discovery_source=row.discovery_source,
                     firehose_discovery_mode=row.firehose_discovery_mode,
                 ),
+                suggested_new_tags=list(row.suggested_new_tags or []),
                 monetization_potential=row.monetization_potential,
                 has_readme_artifact=bool(row.has_readme_artifact),
                 has_analysis_artifact=bool(row.has_analysis_artifact),

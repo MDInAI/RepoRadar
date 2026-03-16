@@ -23,7 +23,10 @@ from agentic_workers.storage.backend_models import (
     SynthesisRun,
     SynthesisRunStatus,
 )
-from agentic_workers.storage.agent_progress_snapshots import write_agent_progress_snapshot
+from agentic_workers.storage.agent_progress_snapshots import (
+    clear_agent_progress_snapshot,
+    write_agent_progress_snapshot,
+)
 from agentic_workers.utils.synthesis_parser import parse_synthesis_output
 
 logger = logging.getLogger(__name__)
@@ -89,6 +92,7 @@ def run_combiner_job(
 ) -> CombinerRunResult:
     # Check if agent is paused
     if is_agent_paused(session, "combiner"):
+        clear_agent_progress_snapshot(runtime_dir=runtime_dir, agent_name="combiner")
         logger.info("Combiner is paused, skipping run")
         return CombinerRunResult(
             status=CombinerRunStatus.SKIPPED_PAUSED,

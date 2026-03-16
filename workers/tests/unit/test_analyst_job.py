@@ -472,6 +472,61 @@ def test_analyst_job_returns_skipped_paused_when_agent_is_paused(
     assert result.outcomes == []
 
 
+def test_analyst_job_stops_after_current_repository_when_pause_requested_mid_run(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    provider = StubGitHubProvider(
+        {
+            1001: RepositoryReadme(
+                owner_login="octocat",
+                repository_name="first-repo",
+                content="# First\n\nWorkflow automation for support teams.",
+                fetched_at=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc),
+                source_url="https://api.github.com/repos/octocat/first-repo/readme",
+            ),
+            1002: RepositoryReadme(
+                owner_login="octocat",
+                repository_name="second-repo",
+                content="# Second\n\nCRM workflow automation.",
+                fetched_at=datetime(2026, 3, 8, 12, 1, tzinfo=timezone.utc),
+                source_url="https://api.github.com/repos/octocat/second-repo/readme",
+            ),
+        }
+    )
+
+    pause_checks = {"count": 0}
+
+    def fake_is_paused(*_args, **_kwargs) -> bool:
+        pause_checks["count"] += 1
+        return pause_checks["count"] >= 3
+
+    monkeypatch.setattr(analyst_job_module, "is_agent_paused", fake_is_paused)
+
+    with _make_session(tmp_path) as session:
+        session.add(_accepted_row(1001, "octocat/first-repo"))
+        session.add(_accepted_row(1002, "octocat/second-repo"))
+        session.commit()
+
+        result = run_analyst_job(
+            session=session,
+            provider=provider,  # type: ignore[arg-type]
+            runtime_dir=tmp_path / "runtime",
+            analysis_provider=StaticAnalysisProvider(
+                '{"monetization_potential":"medium","pros":["Automation"],'
+                '"cons":["Needs validation"],"missing_feature_signals":["Missing billing"]}'
+            ),
+        )
+        first_row = session.get(RepositoryAnalysisResult, 1001)
+        second_row = session.get(RepositoryAnalysisResult, 1002)
+
+    assert result.status is AnalystRunStatus.SKIPPED_PAUSED
+    assert len(result.outcomes) == 1
+    assert result.outcomes[0].github_repository_id == 1001
+    assert first_row is not None
+    assert second_row is None
+
+
 def test_analyst_job_records_llm_timeout_events_with_llm_provider_context(tmp_path: Path) -> None:
     provider = StubGitHubProvider(
         {

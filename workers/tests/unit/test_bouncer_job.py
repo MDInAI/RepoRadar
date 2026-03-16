@@ -15,6 +15,7 @@ from agentic_workers.jobs.bouncer_job import (
 from agentic_workers.storage.backend_models import (
     RepositoryIntake,
     RepositoryQueueStatus,
+    RepositoryTriageExplanation,
     RepositoryTriageExplanationKind,
     RepositoryTriageStatus,
 )
@@ -106,7 +107,7 @@ def test_bouncer_evaluator_rejects_repository_when_exclude_rule_matches() -> Non
 def test_bouncer_evaluator_requires_include_match_when_allowlist_is_configured() -> None:
     decision = evaluate_repository(
         full_name="octocat/random-repo",
-        description="Infrastructure automation for platform teams",
+        description="Static website theme for hobby communities",
         include_rules=("saas", "developer tools"),
         exclude_rules=(),
     )
@@ -148,6 +149,19 @@ def test_bouncer_evaluator_accepts_repository_when_include_rule_matches() -> Non
     assert decision.matched_include_rules == ("saas",)
 
 
+def test_bouncer_evaluator_accepts_openclaw_skills_repo_as_developer_tools() -> None:
+    decision = evaluate_repository(
+        full_name="FreedomIntelligence/OpenClaw-Medical-Skills",
+        description="The largest open-source medical AI skills library for OpenClaw.",
+        include_rules=("developer tools",),
+        exclude_rules=(),
+    )
+
+    assert decision.triage_status is RepositoryTriageStatus.ACCEPTED
+    assert decision.explanation_kind is RepositoryTriageExplanationKind.INCLUDE_RULE
+    assert decision.matched_include_rules == ("developer tools",)
+
+
 def test_bouncer_evaluator_accepts_repository_when_not_excluded_and_no_allowlist_exists() -> None:
     decision = evaluate_repository(
         full_name="octocat/infra-platform",
@@ -181,6 +195,51 @@ def test_bouncer_job_returns_success_with_empty_queue_and_artifact_failure(tmp_p
     assert result.outcomes == []
     assert result.artifact_path is None
     assert result.artifact_error == "runtime directory is read-only"
+
+
+def test_bouncer_job_requeues_stale_allowlist_miss_decisions_before_processing(
+    tmp_path: Path,
+) -> None:
+    with _make_session(tmp_path) as session:
+        row = _pending_row(777, "FreedomIntelligence/OpenClaw-Medical-Skills")
+        row.queue_status = RepositoryQueueStatus.COMPLETED
+        row.triage_status = RepositoryTriageStatus.REJECTED
+        row.triaged_at = datetime(2026, 3, 16, 12, 0, tzinfo=timezone.utc)
+        row.processing_started_at = row.triaged_at
+        row.processing_completed_at = row.triaged_at
+        session.add(row)
+        session.add(
+            RepositoryTriageExplanation(
+                github_repository_id=777,
+                explanation_kind=RepositoryTriageExplanationKind.ALLOWLIST_MISS,
+                explanation_summary="Rejected because no include rules matched the configured allowlist.",
+                matched_include_rules=[],
+                matched_exclude_rules=[],
+                explained_at=datetime(2026, 3, 16, 12, 0, tzinfo=timezone.utc),
+                triage_logic_version="old-version",
+                triage_config_fingerprint="old-fingerprint",
+            )
+        )
+        session.commit()
+
+        result = run_bouncer_job(
+            session=session,
+            runtime_dir=tmp_path / "runtime",
+            include_rules=("developer tools",),
+            exclude_rules=(),
+        )
+        refreshed_row = session.get(RepositoryIntake, 777)
+        refreshed_explanation = session.get(RepositoryTriageExplanation, 777)
+
+    assert result.status is BouncerRunStatus.SUCCESS
+    assert refreshed_row is not None
+    assert refreshed_row.queue_status is RepositoryQueueStatus.COMPLETED
+    assert refreshed_row.triage_status is RepositoryTriageStatus.ACCEPTED
+    assert refreshed_row.triaged_at is not None
+    assert refreshed_explanation is not None
+    assert refreshed_explanation.explanation_kind is RepositoryTriageExplanationKind.INCLUDE_RULE
+    assert refreshed_explanation.triage_logic_version == bouncer_job_module.TRIAGE_LOGIC_VERSION
+    assert refreshed_explanation.triage_config_fingerprint is not None
 
 
 def test_bouncer_job_reports_failure_when_recovery_write_also_fails(tmp_path: Path, monkeypatch) -> None:

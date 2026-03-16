@@ -617,6 +617,25 @@ You should be able to:
 - inspect tags
 - open detail pages for deeper analysis output
 
+## Taxonomy QA Page
+
+Open:
+
+- `http://127.0.0.1:3000/taxonomy`
+
+You should expect:
+
+- a dedicated Analyst review queue for completed analyses
+- review buckets like `Needs Review`, `Low Confidence`, and `Suggested Tags`
+- category confidence and overall confidence per repository
+- visibility into missing categories, missing tags, and suggested new canonical tags
+- direct links into the full repository detail page for deeper inspection
+
+Important note:
+
+- the bucket counts reflect the currently loaded page of completed analyses, sorted by newest repos added into the website
+- this page is meant for operator QA, not as the final source of truth for every historical analysis at once
+
 ## Repository Detail Page
 
 Open any analyzed repository.
@@ -679,6 +698,8 @@ This should start:
 12. Open `http://127.0.0.1:3000/repositories`
 13. Open an analyzed repository detail page
 14. Confirm category, tags, confidence, and score output are visible
+15. Open `http://127.0.0.1:3000/taxonomy`
+16. Confirm suspicious Analyst results are grouped into review buckets
 
 ## End-to-end queue test
 
@@ -694,6 +715,8 @@ This should start:
    - agent tags appear normalized
    - suggested taxonomy fields appear when needed
    - analysis mode and outcome are visible
+9. Open `http://127.0.0.1:3000/taxonomy`
+10. Confirm the same repository appears in the correct review bucket based on confidence and taxonomy quality
 
 ## Troubleshooting
 

@@ -285,31 +285,53 @@ class AgentRuntimeProgressService:
     ) -> AgentRuntimeProgress:
         is_running = latest_run is not None and latest_run.status is AgentRunStatus.RUNNING
         if snapshot is not None:
-            completed_count = self._to_int(snapshot.get("completed_count"))
-            total_count = self._to_int(snapshot.get("total_count"))
-            remaining_count = self._to_int(snapshot.get("remaining_count"))
-            progress_percent = self._to_int(snapshot.get("progress_percent"))
-            snapshot_details = snapshot.get("details")
-            return AgentRuntimeProgress(
-                status_label=str(snapshot.get("status_label") or ("Running" if is_running else "Idle")),
-                current_activity=str(snapshot.get("current_activity") or (running_label if is_running else idle_label)),
-                current_target=self._to_optional_str(snapshot.get("current_target")) or current_target_fallback,
-                progress_percent=progress_percent,
-                completed_count=completed_count,
-                total_count=total_count,
-                remaining_count=remaining_count,
-                unit_label=self._to_optional_str(snapshot.get("unit_label")),
-                updated_at=self._parse_datetime(snapshot.get("generated_at")),
-                source=self._to_optional_str(snapshot.get("source")) or source_fallback,
-                details=[
-                    *details,
-                    *[
-                        item
-                        for item in (snapshot_details if isinstance(snapshot_details, list) else [])
-                        if isinstance(item, str)
+            snapshot_updated_at = self._parse_datetime(snapshot.get("generated_at"))
+            snapshot_target = self._to_optional_str(snapshot.get("current_target"))
+            if self._snapshot_is_stale_for_latest_run(
+                snapshot_updated_at=snapshot_updated_at,
+                latest_run=latest_run,
+            ):
+                snapshot = None
+            else:
+                completed_count = self._to_int(snapshot.get("completed_count"))
+                total_count = self._to_int(snapshot.get("total_count"))
+                remaining_count = self._to_int(snapshot.get("remaining_count"))
+                progress_percent = self._to_int(snapshot.get("progress_percent"))
+                snapshot_details = snapshot.get("details")
+                return AgentRuntimeProgress(
+                    status_label=(
+                        str(snapshot.get("status_label") or "Running")
+                        if is_running
+                        else "Waiting"
+                    ),
+                    current_activity=(
+                        str(snapshot.get("current_activity") or running_label)
+                        if is_running
+                        else idle_label
+                    ),
+                    current_target=(
+                        snapshot_target
+                        if is_running
+                        else f"Resume checkpoint: {snapshot_target}"
+                        if snapshot_target is not None
+                        else current_target_fallback
+                    ),
+                    progress_percent=progress_percent,
+                    completed_count=completed_count,
+                    total_count=total_count,
+                    remaining_count=remaining_count,
+                    unit_label=self._to_optional_str(snapshot.get("unit_label")),
+                    updated_at=snapshot_updated_at,
+                    source=self._to_optional_str(snapshot.get("source")) or source_fallback,
+                    details=[
+                        *details,
+                        *[
+                            item
+                            for item in (snapshot_details if isinstance(snapshot_details, list) else [])
+                            if isinstance(item, str)
+                        ],
                     ],
-                ],
-            )
+                )
 
         return AgentRuntimeProgress(
             status_label="Running" if is_running else "Idle",
@@ -324,6 +346,19 @@ class AgentRuntimeProgressService:
             source=source_fallback,
             details=details,
         )
+
+    @staticmethod
+    def _snapshot_is_stale_for_latest_run(
+        *,
+        snapshot_updated_at: datetime | None,
+        latest_run: AgentRun | None,
+    ) -> bool:
+        if snapshot_updated_at is None or latest_run is None or latest_run.status is AgentRunStatus.RUNNING:
+            return False
+        latest_checkpoint = latest_run.completed_at or latest_run.started_at
+        if latest_checkpoint is None:
+            return False
+        return snapshot_updated_at <= latest_checkpoint
 
     def _load_latest_event(self, agent_name: str) -> SystemEvent | None:
         return self.session.exec(

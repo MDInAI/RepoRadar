@@ -273,3 +273,35 @@ def test_pause_state_routes_return_all_and_single_agent_states(
 
     assert unknown_response.status_code == 404
     assert unknown_response.json()["error"]["code"] == "agent_not_found"
+
+
+def test_manual_pause_and_resume_clear_stale_triggering_event_id(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    db_session.add(
+        AgentPauseState(
+            agent_name="firehose",
+            is_paused=False,
+            resumed_at=datetime(2026, 3, 10, 13, 0, tzinfo=timezone.utc),
+            resumed_by=ResumedBy.OPERATOR,
+            triggered_by_event_id=42,
+        )
+    )
+    db_session.commit()
+
+    pause_response = client.post(
+        "/api/v1/agents/firehose/pause",
+        json={
+            "pause_reason": "Operator inspection",
+            "resume_condition": "Resume manually after inspection",
+        },
+    )
+    assert pause_response.status_code == 200
+    assert pause_response.json()["is_paused"] is True
+    assert pause_response.json()["triggered_by_event_id"] is None
+
+    resume_response = client.post("/api/v1/agents/firehose/resume")
+    assert resume_response.status_code == 200
+    assert resume_response.json()["is_paused"] is False
+    assert resume_response.json()["triggered_by_event_id"] is None

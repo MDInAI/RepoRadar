@@ -903,6 +903,14 @@ class RepositoryTriageExplanation(SQLModel, table=True):
     explained_at: datetime = Field(
         sa_column=Column(UTCDateTimeType(), nullable=False),
     )
+    triage_logic_version: str | None = Field(
+        default=None,
+        sa_column=Column(String(64), nullable=True),
+    )
+    triage_config_fingerprint: str | None = Field(
+        default=None,
+        sa_column=Column(String(64), nullable=True),
+    )
 
 
 class RepositoryAnalysisResult(SQLModel, table=True):

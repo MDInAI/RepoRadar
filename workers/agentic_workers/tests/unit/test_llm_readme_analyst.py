@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from agentic_workers.providers.readme_analyst import (
     CONTROLLED_AGENT_TAGS,
+    HeuristicReadmeAnalysisProvider,
     LLMReadmeAnalysisProvider,
     LLMReadmeBusinessAnalysis,
     NormalizedReadme,
@@ -163,7 +164,6 @@ def test_create_analysis_provider_llm():
 
 def test_create_analysis_provider_heuristic():
     """Test factory creates heuristic provider by default."""
-    from agentic_workers.providers.readme_analyst import HeuristicReadmeAnalysisProvider
     provider = create_analysis_provider("heuristic")
     assert isinstance(provider, HeuristicReadmeAnalysisProvider)
     assert provider.provider_name == "heuristic-readme-analysis"
@@ -184,3 +184,84 @@ def test_invalid_category_outside_controlled_vocabulary_raises_validation_error(
 
         with pytest.raises(ValidationError):
             provider.analyze(repository_full_name="test/repo", readme=sample_readme)
+
+
+def test_heuristic_provider_uses_evidence_and_emits_real_confidence(sample_readme):
+    provider = HeuristicReadmeAnalysisProvider()
+
+    result = LLMReadmeBusinessAnalysis.model_validate_json(
+        provider.analyze(
+            repository_full_name="acme/ops-platform",
+            readme=sample_readme,
+            evidence={
+                "evidence_summary": "Repository exposes API, auth, frontend, backend, and deployment signals.",
+                "signals": {
+                    "has_api_surface": True,
+                    "has_auth_signals": True,
+                    "has_frontend_surface": True,
+                    "has_backend_surface": True,
+                    "has_containerization": True,
+                    "has_deploy_config": True,
+                    "readme_mentions_team": True,
+                    "readme_mentions_enterprise": True,
+                    "framework_signals": ["react", "nextjs", "postgres", "docker"],
+                    "primary_languages": ["typescript"],
+                    "repository_description_present": True,
+                    "readme_length": 420,
+                },
+                "score_breakdown": {
+                    "technical_maturity_score": 72,
+                    "commercial_readiness_score": 76,
+                    "hosted_gap_score": 68,
+                    "market_timing_score": 61,
+                },
+                "supporting_signals": ["Release history suggests maintainers ship packaged milestones."],
+                "red_flags": [],
+                "contradictions": [],
+                "missing_information": [],
+            },
+        )
+    )
+
+    assert result.category in {"workflow", "devtools"}
+    assert result.category_confidence_score >= 60
+    assert result.confidence_score >= 60
+    assert "api" in result.agent_tags
+    assert "auth" in result.agent_tags
+    assert "commercial-ready" in result.agent_tags
+    assert result.suggested_new_tags == []
+
+
+def test_heuristic_provider_does_not_false_positive_forms_from_platform(sample_readme):
+    provider = HeuristicReadmeAnalysisProvider()
+    platform_readme = NormalizedReadme(
+        raw_text="# Platform\n\nOpen platform for APIs and integrations.",
+        normalized_text="Platform\n\nOpen platform for APIs and integrations.",
+        raw_character_count=48,
+        normalized_character_count=48,
+        removed_line_count=0,
+    )
+
+    result = LLMReadmeBusinessAnalysis.model_validate_json(
+        provider.analyze(
+            repository_full_name="acme/platform-core",
+            readme=platform_readme,
+            evidence={
+                "signals": {
+                    "has_api_surface": True,
+                    "readme_length": 48,
+                },
+                "score_breakdown": {},
+            },
+        )
+    )
+
+    assert "forms" not in result.agent_tags
+    assert "forms" not in result.suggested_new_tags
+
+
+def test_new_common_taxonomy_tags_are_canonical(sample_readme):
+    assert "forms" in CONTROLLED_AGENT_TAGS
+    assert "gateway" in CONTROLLED_AGENT_TAGS
+    assert "embedded" in CONTROLLED_AGENT_TAGS
+    assert "migration" in CONTROLLED_AGENT_TAGS
