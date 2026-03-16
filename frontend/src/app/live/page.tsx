@@ -26,7 +26,11 @@ import { fetchGatewayRuntime } from "@/api/readiness";
 import { EventTimeline } from "@/components/agents/EventTimeline";
 import { GitHubBudgetPanel } from "@/components/agents/GitHubBudgetPanel";
 import { OperationalAlertsPanel } from "@/components/agents/OperationalAlertsPanel";
-import { buildLatestActiveFailureByAgent } from "@/components/agents/alertState";
+import { AcceptedAnalysisQueuePanel } from "@/components/agents/AcceptedAnalysisQueuePanel";
+import {
+  buildLatestActiveFailureByAgent,
+  isAgentEffectivelyRunning,
+} from "@/components/agents/alertState";
 import {
   formatAgentName,
   formatAgentRunStatus,
@@ -80,7 +84,7 @@ function getAgentLiveBadge(entry: AgentStatusEntry, pauseState: AgentPauseState 
   if (pauseState?.is_paused) {
     return { label: "Paused", className: "badge badge-red" };
   }
-  if (entry.latest_run?.status === "running") {
+  if (isAgentEffectivelyRunning(entry, pauseState)) {
     return { label: "Running", className: "badge badge-yellow" };
   }
   if (entry.runtime_progress?.updated_at) {
@@ -99,7 +103,7 @@ function isAgentActive(entry: AgentStatusEntry, pauseState: AgentPauseState | un
   if (pauseState?.is_paused) {
     return true;
   }
-  if (entry.latest_run?.status === "running") {
+  if (isAgentEffectivelyRunning(entry, pauseState)) {
     return true;
   }
   if (!entry.runtime_progress?.updated_at) {
@@ -176,7 +180,7 @@ function describeCurrentState(
     return "Paused right now. Nothing is processing until you resume this agent manually.";
   }
 
-  if (entry.latest_run?.status === "running") {
+  if (isAgentEffectivelyRunning(entry, pauseState)) {
     return "Actively processing work right now.";
   }
 
@@ -248,7 +252,7 @@ function describeRecommendedAction(
     return "Review the pause reason, then resume this agent manually from Control.";
   }
 
-  if (entry.latest_run?.status === "running") {
+  if (isAgentEffectivelyRunning(entry, pauseState)) {
     return "Watch progress here; no operator action is needed unless an alert appears.";
   }
 
@@ -268,10 +272,7 @@ function needsAttention(
 }
 
 function isRunningNow(entry: AgentStatusEntry, pauseState: AgentPauseState | undefined): boolean {
-  if (pauseState?.is_paused) {
-    return false;
-  }
-  return entry.latest_run?.status === "running";
+  return isAgentEffectivelyRunning(entry, pauseState);
 }
 
 function deriveNextActions({
@@ -342,19 +343,23 @@ function deriveNextActions({
     }
   }
 
-  if ((overview?.triage.pending ?? 0) > 0 && !pauseMap.get("bouncer")?.is_paused && bouncer?.latest_run?.status !== "running") {
+  if ((overview?.triage.pending ?? 0) > 0 && !isAgentEffectivelyRunning(bouncer, pauseMap.get("bouncer"))) {
     actions.push(
       `Bouncer has ${overview?.triage.pending?.toLocaleString() ?? "pending"} repositories waiting for triage. Run or verify Bouncer next.`,
     );
   }
 
-  if ((overview?.analysis.pending ?? 0) > 0 && !pauseMap.get("analyst")?.is_paused && analyst?.latest_run?.status !== "running") {
+  if ((overview?.analysis.pending ?? 0) > 0 && !isAgentEffectivelyRunning(analyst, pauseMap.get("analyst"))) {
     actions.push(
       `Analyst has ${overview?.analysis.pending?.toLocaleString() ?? "pending"} accepted repositories waiting for analysis. Resume or run Analyst next.`,
     );
   }
 
-  if ((overview?.ingestion.pending_intake ?? 0) > 0 && firehose?.latest_run?.status !== "running" && backfill?.latest_run?.status !== "running") {
+  if (
+    (overview?.ingestion.pending_intake ?? 0) > 0 &&
+    !isAgentEffectivelyRunning(firehose, pauseMap.get("firehose")) &&
+    !isAgentEffectivelyRunning(backfill, pauseMap.get("backfill"))
+  ) {
     actions.push(
       `There are ${overview?.ingestion.pending_intake?.toLocaleString() ?? "pending"} repositories still waiting in intake. Confirm whether Firehose or Backfill should move next.`,
     );
@@ -695,6 +700,10 @@ export default function LiveOpsPage() {
           title="Live Operator Alerts"
         />
         <GitHubBudgetPanel snapshot={gatewayRuntimeQuery.data?.runtime.github_api_budget} title="Live GitHub API Budget" />
+        <AcceptedAnalysisQueuePanel
+          pendingCount={overview?.analysis.pending ?? 0}
+          title="Accepted Queue Waiting For Analyst"
+        />
 
         <div style={{ display: "grid", gap: "16px", gridTemplateColumns: "minmax(0, 1.7fr) minmax(320px, 1fr)", alignItems: "start" }}>
           <div style={{ minWidth: 0 }}>

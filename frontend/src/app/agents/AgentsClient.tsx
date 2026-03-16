@@ -32,6 +32,7 @@ import { AgentOperatorSummary } from "@/components/agents/AgentOperatorSummary";
 import { OperationalAlertsPanel } from "@/components/agents/OperationalAlertsPanel";
 import { PauseAgentButton } from "@/components/agents/PauseAgentButton";
 import { ResumeAgentButton } from "@/components/agents/ResumeAgentButton";
+import { isAgentEffectivelyRunning } from "@/components/agents/alertState";
 
 const RUN_PAGE_SIZE = 50;
 const MAX_RUN_PAGE_SIZE = 200;
@@ -466,13 +467,12 @@ export default function AgentsClient() {
   const activeCount =
     latestRunsQuery.data?.agents.filter((a) => {
       const paused = pauseStatesQuery.data?.find((p) => p.agent_name === a.agent_name)?.is_paused;
-      return !paused && a.latest_run && a.latest_run.status === "completed";
+      return !paused && a.latest_run?.status !== "failed" && !isAgentEffectivelyRunning(a, pauseStatesQuery.data?.find((p) => p.agent_name === a.agent_name));
     }).length || 0;
 
   const runningCount =
     latestRunsQuery.data?.agents.filter((a) => {
-      const paused = pauseStatesQuery.data?.find((p) => p.agent_name === a.agent_name)?.is_paused;
-      return !paused && a.latest_run && a.latest_run.status === "running";
+      return isAgentEffectivelyRunning(a, pauseStatesQuery.data?.find((p) => p.agent_name === a.agent_name));
     }).length || 0;
 
   const idleCount = Math.max(0, agents.length - activeCount - runningCount);
@@ -569,7 +569,7 @@ export default function AgentsClient() {
               const pauseState = pauseStatesQuery.data?.find((p) => p.agent_name === agent.agent_name);
               const status = pauseState?.is_paused
                 ? "red"
-                : agent.latest_run?.status === "running"
+                : isAgentEffectivelyRunning(agent, pauseState)
                   ? "yellow"
                   : "green";
 

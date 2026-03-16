@@ -14,6 +14,7 @@ import {
   formatRuntimeProgressCounts,
   formatRuntimeProgressHeadline,
 } from "./agentPresentation";
+import { isAgentEffectivelyRunning } from "./alertState";
 
 function formatRetryWindow(seconds: number | null | undefined): string {
   if (seconds == null || seconds <= 0) {
@@ -57,7 +58,7 @@ function buildCurrentState(
     return "Paused now. No work is being processed until the agent is resumed.";
   }
 
-  if (entry.latest_run?.status === "running") {
+  if (isAgentEffectivelyRunning(entry, pauseState)) {
     return "Actively processing work right now.";
   }
 
@@ -130,7 +131,7 @@ function buildRecommendedAction(
     return "Review the pause reason, then resume this agent manually from Control.";
   }
 
-  if (entry.latest_run?.status === "running") {
+  if (isAgentEffectivelyRunning(entry, pauseState)) {
     return "No operator action needed right now. Watch progress and intervene only if an alert appears.";
   }
 

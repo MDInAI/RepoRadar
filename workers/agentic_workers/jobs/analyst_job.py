@@ -38,6 +38,10 @@ from agentic_workers.providers.readme_analyst import (
     create_analysis_provider,
     normalize_readme,
 )
+from agentic_workers.storage.agent_progress_snapshots import (
+    clear_agent_progress_snapshot,
+    write_agent_progress_snapshot,
+)
 from agentic_workers.storage.analysis_store import (
     CURRENT_ANALYSIS_SCHEMA_VERSION,
     defer_analysis_retry,
@@ -46,7 +50,6 @@ from agentic_workers.storage.analysis_store import (
     persist_analysis_failure,
     persist_analysis_success,
 )
-from agentic_workers.storage.agent_progress_snapshots import write_agent_progress_snapshot
 from agentic_workers.storage.backend_models import (
     FailureClassification,
     FailureSeverity,
@@ -114,6 +117,7 @@ def run_analyst_job(
 ) -> AnalystRunResult:
     # Check if agent is paused
     if is_agent_paused(session, "analyst"):
+        clear_agent_progress_snapshot(runtime_dir=runtime_dir, agent_name="analyst")
         logger.info("Analyst is paused, skipping run")
         return AnalystRunResult(
             status=AnalystRunStatus.SKIPPED_PAUSED,
@@ -159,6 +163,10 @@ def run_analyst_job(
     for repository in targets:
         if should_stop is not None and should_stop():
             interrupted = True
+            break
+        if is_agent_paused(session, "analyst"):
+            interrupted = True
+            logger.info("Analyst pause detected during run; stopping before next repository.")
             break
 
         _write_analyst_progress_snapshot(
@@ -677,6 +685,7 @@ def run_analyst_job(
     status = _determine_status(
         outcomes,
         interrupted=interrupted,
+        paused=is_agent_paused(session, "analyst"),
     )
     artifact_path: Path | None = None
     artifact_error: str | None = None
@@ -1100,8 +1109,11 @@ def _determine_status(
     outcomes: list[AnalystRepositoryOutcome],
     *,
     interrupted: bool = False,
+    paused: bool = False,
 ) -> AnalystRunStatus:
     has_error = any(outcome.failure_code is not None or outcome.artifact_error for outcome in outcomes)
+    if interrupted and paused and not has_error:
+        return AnalystRunStatus.SKIPPED_PAUSED
     if interrupted and not has_error:
         return AnalystRunStatus.SKIPPED
     has_success = any(outcome.failure_code is None for outcome in outcomes)

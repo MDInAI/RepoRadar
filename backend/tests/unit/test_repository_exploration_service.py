@@ -14,6 +14,7 @@ from app.models import (
     RepositoryArtifact,
     RepositoryArtifactKind,
     RepositoryArtifactPayload,
+    RepositoryCategory,
     RepositoryDiscoverySource,
     RepositoryFirehoseMode,
     RepositoryIntake,
@@ -305,10 +306,18 @@ def test_repository_exploration_service_lists_catalog_page(
             RepositoryAnalysisResult(
                 github_repository_id=707,
                 monetization_potential=RepositoryMonetizationPotential.HIGH,
+                category=RepositoryCategory.WORKFLOW,
+                category_confidence_score=86,
+                confidence_score=79,
+                agent_tags=["workflow"],
+                suggested_new_tags=["approval"],
                 pros=["Clear workflow"],
                 cons=["Pricing unclear"],
                 missing_feature_signals=["Missing billing"],
-                source_metadata={"readme_artifact_path": "data/readmes/707.md"},
+                source_metadata={
+                    "readme_artifact_path": "data/readmes/707.md",
+                    "analysis_outcome": "completed_low_confidence",
+                },
                 analyzed_at=now,
             )
         )
@@ -336,11 +345,16 @@ def test_repository_exploration_service_lists_catalog_page(
     assert response.page_size == 30
     assert response.total_pages == 1
     assert response.items[0].firehose_discovery_mode is RepositoryFirehoseMode.NEW
-    assert response.items[0].agent_tags == ["new"]
     assert len(response.items) == 1
     assert response.items[0].github_repository_id == 707
     assert response.items[0].intake_status is RepositoryQueueStatus.COMPLETED
     assert response.items[0].monetization_potential is RepositoryMonetizationPotential.HIGH
+    assert response.items[0].category is RepositoryCategory.WORKFLOW
+    assert response.items[0].category_confidence_score == 86
+    assert response.items[0].confidence_score == 79
+    assert response.items[0].analysis_outcome == "completed_low_confidence"
+    assert response.items[0].agent_tags == ["new", "workflow"]
+    assert response.items[0].suggested_new_tags == ["approval"]
     assert response.items[0].has_readme_artifact is True
     assert response.items[0].has_analysis_artifact is False
     assert response.items[0].is_starred is False

@@ -8,6 +8,7 @@ from agentic_workers.providers.readme_analyst import (
     LLMReadmeBusinessAnalysis,
     MonetizationPotential,
     NormalizedReadme,
+    contains_any_signals,
 )
 from agentic_workers.storage.backend_models import RepositoryIntake
 
@@ -496,7 +497,7 @@ def _augment_agent_tags_from_evidence(
 
 
 def _has_any(corpus: str, patterns: tuple[str, ...]) -> bool:
-    return any(pattern in corpus for pattern in patterns)
+    return contains_any_signals(corpus, patterns)
 
 
 def _detect_primary_languages(corpus: str) -> list[str]:

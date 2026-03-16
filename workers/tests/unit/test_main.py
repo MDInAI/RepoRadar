@@ -272,6 +272,61 @@ def test_configured_analyst_job_uses_settings_and_runtime_paths(monkeypatch, tmp
     assert captured["agent_run_id"] == 44
 
 
+def test_configured_analyst_job_clears_stale_progress_snapshot_when_paused(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cleared: dict[str, object] = {}
+    skipped: dict[str, object] = {}
+
+    class StubSettings:
+        github_provider_token_value = "worker-token"
+        ANALYST_PROVIDER = "heuristic"
+        ANTHROPIC_API_KEY = None
+        ANALYST_MODEL_NAME = "test-model"
+        GEMINI_API_KEY = None
+        GEMINI_BASE_URL = "https://example.test"
+        GEMINI_MODEL_NAME = "gemini-test"
+
+        class runtime:
+            runtime_dir = tmp_path
+
+    def fake_run_analyst_job(**_: object) -> AnalystRunResult:
+        return AnalystRunResult(
+            status=AnalystRunStatus.SKIPPED_PAUSED,
+            outcomes=[],
+            artifact_path=None,
+            artifact_error=None,
+        )
+
+    monkeypatch.setattr(main, "settings", StubSettings())
+    monkeypatch.setattr(main, "GitHubFirehoseProvider", DummyProvider)
+    monkeypatch.setattr(main, "create_analysis_provider", lambda *args: "heuristic-provider")
+    monkeypatch.setattr(main, "Session", DummySession)
+    monkeypatch.setattr(main, "engine", object())
+    monkeypatch.setattr(main, "run_analyst_job", fake_run_analyst_job)
+    monkeypatch.setattr(main, "start_agent_run", lambda session, agent_name: 55)
+    monkeypatch.setattr(
+        main,
+        "clear_agent_progress_snapshot",
+        lambda *, runtime_dir, agent_name: cleared.update(
+            {"runtime_dir": runtime_dir, "agent_name": agent_name}
+        ),
+    )
+    monkeypatch.setattr(
+        main,
+        "mark_agent_run_skipped",
+        lambda session, run_id, **kwargs: skipped.update({"run_id": run_id, **kwargs}),
+    )
+
+    result = main.run_configured_analyst_job()
+
+    assert result.status is AnalystRunStatus.SKIPPED_PAUSED
+    assert cleared == {"runtime_dir": tmp_path, "agent_name": "analyst"}
+    assert skipped["run_id"] == 55
+    assert skipped["status"].value == "skipped_paused"
+
+
 def test_configured_firehose_job_records_terminal_write_failures_as_failed_runs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1102,6 +1157,25 @@ def test_run_analyst_if_pending_skips_quietly_when_paused(monkeypatch) -> None:
 
     assert asyncio.run(run_once()) is False
     assert called["run"] is False
+
+
+def test_run_analyst_if_pending_skips_when_another_run_is_already_active(monkeypatch) -> None:
+    async def run_once() -> bool:
+        stop_event = asyncio.Event()
+        thread_stop = type("ThreadStop", (), {"is_set": lambda self: False})()
+        return await main._run_analyst_if_pending(stop_event=stop_event, thread_stop=thread_stop)
+
+    monkeypatch.setattr(main, "Session", DummySession)
+    monkeypatch.setattr(main, "engine", object())
+    monkeypatch.setattr(main, "is_agent_paused", lambda session, agent_name: False)
+    monkeypatch.setattr(main, "has_pending_analyst_work", lambda: True)
+
+    async def fake_to_thread(func: object, *args: object, **kwargs: object) -> object:
+        raise main.DuplicateActiveAgentRunError("analyst")
+
+    monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+    assert asyncio.run(run_once()) is False
 
 
 def test_calculate_paused_poll_seconds_uses_floor(monkeypatch) -> None:

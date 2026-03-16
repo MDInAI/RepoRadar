@@ -24,6 +24,22 @@ def write_agent_progress_snapshot(
     return snapshot_path
 
 
+def clear_agent_progress_snapshot(
+    *,
+    runtime_dir: Path | None,
+    agent_name: str,
+) -> Path | None:
+    if runtime_dir is None:
+        return None
+
+    snapshot_path = runtime_dir / agent_name / "progress.json"
+    if not snapshot_path.exists():
+        return None
+
+    snapshot_path.unlink(missing_ok=True)
+    return snapshot_path
+
+
 def _write_snapshot(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_name(f"{path.name}.{uuid4().hex}.tmp")

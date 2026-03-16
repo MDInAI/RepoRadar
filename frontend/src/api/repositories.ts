@@ -51,7 +51,11 @@ export interface RepositoryCatalogItem {
   analysis_failed_at: string | null;
   failure: RepositoryFailureContext | null;
   category?: RepositoryCategory | null;
+  category_confidence_score?: number | null;
+  confidence_score?: number | null;
+  analysis_outcome?: string | null;
   agent_tags?: string[];
+  suggested_new_tags?: string[];
   monetization_potential: RepositoryMonetizationPotential | null;
   has_readme_artifact: boolean;
   has_analysis_artifact: boolean;

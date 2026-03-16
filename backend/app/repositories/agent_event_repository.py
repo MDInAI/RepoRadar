@@ -293,12 +293,14 @@ class AgentEventRepository:
             values["paused_at"] = pause_state.paused_at
             values["pause_reason"] = pause_state.pause_reason
             values["resume_condition"] = pause_state.resume_condition
+            values["triggered_by_event_id"] = pause_state.triggered_by_event_id
             # Clear resume fields when pausing
             values["resumed_at"] = None
             values["resumed_by"] = None
         else:
             values["resumed_at"] = pause_state.resumed_at
             values["resumed_by"] = pause_state.resumed_by
+            values["triggered_by_event_id"] = None
             # Clear pause fields when resuming
             values["pause_reason"] = None
             values["resume_condition"] = None

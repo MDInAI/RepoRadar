@@ -22,6 +22,7 @@ from sqlmodel import Session, select
 from agentic_workers.core.db import engine
 from agentic_workers.core.config import settings
 from agentic_workers.core.events import (
+    DuplicateActiveAgentRunError,
     complete_agent_run as finalize_agent_run,
     fail_agent_run as record_failed_agent_run,
     mark_agent_run_skipped,
@@ -53,6 +54,7 @@ from agentic_workers.jobs.firehose_job import FirehoseRunResult, FirehoseRunStat
 from agentic_workers.providers.github_provider import FirehoseMode, GitHubFirehoseProvider
 from agentic_workers.providers.readme_analyst import create_analysis_provider
 from agentic_workers.storage.backfill_progress import load_backfill_progress
+from agentic_workers.storage.agent_progress_snapshots import clear_agent_progress_snapshot
 from agentic_workers.storage.backend_models import (
     AgentRunStatus,
     RepositoryAnalysisStatus,
@@ -158,6 +160,7 @@ def run_configured_firehose_job(
         return _run_tracked_job(
             session=session,
             agent_name="firehose",
+            runtime_dir=settings.runtime.runtime_dir,
             execute_job=lambda run_id: run_firehose_job(
                 session=session,
                 provider=provider,
@@ -195,6 +198,7 @@ def run_configured_backfill_job(
         return _run_tracked_job(
             session=session,
             agent_name="backfill",
+            runtime_dir=settings.runtime.runtime_dir,
             execute_job=lambda run_id: run_backfill_job(
                 session=session,
                 provider=provider,
@@ -228,6 +232,7 @@ def run_configured_bouncer_job(
         return _run_tracked_job(
             session=session,
             agent_name="bouncer",
+            runtime_dir=settings.runtime.runtime_dir,
             execute_job=lambda run_id: run_bouncer_job(
                 session=session,
                 runtime_dir=settings.runtime.runtime_dir,
@@ -270,6 +275,7 @@ def run_configured_analyst_job(
         return _run_tracked_job(
             session=session,
             agent_name="analyst",
+            runtime_dir=settings.runtime.runtime_dir,
             execute_job=lambda run_id: run_analyst_job(
                 session=session,
                 provider=provider,
@@ -467,6 +473,7 @@ def _run_tracked_job(
     *,
     session: Session,
     agent_name: str,
+    runtime_dir: Path | None,
     execute_job: Callable[[int], ResultT],
     summarize_run: Callable[[ResultT], AgentRunMetrics],
     is_success: Callable[[ResultT], bool],
@@ -484,6 +491,8 @@ def _run_tracked_job(
         failure_phase = "persisting terminal state"
         if is_skipped(result):
             paused_skip = is_paused_skip(result)
+            if paused_skip:
+                clear_agent_progress_snapshot(runtime_dir=runtime_dir, agent_name=agent_name)
             mark_agent_run_skipped(
                 session,
                 run_id,
@@ -761,6 +770,7 @@ def run_configured_combiner_job() -> CombinerRunResult:
         return _run_tracked_job(
             session=session,
             agent_name="combiner",
+            runtime_dir=settings.runtime.runtime_dir,
             execute_job=lambda run_id: run_combiner_job(
                 session=session,
                 runtime_dir=settings.runtime.runtime_dir,
@@ -825,10 +835,14 @@ async def _run_bouncer_if_pending(
         logger.exception("Unable to inspect pending Bouncer work. Skipping this pass.")
         return False
 
-    bouncer_result = await asyncio.to_thread(
-        run_configured_bouncer_job,
-        should_stop=thread_stop.is_set,
-    )
+    try:
+        bouncer_result = await asyncio.to_thread(
+            run_configured_bouncer_job,
+            should_stop=thread_stop.is_set,
+        )
+    except DuplicateActiveAgentRunError:
+        logger.info("Skipping Bouncer pass because another Bouncer run is already active.")
+        return False
     _log_bouncer_result(bouncer_result)
     return True
 
@@ -852,10 +866,14 @@ async def _run_analyst_if_pending(
         logger.exception("Unable to inspect pending Analyst work. Skipping this pass.")
         return False
 
-    analyst_result = await asyncio.to_thread(
-        run_configured_analyst_job,
-        should_stop=thread_stop.is_set,
-    )
+    try:
+        analyst_result = await asyncio.to_thread(
+            run_configured_analyst_job,
+            should_stop=thread_stop.is_set,
+        )
+    except DuplicateActiveAgentRunError:
+        logger.info("Skipping Analyst pass because another Analyst run is already active.")
+        return False
     _log_analyst_result(analyst_result)
     return True
 
@@ -875,7 +893,11 @@ async def _run_combiner_if_pending(
         logger.exception("Unable to inspect pending Combiner work. Skipping this pass.")
         return False
 
-    result = await asyncio.to_thread(run_configured_combiner_job)
+    try:
+        result = await asyncio.to_thread(run_configured_combiner_job)
+    except DuplicateActiveAgentRunError:
+        logger.info("Skipping Combiner pass because another Combiner run is already active.")
+        return False
     _log_combiner_result(result)
     return True
 

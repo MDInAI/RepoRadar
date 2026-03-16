@@ -242,10 +242,19 @@ function buildEvidenceNotes(detail: RepositoryDetailResponse): string[] {
     ...(detail.analysis_summary?.red_flags ?? []),
     ...(detail.analysis_summary?.cons ?? []),
     ...(detail.analysis_summary?.missing_feature_signals ?? []),
-  ].filter((value) => value.trim().length > 0);
+  ]
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
 
   if (notes.length > 0) {
-    return notes;
+    const seen = new Set<string>();
+    return notes.filter((note) => {
+      if (seen.has(note)) {
+        return false;
+      }
+      seen.add(note);
+      return true;
+    });
   }
 
   return ["No risk notes or missing-feature evidence are stored for this repository yet."];
@@ -425,6 +434,13 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
 
   const failureContext = detail.processing.failure;
   const evidenceNotes = buildEvidenceNotes(detail);
+  const readmeUnavailableMessage =
+    detail.readme_snapshot?.content ??
+    (detail.triage_status === "rejected"
+      ? "README was not captured in Agentic Workflow because this repository was rejected during Bouncer triage before analysis ran. GitHub can still have a README even when no README artifact exists here yet."
+      : detail.triage_status === "accepted" && detail.analysis_status !== "completed"
+        ? "README capture is still pending. This repository has passed triage, but Analyst has not finished processing it yet."
+      : "README artifact content is not available yet.");
   const summaryParagraph = buildSummaryParagraph(detail);
   const recommendedAction =
     decisionRows.find((row) => row.label === "Recommended action")?.value ?? "Review dossier";
@@ -603,8 +619,8 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                     </button>
                   </div>
                   <div className="repo-note-list">
-                    {evidenceNotes.map((note) => (
-                      <p key={note}>{note}</p>
+                    {evidenceNotes.map((note, index) => (
+                      <p key={`${index}-${note}`}>{note}</p>
                     ))}
                   </div>
                 </section>
@@ -628,7 +644,7 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                   <div className="card" style={{ padding: "14px" }}>
                     <p className="card-label">Raw README Source</p>
                     <pre className="repo-code-block">
-                      {detail.readme_snapshot?.content ?? "README artifact content is not available."}
+                      {readmeUnavailableMessage}
                     </pre>
                   </div>
                   <div className="card" style={{ padding: "14px" }}>

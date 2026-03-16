@@ -11,6 +11,7 @@ from app.models import (
     RepositoryAnalysisStatus,
     RepositoryArtifact,
     RepositoryArtifactKind,
+    RepositoryCategory,
     RepositoryDiscoverySource,
     RepositoryFirehoseMode,
     RepositoryIntake,
@@ -100,7 +101,13 @@ def _seed_catalog(session: Session) -> None:
             RepositoryAnalysisResult(
                 github_repository_id=101,
                 monetization_potential=RepositoryMonetizationPotential.HIGH,
+                category=RepositoryCategory.WORKFLOW,
+                category_confidence_score=82,
+                confidence_score=76,
+                agent_tags=["workflow", "commercial-ready"],
+                suggested_new_tags=["approval"],
                 pros=["Strong funnel"],
+                source_metadata={"analysis_outcome": "completed"},
                 analyzed_at=now,
             ),
             RepositoryAnalysisResult(
@@ -185,7 +192,12 @@ def test_list_repository_catalog_returns_default_sort_and_pagination(tmp_path: P
     assert page.items[0].is_starred is False
     assert page.items[0].user_tags == []
     assert page.items[0].firehose_discovery_mode is RepositoryFirehoseMode.TRENDING
-    assert page.items[0].agent_tags == ["trending"]
+    assert page.items[0].category is RepositoryCategory.WORKFLOW
+    assert page.items[0].category_confidence_score == 82
+    assert page.items[0].confidence_score == 76
+    assert page.items[0].analysis_outcome == "completed"
+    assert page.items[0].agent_tags == ["trending", "workflow", "commercial-ready"]
+    assert page.items[0].suggested_new_tags == ["approval"]
 
 
 def test_list_repository_catalog_supports_combined_filters_and_search(tmp_path: Path) -> None:

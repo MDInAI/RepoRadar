@@ -13,6 +13,7 @@ export function Sidebar() {
     { href: "/control", label: "Control Panel", icon: "🎛️" },
     { href: "/agents", label: "Agents", icon: "🤖" },
     { href: "/repositories", label: "Repositories", icon: "📦" },
+    { href: "/taxonomy", label: "Taxonomy QA", icon: "🏷️" },
     { href: "/ideas", label: "Ideas", icon: "💡" },
     { href: "/incidents", label: "Incidents", icon: "⚠️" },
     { href: "/settings", label: "Settings", icon: "⚙️" },

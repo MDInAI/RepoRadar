@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
+import hashlib
 import json
 import logging
 import re
@@ -25,9 +26,65 @@ from agentic_workers.storage.backend_models import (
     RepositoryTriageExplanationKind,
     RepositoryTriageStatus,
 )
-from agentic_workers.storage.agent_progress_snapshots import write_agent_progress_snapshot
+from agentic_workers.storage.agent_progress_snapshots import (
+    clear_agent_progress_snapshot,
+    write_agent_progress_snapshot,
+)
 
 logger = logging.getLogger(__name__)
+
+TRIAGE_LOGIC_VERSION = "20260316_semantic_allowlist_v1"
+
+RULE_ALIASES: dict[str, tuple[str, ...]] = {
+    "saas": (
+        "subscription",
+        "billing",
+        "invoicing",
+        "multitenant",
+        "multi-tenant",
+        "tenant",
+        "customer portal",
+        "crm",
+        "b2b",
+    ),
+    "developer tools": (
+        "developer tooling",
+        "devtools",
+        "tooling",
+        "automation",
+        "workflow",
+        "agent",
+        "agents",
+        "skill",
+        "skills",
+        "sdk",
+        "cli",
+        "plugin",
+        "plugins",
+        "extension",
+        "extensions",
+        "framework",
+        "openclaw",
+        "prompt",
+        "orchestration",
+    ),
+    "infrastructure": (
+        "infra",
+        "platform engineering",
+        "kubernetes",
+        "docker",
+        "container",
+        "terraform",
+        "helm",
+        "deployment",
+        "gateway",
+        "proxy",
+        "cloud",
+        "cluster",
+        "observability",
+        "devops",
+    ),
+}
 
 
 class BouncerRunStatus(StrEnum):
@@ -84,6 +141,7 @@ def run_bouncer_job(
 ) -> BouncerRunResult:
     # Check if agent is paused
     if is_agent_paused(session, "bouncer"):
+        clear_agent_progress_snapshot(runtime_dir=runtime_dir, agent_name="bouncer")
         logger.info("Bouncer is paused, skipping run")
         return BouncerRunResult(
             status=BouncerRunStatus.SKIPPED_PAUSED,
@@ -93,7 +151,17 @@ def run_bouncer_job(
 
     normalized_include_rules = _normalize_rules(include_rules)
     normalized_exclude_rules = _normalize_rules(exclude_rules)
+    triage_config_fingerprint = _compute_triage_config_fingerprint(
+        include_rules=normalized_include_rules,
+        exclude_rules=normalized_exclude_rules,
+    )
     artifact_writer = write_artifact or _write_run_artifact
+
+    refreshed_count = _refresh_stale_triage_decisions(
+        session=session,
+        include_rules=normalized_include_rules,
+        exclude_rules=normalized_exclude_rules,
+    )
 
     queue_rows = session.exec(
         select(RepositoryIntake)
@@ -110,7 +178,11 @@ def run_bouncer_job(
         total_items=total_items,
         outcomes=outcomes,
         current_target=queue_rows[0].full_name if queue_rows else None,
-        current_activity="Preparing pending repositories for triage.",
+        current_activity=(
+            "Preparing pending repositories for triage."
+            if refreshed_count <= 0
+            else f"Preparing triage queue. Refreshed {refreshed_count} stale allowlist decisions."
+        ),
     )
     for row in queue_rows:
         if should_stop is not None and should_stop():
@@ -149,6 +221,8 @@ def run_bouncer_job(
                 github_repository_id=row.github_repository_id,
                 decision=decision,
                 explained_at=completed_at,
+                triage_logic_version=TRIAGE_LOGIC_VERSION,
+                triage_config_fingerprint=triage_config_fingerprint,
             )
             session.add(row)
             session.commit()
@@ -340,11 +414,6 @@ def evaluate_repository(
     exclude_rules: tuple[str, ...],
 ) -> BouncerDecision:
     haystack = _normalized_haystack(full_name=full_name, description=description)
-    
-    def _matches_rule(rule: str, text: str) -> bool:
-        # Use word boundaries so "saas" doesn't match "isaas"
-        escaped = re.escape(rule)
-        return bool(re.search(rf"\b{escaped}\b", text))
 
     matched_exclude_rules = tuple(rule for rule in exclude_rules if _matches_rule(rule, haystack))
     matched_include_rules = tuple(rule for rule in include_rules if _matches_rule(rule, haystack))
@@ -402,6 +471,97 @@ def _normalized_haystack(*, full_name: str, description: str | None) -> str:
     ).strip()
 
 
+def _matches_rule(rule: str, text: str) -> bool:
+    candidates = (rule, *RULE_ALIASES.get(rule, ()))
+    return any(_matches_phrase(candidate, text) for candidate in candidates)
+
+
+def _matches_phrase(phrase: str, text: str) -> bool:
+    escaped = re.escape(phrase)
+    return bool(re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", text))
+
+
+def _compute_triage_config_fingerprint(
+    *,
+    include_rules: tuple[str, ...],
+    exclude_rules: tuple[str, ...],
+) -> str:
+    serialized = json.dumps(
+        {
+            "include_rules": list(include_rules),
+            "exclude_rules": list(exclude_rules),
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:16]
+
+
+def _refresh_stale_triage_decisions(
+    *,
+    session: Session,
+    include_rules: tuple[str, ...],
+    exclude_rules: tuple[str, ...],
+) -> int:
+    fingerprint = _compute_triage_config_fingerprint(
+        include_rules=include_rules,
+        exclude_rules=exclude_rules,
+    )
+    try:
+        rejected_rows = session.exec(
+            select(RepositoryIntake)
+            .join(
+                RepositoryTriageExplanation,
+                RepositoryTriageExplanation.github_repository_id
+                == RepositoryIntake.github_repository_id,
+            )
+            .where(RepositoryIntake.triage_status == RepositoryTriageStatus.REJECTED)
+            .where(RepositoryIntake.queue_status == RepositoryQueueStatus.COMPLETED)
+            .where(
+                RepositoryTriageExplanation.explanation_kind
+                == RepositoryTriageExplanationKind.ALLOWLIST_MISS
+            )
+        ).all()
+    except Exception:
+        logger.warning("Failed to load stale triage decisions for refresh", exc_info=True)
+        return 0
+
+    refreshed_count = 0
+    refreshed_at = datetime.now(timezone.utc)
+    for row in rejected_rows:
+        try:
+            explanation = session.get(RepositoryTriageExplanation, row.github_repository_id)
+        except Exception:
+            logger.warning(
+                "Failed to inspect stale triage explanation for %s",
+                row.full_name,
+                exc_info=True,
+            )
+            continue
+        if explanation is None:
+            continue
+        if (
+            explanation.triage_logic_version == TRIAGE_LOGIC_VERSION
+            and explanation.triage_config_fingerprint == fingerprint
+        ):
+            continue
+        row.queue_status = RepositoryQueueStatus.PENDING
+        row.triage_status = RepositoryTriageStatus.PENDING
+        row.triaged_at = None
+        row.processing_started_at = None
+        row.processing_completed_at = None
+        row.status_updated_at = refreshed_at
+        session.add(row)
+        refreshed_count += 1
+
+    if refreshed_count > 0:
+        session.commit()
+        logger.info(
+            "Refreshed %s stale allowlist triage decisions for Bouncer re-evaluation",
+            refreshed_count,
+        )
+    return refreshed_count
+
+
 def _determine_status(
     outcomes: list[BouncerRepositoryOutcome],
     *,
@@ -428,6 +588,8 @@ def _upsert_triage_explanation(
     github_repository_id: int,
     decision: BouncerDecision,
     explained_at: datetime,
+    triage_logic_version: str,
+    triage_config_fingerprint: str,
 ) -> None:
     values = {
         "github_repository_id": github_repository_id,
@@ -436,6 +598,8 @@ def _upsert_triage_explanation(
         "matched_include_rules": list(decision.matched_include_rules),
         "matched_exclude_rules": list(decision.matched_exclude_rules),
         "explained_at": explained_at,
+        "triage_logic_version": triage_logic_version,
+        "triage_config_fingerprint": triage_config_fingerprint,
     }
     update_values = {
         key: value

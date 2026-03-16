@@ -208,7 +208,11 @@ class RepositoryCatalogItemResponse(BaseModel):
     analysis_failed_at: datetime | None = None
     failure: RepositoryFailureContextResponse | None = None
     category: RepositoryCategory | None = None
+    category_confidence_score: int | None = None
+    confidence_score: int | None = None
+    analysis_outcome: str | None = None
     agent_tags: list[str] = Field(default_factory=list)
+    suggested_new_tags: list[str] = Field(default_factory=list)
     monetization_potential: RepositoryMonetizationPotential | None = None
     has_readme_artifact: bool = False
     has_analysis_artifact: bool = False

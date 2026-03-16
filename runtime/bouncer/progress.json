@@ -1,16 +1,16 @@
 {
-  "completed_count": 97,
+  "completed_count": 220,
   "current_activity": "Bouncer run completed.",
   "current_target": null,
   "details": [
-    "Completed decisions: 97",
+    "Completed decisions: 220",
     "Failed decisions: 0"
   ],
-  "generated_at": "2026-03-16T14:35:54.325468+00:00",
+  "generated_at": "2026-03-16T19:39:41.557636+00:00",
   "progress_percent": 100,
   "remaining_count": 0,
   "source": "triage queue snapshot",
   "status_label": "success",
-  "total_count": 97,
+  "total_count": 220,
   "unit_label": "repos"
 }

@@ -2433,16 +2433,47 @@ export default function ControlPanel() {
                   agentId={selectedAgent}
                   queue={runtimeQueue}
                   latestRun={agentStatus?.latest_run}
-                  backfillTimeline={undefined}
-                  isEditingBackfillTimeline={false}
-                  backfillTimelineDraft={{ oldest_date_in_window: "", newest_boundary_exclusive: "" }}
-                  backfillTimelineSaveMessage={null}
-                  backfillTimelineSaveError={null}
-                  isSavingBackfillTimeline={false}
-                  onStartEditBackfillTimeline={() => {}}
-                  onCancelEditBackfillTimeline={() => {}}
-                  onChangeBackfillTimeline={() => {}}
-                  onSaveBackfillTimeline={() => {}}
+                  backfillTimeline={backfillTimelineQuery.data}
+                  isEditingBackfillTimeline={isEditingBackfillTimeline}
+                  backfillTimelineDraft={backfillTimelineDraft}
+                  backfillTimelineSaveMessage={backfillTimelineSaveMessage}
+                  backfillTimelineSaveError={
+                    backfillTimelineMutation.error instanceof Error
+                      ? backfillTimelineMutation.error.message
+                      : null
+                  }
+                  isSavingBackfillTimeline={backfillTimelineMutation.isPending}
+                  onStartEditBackfillTimeline={() => {
+                    const source = backfillTimelineQuery.data;
+                    setBackfillTimelineDraft({
+                      oldest_date_in_window:
+                        source?.oldest_date_in_window ?? runtimeBackfillCheckpoint?.window_start_date ?? "",
+                      newest_boundary_exclusive:
+                        source?.newest_boundary_exclusive
+                        ?? runtimeBackfillCheckpoint?.created_before_boundary
+                        ?? "",
+                    });
+                    setBackfillTimelineSaveMessage(null);
+                    setIsEditingBackfillTimeline(true);
+                  }}
+                  onCancelEditBackfillTimeline={() => {
+                    setIsEditingBackfillTimeline(false);
+                    setBackfillTimelineDraft({
+                      oldest_date_in_window:
+                        backfillTimelineQuery.data?.oldest_date_in_window
+                        ?? runtimeBackfillCheckpoint?.window_start_date
+                        ?? "",
+                      newest_boundary_exclusive:
+                        backfillTimelineQuery.data?.newest_boundary_exclusive
+                        ?? runtimeBackfillCheckpoint?.created_before_boundary
+                        ?? "",
+                    });
+                  }}
+                  onChangeBackfillTimeline={(key, value) => {
+                    setBackfillTimelineSaveMessage(null);
+                    setBackfillTimelineDraft((current) => ({ ...current, [key]: value }));
+                  }}
+                  onSaveBackfillTimeline={() => backfillTimelineMutation.mutate(backfillTimelineDraft)}
                 />
                 <MetadataPanels entry={agentStatus} />
               </>

@@ -420,6 +420,7 @@ class AgentEventService:
             pause_state.is_paused = False
             pause_state.resumed_at = datetime.now(timezone.utc)
             pause_state.resumed_by = ResumedBy.OPERATOR
+            pause_state.triggered_by_event_id = None
 
             updated_state = self.repository.update_agent_pause_state(pause_state)
 
@@ -470,6 +471,7 @@ class AgentEventService:
         pause_state.paused_at = datetime.now(timezone.utc)
         pause_state.pause_reason = pause_reason
         pause_state.resume_condition = resume_condition
+        pause_state.triggered_by_event_id = None
         updated_state = self.repository.update_agent_pause_state(pause_state)
 
         self.repository.create_system_event(

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session
+from sqlmodel import select
 
 from agentic_workers.storage.backend_models import (
     AgentRun,
@@ -15,8 +16,24 @@ from agentic_workers.storage.backend_models import (
 )
 
 
+class DuplicateActiveAgentRunError(RuntimeError):
+    def __init__(self, agent_name: str) -> None:
+        super().__init__(f"Agent '{agent_name}' already has an active run.")
+        self.agent_name = agent_name
+
+
 def start_agent_run(session: Session, agent_name: str) -> int:
     try:
+        _reconcile_stale_running_runs(session, agent_name)
+        active_run = session.exec(
+            select(AgentRun)
+            .where(AgentRun.agent_name == agent_name)
+            .where(AgentRun.status == AgentRunStatus.RUNNING)
+            .order_by(AgentRun.started_at.desc(), AgentRun.id.desc())
+        ).first()
+        if active_run is not None:
+            raise DuplicateActiveAgentRunError(agent_name)
+
         run = AgentRun(agent_name=agent_name, status=AgentRunStatus.RUNNING)
         session.add(run)
         session.flush()
@@ -39,6 +56,32 @@ def start_agent_run(session: Session, agent_name: str) -> int:
         raise
 
     return run.id
+
+
+def _reconcile_stale_running_runs(session: Session, agent_name: str) -> None:
+    stale_before = datetime.now(timezone.utc) - timedelta(minutes=10)
+    running_runs = session.exec(
+        select(AgentRun)
+        .where(AgentRun.agent_name == agent_name)
+        .where(AgentRun.status == AgentRunStatus.RUNNING)
+        .where(AgentRun.started_at <= stale_before)
+        .order_by(AgentRun.started_at.asc(), AgentRun.id.asc())
+    ).all()
+    if not running_runs:
+        return
+
+    recovered_at = datetime.now(timezone.utc)
+    for run in running_runs:
+        run.status = AgentRunStatus.FAILED
+        run.completed_at = recovered_at
+        run.duration_seconds = max((recovered_at - run.started_at).total_seconds(), 0.0)
+        run.error_summary = "Recovered stale running job before a new run started."
+        run.error_context = (
+            "The worker recovered this run automatically because it remained running "
+            "beyond the stale timeout window."
+        )
+        session.add(run)
+    session.flush()
 
 
 def complete_agent_run(

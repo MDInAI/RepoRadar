@@ -15,7 +15,11 @@ import { fetchGatewayRuntime } from "@/api/readiness";
 import { GitHubBudgetPanel } from "@/components/agents/GitHubBudgetPanel";
 import { AgentOperatorSummary } from "@/components/agents/AgentOperatorSummary";
 import { OperationalAlertsPanel } from "@/components/agents/OperationalAlertsPanel";
-import { buildLatestActiveFailureByAgent } from "@/components/agents/alertState";
+import { AcceptedAnalysisQueuePanel } from "@/components/agents/AcceptedAnalysisQueuePanel";
+import {
+  buildLatestActiveFailureByAgent,
+  isAgentEffectivelyRunning,
+} from "@/components/agents/alertState";
 
 export default function OverviewPage() {
   const recentFailureSince = useMemo(
@@ -70,8 +74,21 @@ export default function OverviewPage() {
     );
   }
 
-  const runningAgents = data?.agents.filter(a => !a.is_paused && a.status === 'running').length || 0;
-  const readyAgents = data?.agents.filter(a => !a.is_paused && a.status !== 'running' && a.status !== 'failed').length || 0;
+  const latestRunAgents = latestRunsQuery.data?.agents ?? [];
+  const pauseStates = pauseStatesQuery.data ?? [];
+  const runningAgentNames = new Set<string>(
+    latestRunAgents
+      .filter((entry) =>
+        isAgentEffectivelyRunning(
+          entry,
+          pauseStates.find((state) => state.agent_name === entry.agent_name),
+        ),
+      )
+      .map((entry) => entry.agent_name),
+  );
+  const runningAgents = runningAgentNames.size;
+  const readyAgents =
+    data?.agents.filter((agent) => !agent.is_paused && !runningAgentNames.has(agent.agent_name) && agent.status !== 'failed').length || 0;
   const healthyAgents = data?.agents.filter(a => !a.is_paused && a.status !== 'failed').length || 0;
   const reposDiscovered24h = data?.ingestion.discovered_last_24h || 0;
   const acceptedRepos = data?.triage.accepted || 0;
@@ -83,8 +100,6 @@ export default function OverviewPage() {
   const topTokenAgent = data?.agents.find(
     (agent) => agent.agent_name === data?.token_usage.top_consumer_agent_name,
   );
-  const latestRunAgents = latestRunsQuery.data?.agents ?? [];
-  const pauseStates = pauseStatesQuery.data ?? [];
   const activeFailureByAgent = buildLatestActiveFailureByAgent(
     failureEventsQuery.data ?? [],
     latestRunAgents,
@@ -240,6 +255,13 @@ export default function OverviewPage() {
               </div>
             </div>
 
+            <div className="mb-16">
+              <AcceptedAnalysisQueuePanel
+                pendingCount={data.analysis.pending}
+                title="Accepted Repos Waiting For Analyst"
+              />
+            </div>
+
             <div className="section-head">
               <span className="section-title">Operator Control</span>
               <div className="section-line"></div>
@@ -279,12 +301,21 @@ export default function OverviewPage() {
               <div className="card">
                 <div className="card-header"><span className="card-title">Agent Matrix</span></div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {data.agents.map((agent) => (
+                  {data.agents.map((agent) => {
+                      const latestEntry = latestRunAgents.find((entry) => entry.agent_name === agent.agent_name);
+                      const pauseState = pauseStates.find((state) => state.agent_name === agent.agent_name);
+                      const badgeTone = agent.is_paused
+                        ? "red"
+                        : isAgentEffectivelyRunning(latestEntry, pauseState)
+                          ? "yellow"
+                          : "green";
+                      return (
                     <div key={agent.agent_name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
                       <span style={{ fontSize: '12px', color: 'var(--text-0)' }}>{agent.agent_name}</span>
-                      <span className={`badge badge-${agent.is_paused ? 'red' : agent.status === 'running' ? 'yellow' : 'green'}`}>●</span>
+                      <span className={`badge badge-${badgeTone}`}>●</span>
                     </div>
-                  ))}
+                      );
+                    })}
                 </div>
               </div>
               <div className="card">

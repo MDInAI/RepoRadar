@@ -1,6 +1,7 @@
 import type {
   AgentName,
   AgentPauseState,
+  AgentRuntimeProgress,
   AgentStatusEntry,
   FailureEventPayload,
 } from "@/api/agents";
@@ -32,13 +33,50 @@ function latestKnownRecoveryTimestamp(
   return Math.max(...candidates);
 }
 
+function hasFreshRuntimeUpdate(progress: AgentRuntimeProgress | null | undefined): boolean {
+  if (!progress?.updated_at) {
+    return false;
+  }
+  const updatedAt = toTimestamp(progress.updated_at);
+  if (updatedAt == null) {
+    return false;
+  }
+  return Date.now() - updatedAt <= 2 * 60 * 1000;
+}
+
+function isRuntimeActivityWaiting(progress: AgentRuntimeProgress | null | undefined): boolean {
+  const activity = progress?.current_activity?.trim().toLowerCase() ?? "";
+  const statusLabel = progress?.status_label?.trim().toLowerCase() ?? "";
+  return (
+    activity.startsWith("waiting ") ||
+    activity.startsWith("idle") ||
+    activity.includes("no active") ||
+    activity.includes("no accepted repositories") ||
+    statusLabel === "idle" ||
+    statusLabel === "waiting"
+  );
+}
+
+export function isAgentEffectivelyRunning(
+  statusEntry: AgentStatusEntry | undefined,
+  pauseState: AgentPauseState | undefined,
+): boolean {
+  if (!statusEntry || pauseState?.is_paused) {
+    return false;
+  }
+  if (statusEntry.latest_run?.status === "running") {
+    return true;
+  }
+  return hasFreshRuntimeUpdate(statusEntry.runtime_progress) && !isRuntimeActivityWaiting(statusEntry.runtime_progress);
+}
+
 export function isFailureStillActive(
   event: FailureEventPayload,
   statusEntry: AgentStatusEntry | undefined,
   pauseState: AgentPauseState | undefined,
 ): boolean {
   if (pauseState?.is_paused) {
-    return true;
+    return pauseState.triggered_by_event_id === event.id;
   }
 
   const failureAt = toTimestamp(event.created_at);

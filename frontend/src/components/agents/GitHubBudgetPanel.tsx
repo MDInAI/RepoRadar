@@ -11,6 +11,17 @@ function formatBudgetValue(value: number | null): string {
   return value.toLocaleString();
 }
 
+function isSnapshotStale(snapshot: GitHubApiBudgetSnapshot | null | undefined): boolean {
+  if (!snapshot?.captured_at) {
+    return false;
+  }
+  const capturedAt = Date.parse(snapshot.captured_at);
+  if (Number.isNaN(capturedAt)) {
+    return false;
+  }
+  return Date.now() - capturedAt > 10 * 60 * 1000;
+}
+
 function deriveBudgetStatus(snapshot: GitHubApiBudgetSnapshot | null | undefined): {
   label: string;
   tone: string;
@@ -21,6 +32,17 @@ function deriveBudgetStatus(snapshot: GitHubApiBudgetSnapshot | null | undefined
       label: "No budget data yet",
       tone: "var(--text-2)",
       guidance: "No GitHub response has been captured yet, so the shared GitHub quota is still unknown.",
+    };
+  }
+
+  if (isSnapshotStale(snapshot)) {
+    return {
+      label: "Last known budget",
+      tone: "var(--text-2)",
+      guidance:
+        snapshot.reset_at != null && Date.parse(snapshot.reset_at) <= Date.now()
+          ? "This quota snapshot is older than the last reset window. Treat it as historical until a new GitHub response refreshes it."
+          : "This card is showing the last captured GitHub quota snapshot. It is not proof that requests are happening right now.",
     };
   }
 
@@ -63,6 +85,7 @@ export function GitHubBudgetPanel({
   title?: string;
 }) {
   const status = deriveBudgetStatus(snapshot);
+  const stale = isSnapshotStale(snapshot);
   const limit = snapshot?.limit ?? null;
   const remaining = snapshot?.remaining ?? null;
   const used = snapshot?.used ?? null;
@@ -142,6 +165,11 @@ export function GitHubBudgetPanel({
       >
         <div className="card-label">Operator Guidance</div>
         <div style={{ color: "var(--text-0)", marginTop: "6px", lineHeight: 1.6 }}>{status.guidance}</div>
+        {stale ? (
+          <div style={{ color: "var(--text-2)", marginTop: "6px", fontSize: "12px" }}>
+            No recent GitHub response has refreshed this card, so use it as last-known quota state only.
+          </div>
+        ) : null}
         {snapshot?.request_url ? (
           <div style={{ color: "var(--text-2)", marginTop: "6px", fontSize: "12px" }}>
             Latest request: {snapshot.request_url}
