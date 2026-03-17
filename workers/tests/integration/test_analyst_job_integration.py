@@ -94,6 +94,8 @@ def _current_analysis_row(repository_id: int) -> RepositoryAnalysisResult:
             "analysis_evidence_version": "fast-evidence-v1",
             "analysis_summary_short": "Current evidence-backed analysis is present.",
             "score_breakdown": {"technical_maturity_score": 50},
+            "analysis_provider": "heuristic-readme-analysis",
+            "analysis_model_name": None,
         },
         monetization_potential="medium",
         category=RepositoryCategory.WORKFLOW,

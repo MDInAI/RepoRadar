@@ -184,6 +184,50 @@ export interface GitHubApiBudgetSnapshot {
   reset_at: string | null;
   retry_after_seconds: number | null;
   exhausted: boolean | null;
+  tokens: GitHubTokenBudgetSnapshot[];
+}
+
+export interface GitHubTokenResourceBudgetSnapshot {
+  resource: string;
+  captured_at: string | null;
+  limit: number | null;
+  remaining: number | null;
+  used: number | null;
+  reset_at: string | null;
+  retry_after_seconds: number | null;
+  exhausted: boolean | null;
+}
+
+export interface GitHubTokenBudgetSnapshot {
+  label: string;
+  captured_at: string;
+  last_response_status: number | null;
+  request_url: string | null;
+  resource: string | null;
+  limit: number | null;
+  remaining: number | null;
+  used: number | null;
+  reset_at: string | null;
+  retry_after_seconds: number | null;
+  exhausted: boolean | null;
+  resource_budgets: GitHubTokenResourceBudgetSnapshot[];
+}
+
+export interface GeminiApiKeySnapshot {
+  label: string;
+  status: string;
+  last_used_at: string | null;
+  cooldown_until: string | null;
+  last_error: string | null;
+  last_response_status: number | null;
+}
+
+export interface GeminiApiKeyPoolSnapshot {
+  provider: "gemini-compatible";
+  captured_at: string;
+  model_name: string | null;
+  base_url: string | null;
+  keys: GeminiApiKeySnapshot[];
 }
 
 export interface GatewaySessionAgentContext {
@@ -218,6 +262,7 @@ export interface GatewayRuntimeSurfaceResponse {
     route_owner: string;
     agent_states: GatewayNamedAgentSummary[];
     github_api_budget: GitHubApiBudgetSnapshot | null;
+    gemini_api_key_pool: GeminiApiKeyPoolSnapshot | null;
     notes: string[];
   };
 }

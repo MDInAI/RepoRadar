@@ -1,0 +1,153 @@
+{
+  "generated_at": "2026-03-16T22:33:18.139806+00:00",
+  "outcomes": [
+    {
+      "analysis_status": "completed",
+      "artifact_error": null,
+      "failure_code": null,
+      "failure_message": null,
+      "full_name": "VisionXLab/EvoTok",
+      "github_repository_id": 1180452908,
+      "monetization_potential": "medium",
+      "runtime_analysis_artifact_path": "data/analyses/1180452908.json",
+      "runtime_readme_artifact_path": "data/readmes/1180452908.md"
+    },
+    {
+      "analysis_status": "completed",
+      "artifact_error": null,
+      "failure_code": null,
+      "failure_message": null,
+      "full_name": "ArrCee76/magnetar",
+      "github_repository_id": 1180469941,
+      "monetization_potential": "low",
+      "runtime_analysis_artifact_path": "data/analyses/1180469941.json",
+      "runtime_readme_artifact_path": "data/readmes/1180469941.md"
+    },
+    {
+      "analysis_status": "completed",
+      "artifact_error": null,
+      "failure_code": null,
+      "failure_message": null,
+      "full_name": "ChewingGlass/solana-graph-explorer",
+      "github_repository_id": 1180470798,
+      "monetization_potential": "medium",
+      "runtime_analysis_artifact_path": "data/analyses/1180470798.json",
+      "runtime_readme_artifact_path": "data/readmes/1180470798.md"
+    },
+    {
+      "analysis_status": "completed",
+      "artifact_error": null,
+      "failure_code": null,
+      "failure_message": null,
+      "full_name": "bamboo-moon/zhisaotong-Agent",
+      "github_repository_id": 1180492533,
+      "monetization_potential": "medium",
+      "runtime_analysis_artifact_path": "data/analyses/1180492533.json",
+      "runtime_readme_artifact_path": "data/readmes/1180492533.md"
+    },
+    {
+      "analysis_status": "completed",
+      "artifact_error": null,
+      "failure_code": null,
+      "failure_message": null,
+      "full_name": "AscendGrace/dejavu",
+      "github_repository_id": 1180504235,
+      "monetization_potential": "medium",
+      "runtime_analysis_artifact_path": "data/analyses/1180504235.json",
+      "runtime_readme_artifact_path": "data/readmes/1180504235.md"
+    },
+    {
+      "analysis_status": "completed",
+      "artifact_error": null,
+      "failure_code": null,
+      "failure_message": null,
+      "full_name": "KeqingMoe/moonbridge",
+      "github_repository_id": 1180532168,
+      "monetization_potential": "low",
+      "runtime_analysis_artifact_path": "data/analyses/1180532168.json",
+      "runtime_readme_artifact_path": "data/readmes/1180532168.md"
+    },
+    {
+      "analysis_status": "completed",
+      "artifact_error": null,
+      "failure_code": null,
+      "failure_message": null,
+      "full_name": "kylezantos/soleio-design-hiring",
+      "github_repository_id": 1180535429,
+      "monetization_potential": "medium",
+      "runtime_analysis_artifact_path": "data/analyses/1180535429.json",
+      "runtime_readme_artifact_path": "data/readmes/1180535429.md"
+    },
+    {
+      "analysis_status": "completed",
+      "artifact_error": null,
+      "failure_code": null,
+      "failure_message": null,
+      "full_name": "Sudashiii/Sake",
+      "github_repository_id": 1180538023,
+      "monetization_potential": "low",
+      "runtime_analysis_artifact_path": "data/analyses/1180538023.json",
+      "runtime_readme_artifact_path": "data/readmes/1180538023.md"
+    },
+    {
+      "analysis_status": "completed",
+      "artifact_error": null,
+      "failure_code": null,
+      "failure_message": null,
+      "full_name": "ferronweb/vibeio",
+      "github_repository_id": 1180560659,
+      "monetization_potential": "low",
+      "runtime_analysis_artifact_path": "data/analyses/1180560659.json",
+      "runtime_readme_artifact_path": "data/readmes/1180560659.md"
+    },
+    {
+      "analysis_status": "completed",
+      "artifact_error": null,
+      "failure_code": null,
+      "failure_message": null,
+      "full_name": "uhbhy/Advanced-Python",
+      "github_repository_id": 1180561642,
+      "monetization_potential": "medium",
+      "runtime_analysis_artifact_path": "data/analyses/1180561642.json",
+      "runtime_readme_artifact_path": "data/readmes/1180561642.md"
+    },
+    {
+      "analysis_status": "completed",
+      "artifact_error": null,
+      "failure_code": null,
+      "failure_message": null,
+      "full_name": "jonas1ara/Llama.fs",
+      "github_repository_id": 1180567977,
+      "monetization_potential": "medium",
+      "runtime_analysis_artifact_path": "data/analyses/1180567977.json",
+      "runtime_readme_artifact_path": "data/readmes/1180567977.md"
+    },
+    {
+      "analysis_status": "completed",
+      "artifact_error": null,
+      "failure_code": null,
+      "failure_message": null,
+      "full_name": "XoomitLXH/baoyan-radar-skill",
+      "github_repository_id": 1180568547,
+      "monetization_potential": "low",
+      "runtime_analysis_artifact_path": "data/analyses/1180568547.json",
+      "runtime_readme_artifact_path": "data/readmes/1180568547.md"
+    },
+    {
+      "analysis_status": "completed",
+      "artifact_error": null,
+      "failure_code": null,
+      "failure_message": null,
+      "full_name": "IonutMocanu/Universal-robot-commander-unity",
+      "github_repository_id": 1180579541,
+      "monetization_potential": "low",
+      "runtime_analysis_artifact_path": "data/analyses/1180579541.json",
+      "runtime_readme_artifact_path": "data/readmes/1180579541.md"
+    }
+  ],
+  "status": "skipped",
+  "summary": {
+    "completed": 13,
+    "failed": 0
+  }
+}

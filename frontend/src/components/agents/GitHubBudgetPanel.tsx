@@ -1,6 +1,10 @@
 "use client";
 
-import type { GitHubApiBudgetSnapshot } from "@/lib/gateway-contract";
+import type {
+  GitHubApiBudgetSnapshot,
+  GitHubTokenBudgetSnapshot,
+  GitHubTokenResourceBudgetSnapshot,
+} from "@/lib/gateway-contract";
 
 import { formatRelativeTimestamp, formatTimestampLabel } from "./agentPresentation";
 
@@ -9,6 +13,39 @@ function formatBudgetValue(value: number | null): string {
     return "Unavailable";
   }
   return value.toLocaleString();
+}
+
+function computeCombinedTokenCapacity(tokens: GitHubTokenBudgetSnapshot[] | undefined): {
+  totalLimit: number | null;
+  totalRemaining: number | null;
+  observedTokens: number;
+  configuredTokens: number;
+} {
+  if (!tokens?.length) {
+    return { totalLimit: null, totalRemaining: null, observedTokens: 0, configuredTokens: 0 };
+  }
+  let limitKnown = false;
+  let remainingKnown = false;
+  let totalLimit = 0;
+  let totalRemaining = 0;
+  let observedTokens = 0;
+  for (const token of tokens) {
+    if (token.limit != null) {
+      limitKnown = true;
+      totalLimit += token.limit;
+      observedTokens += 1;
+    }
+    if (token.remaining != null) {
+      remainingKnown = true;
+      totalRemaining += token.remaining;
+    }
+  }
+  return {
+    totalLimit: limitKnown ? totalLimit : null,
+    totalRemaining: remainingKnown ? totalRemaining : null,
+    observedTokens,
+    configuredTokens: tokens.length,
+  };
 }
 
 function isSnapshotStale(snapshot: GitHubApiBudgetSnapshot | null | undefined): boolean {
@@ -77,6 +114,64 @@ function deriveBudgetStatus(snapshot: GitHubApiBudgetSnapshot | null | undefined
   };
 }
 
+function formatTokenStatus(token: GitHubTokenBudgetSnapshot): {
+  label: string;
+  tone: string;
+  guidance: string;
+} {
+  if (token.exhausted || (token.remaining ?? 1) <= 0) {
+    return {
+      label: "Exhausted",
+      tone: "var(--red)",
+      guidance:
+        token.reset_at != null
+          ? `This token is exhausted. It should cool down until about ${formatTimestampLabel(token.reset_at)}.`
+          : "This token is exhausted. Wait for GitHub to reset it before relying on it again.",
+    };
+  }
+
+  if (token.limit != null && token.remaining != null) {
+    const ratio = token.limit > 0 ? token.remaining / token.limit : 0;
+    if (ratio <= 0.1 || token.remaining <= 250) {
+      return {
+        label: "Low",
+        tone: "var(--amber)",
+        guidance: "This token is still usable, but it is getting tight. Prefer other healthy tokens first.",
+      };
+    }
+  }
+
+  return {
+    label: "Healthy",
+    tone: "var(--green)",
+    guidance: "This token currently looks healthy enough for GitHub work.",
+  };
+}
+
+function renderResourceBudget(resource: GitHubTokenResourceBudgetSnapshot) {
+  return (
+    <div
+      key={resource.resource}
+      style={{
+        background: "var(--bg-3)",
+        border: "1px solid var(--border)",
+        borderRadius: "8px",
+        padding: "10px",
+      }}
+    >
+      <div className="card-label" style={{ textTransform: "capitalize" }}>
+        {resource.resource}
+      </div>
+      <div style={{ color: "var(--text-0)", marginTop: "6px" }}>
+        {formatBudgetValue(resource.remaining)} / {formatBudgetValue(resource.limit)}
+      </div>
+      <div style={{ color: "var(--text-2)", fontSize: "12px", marginTop: "4px" }}>
+        Reset: {resource.reset_at ? formatTimestampLabel(resource.reset_at) : "Unavailable"}
+      </div>
+    </div>
+  );
+}
+
 export function GitHubBudgetPanel({
   snapshot,
   title = "GitHub API Budget",
@@ -89,6 +184,7 @@ export function GitHubBudgetPanel({
   const limit = snapshot?.limit ?? null;
   const remaining = snapshot?.remaining ?? null;
   const used = snapshot?.used ?? null;
+  const combinedCapacity = computeCombinedTokenCapacity(snapshot?.tokens);
   const percentRemaining =
     limit != null && remaining != null && limit > 0
       ? Math.max(0, Math.min(100, Math.round((remaining / limit) * 100)))
@@ -107,7 +203,7 @@ export function GitHubBudgetPanel({
         <div>
           <div className="card-title">{title}</div>
           <div style={{ color: "var(--text-2)", fontSize: "12px", marginTop: "4px" }}>
-            Shared quota from the latest GitHub API response seen by any worker.
+            Shared GitHub budget summary plus per-token health from the latest responses seen by the workers.
           </div>
         </div>
         <div className="badge" style={{ borderColor: status.tone, color: status.tone }}>
@@ -123,6 +219,21 @@ export function GitHubBudgetPanel({
           </div>
           <div style={{ color: "var(--text-2)", fontSize: "12px", marginTop: "4px" }}>
             {limit != null ? `${percentRemaining ?? 0}% of ${formatBudgetValue(limit)}` : "Limit unavailable"}
+          </div>
+        </div>
+        <div style={{ background: "var(--bg-3)", border: "1px solid var(--border)", borderRadius: "8px", padding: "12px" }}>
+          <div className="card-label">Pool Capacity</div>
+          <div style={{ color: "var(--text-0)", fontSize: "22px", marginTop: "6px" }}>
+            {formatBudgetValue(combinedCapacity.totalRemaining)}
+          </div>
+          <div style={{ color: "var(--text-2)", fontSize: "12px", marginTop: "4px" }}>
+            {combinedCapacity.configuredTokens === 0
+              ? "Waiting for token observations"
+              : combinedCapacity.totalLimit != null
+                ? combinedCapacity.observedTokens < combinedCapacity.configuredTokens
+                  ? `${combinedCapacity.observedTokens} of ${combinedCapacity.configuredTokens} tokens observed / ${formatBudgetValue(combinedCapacity.totalLimit)} observed budget`
+                  : `Across ${combinedCapacity.configuredTokens} tokens / ${formatBudgetValue(combinedCapacity.totalLimit)} total`
+                : `${combinedCapacity.configuredTokens} tokens configured, waiting for observed limits`}
           </div>
         </div>
         <div style={{ background: "var(--bg-3)", border: "1px solid var(--border)", borderRadius: "8px", padding: "12px" }}>
@@ -176,6 +287,89 @@ export function GitHubBudgetPanel({
           </div>
         ) : null}
       </div>
+
+      {snapshot?.tokens?.length ? (
+        <div style={{ marginTop: "12px" }}>
+          <div className="card-label" style={{ marginBottom: "8px" }}>
+            Token Pool
+          </div>
+          <div style={{ display: "grid", gap: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
+            {snapshot.tokens.map((token) => {
+              const tokenStatus = formatTokenStatus(token);
+              return (
+                <section
+                  key={token.label}
+                  style={{
+                    background: "var(--bg-2)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "10px",
+                    padding: "12px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center" }}>
+                    <div>
+                      <div className="card-title" style={{ fontSize: "14px" }}>
+                        {token.label.replace("-", " ").replace(/\b\w/g, (match) => match.toUpperCase())}
+                      </div>
+                      <div style={{ color: "var(--text-2)", fontSize: "12px", marginTop: "4px" }}>
+                        Last seen {formatRelativeTimestamp(token.captured_at)}
+                      </div>
+                    </div>
+                    <div className="badge" style={{ borderColor: tokenStatus.tone, color: tokenStatus.tone }}>
+                      {tokenStatus.label}
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: "10px", display: "grid", gap: "10px", gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+                    <div>
+                      <div className="card-label">Latest bucket</div>
+                      <div style={{ color: "var(--text-0)", marginTop: "4px", textTransform: "capitalize" }}>
+                        {token.resource ?? "Unknown"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="card-label">Latest status</div>
+                      <div style={{ color: "var(--text-0)", marginTop: "4px" }}>
+                        HTTP {token.last_response_status ?? "?"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="card-label">Remaining</div>
+                      <div style={{ color: "var(--text-0)", marginTop: "4px" }}>
+                        {formatBudgetValue(token.remaining)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="card-label">Reset</div>
+                      <div style={{ color: "var(--text-0)", marginTop: "4px" }}>
+                        {token.reset_at ? formatTimestampLabel(token.reset_at) : "Unavailable"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {token.resource_budgets.length ? (
+                    <div style={{ marginTop: "12px", display: "grid", gap: "8px" }}>
+                      <div className="card-label">Tracked buckets</div>
+                      <div style={{ display: "grid", gap: "8px", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
+                        {token.resource_budgets.map(renderResourceBudget)}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div style={{ color: "var(--text-2)", marginTop: "10px", fontSize: "12px", lineHeight: 1.5 }}>
+                    {tokenStatus.guidance}
+                  </div>
+                  {token.limit == null && token.remaining == null ? (
+                    <div style={{ color: "var(--text-2)", marginTop: "6px", fontSize: "12px" }}>
+                      This token is configured, but GitHub has not returned a quota observation for it yet in this runtime.
+                    </div>
+                  ) : null}
+                </section>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

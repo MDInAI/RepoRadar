@@ -24,6 +24,7 @@ import {
 import { fetchOverviewSummary, getOverviewSummaryQueryKey } from "@/api/overview";
 import { fetchGatewayRuntime } from "@/api/readiness";
 import { EventTimeline } from "@/components/agents/EventTimeline";
+import { GeminiKeyPoolPanel } from "@/components/agents/GeminiKeyPoolPanel";
 import { GitHubBudgetPanel } from "@/components/agents/GitHubBudgetPanel";
 import { OperationalAlertsPanel } from "@/components/agents/OperationalAlertsPanel";
 import { AcceptedAnalysisQueuePanel } from "@/components/agents/AcceptedAnalysisQueuePanel";
@@ -35,9 +36,11 @@ import {
   formatAgentName,
   formatAgentRunStatus,
   formatItemsSummary,
+  formatRunOrRuntimeSummary,
   formatRelativeTimestamp,
   formatRuntimeProgressCounts,
   formatRuntimeProgressHeadline,
+  formatRuntimeSecondaryCounts,
   getRunStatusBadgeClassName,
 } from "@/components/agents/agentPresentation";
 import { useEventStream } from "@/hooks/useEventStream";
@@ -133,8 +136,14 @@ function progressBar(progress: AgentRuntimeProgress | null | undefined) {
   );
 }
 
-function renderRuntimeQueue(agent: GatewayNamedAgentSummary | undefined) {
+function renderRuntimeQueue(
+  agentName: AgentName,
+  agent: GatewayNamedAgentSummary | undefined,
+) {
   if (!agent || !isLiveIntakeQueue(agent.queue)) {
+    if (agentName === "analyst") {
+      return "Analyst uses a run-progress snapshot instead of an intake queue checkpoint.";
+    }
     return "No live queue checkpoint";
   }
   return `${agent.queue.pending_items.toLocaleString()} pending of ${agent.queue.total_items.toLocaleString()} total`;
@@ -199,7 +208,7 @@ function describeLastRunOutcome(entry: AgentStatusEntry): string {
     return `The last completed run finished successfully: ${formatItemsSummary(entry.latest_run)}.`;
   }
   if (entry.latest_run.status === "running") {
-    return `The current run is still active: ${formatItemsSummary(entry.latest_run)}.`;
+    return `The current run is still active: ${formatRunOrRuntimeSummary(entry.latest_run, entry.runtime_progress)}.`;
   }
   if (entry.latest_run.status === "skipped_paused") {
     return "The latest attempted run did not start because the agent was already paused.";
@@ -218,20 +227,21 @@ function describeProgressMeaning(
   pauseState: AgentPauseState | undefined,
 ): string {
   const counts = formatRuntimeProgressCounts(entry.runtime_progress);
+  const secondaryCounts = formatRuntimeSecondaryCounts(entry.runtime_progress);
 
   if (pauseState?.is_paused && entry.latest_run?.status === "completed") {
-    return `${counts} describes the current blocked checkpoint, not the earlier successful run. The agent completed its last run, then became paused afterward.`;
+    return `${counts} describes the current blocked checkpoint, not the earlier successful run. ${secondaryCounts ? `${secondaryCounts} still reflects the overall corpus state. ` : ""}The agent completed its last run, then became paused afterward.`;
   }
 
   if (pauseState?.is_paused && entry.latest_run?.status === "skipped_paused") {
-    return `${counts} describes where the agent would resume after you unpause it. No work is being processed right now.`;
+    return `${counts} describes where the agent would resume after you unpause it. ${secondaryCounts ? `${secondaryCounts} is the overall corpus state. ` : ""}No work is being processed right now.`;
   }
 
   if (!pauseState?.is_paused && entry.latest_run?.status === "completed") {
-    return `${counts} is the next waiting checkpoint, not an active run. The last run already finished.`;
+    return `${counts} is the next waiting checkpoint, not an active run. ${secondaryCounts ? `${secondaryCounts} is the overall corpus state. ` : ""}The last run already finished.`;
   }
 
-  return `${counts} is the best live checkpoint snapshot currently available.`;
+  return `${counts} is the best live checkpoint snapshot currently available.${secondaryCounts ? ` ${secondaryCounts}.` : ""}`;
 }
 
 function describeRecommendedAction(
@@ -445,6 +455,18 @@ function AgentLiveCard({
 
         <div style={{ display: "grid", gap: "8px", gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
           <div>
+            <div className="card-label">Current Run Scope</div>
+            <div style={{ marginTop: "4px", color: "var(--text-1)" }}>
+              {formatRuntimeProgressCounts(entry.runtime_progress)}
+            </div>
+          </div>
+          <div>
+            <div className="card-label">Overall Corpus</div>
+            <div style={{ marginTop: "4px", color: "var(--text-1)" }}>
+              {formatRuntimeSecondaryCounts(entry.runtime_progress) ?? "Unavailable"}
+            </div>
+          </div>
+          <div>
             <div className="card-label">Next Target</div>
             <div style={{ marginTop: "4px", color: "var(--text-1)" }}>
               {entry.runtime_progress?.current_target ?? "No active target"}
@@ -453,7 +475,7 @@ function AgentLiveCard({
           <div>
             <div className="card-label">Queue Snapshot</div>
             <div style={{ marginTop: "4px", color: "var(--text-1)" }}>
-              {renderRuntimeQueue(runtimeAgent)}
+              {renderRuntimeQueue(entry.agent_name, runtimeAgent)}
             </div>
           </div>
           <div>
@@ -700,6 +722,7 @@ export default function LiveOpsPage() {
           title="Live Operator Alerts"
         />
         <GitHubBudgetPanel snapshot={gatewayRuntimeQuery.data?.runtime.github_api_budget} title="Live GitHub API Budget" />
+        <GeminiKeyPoolPanel snapshot={gatewayRuntimeQuery.data?.runtime.gemini_api_key_pool} title="Live Gemini Analyst Key Pool" />
         <AcceptedAnalysisQueuePanel
           pendingCount={overview?.analysis.pending ?? 0}
           title="Accepted Queue Waiting For Analyst"

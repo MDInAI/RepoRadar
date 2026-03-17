@@ -1,13 +1,13 @@
 {
-  "created_before_boundary": "2026-02-12",
+  "created_before_boundary": "2026-01-13",
   "created_before_cursor": null,
   "exhausted": false,
-  "generated_at": "2026-03-16T16:04:34.946257+00:00",
-  "last_checkpointed_at": "2026-03-16T16:04:34.927989+00:00",
+  "generated_at": "2026-03-16T22:11:47.302675+00:00",
+  "last_checkpointed_at": "2026-03-16T22:11:47.298933+00:00",
   "next_page": 1,
   "pages_processed_in_run": 0,
   "resume_required": false,
   "source_provider": "github",
-  "window_end_date": "2026-02-11",
-  "window_start_date": "2026-01-13"
+  "window_end_date": "2026-01-12",
+  "window_start_date": "2025-12-14"
 }

@@ -327,6 +327,32 @@ def test_gateway_contract_service_exposes_github_budget_snapshot(tmp_path: Path)
                 "reset_at": "2026-03-16T10:15:00+00:00",
                 "retry_after_seconds": 900,
                 "exhausted": True,
+                "tokens": [
+                    {
+                        "label": "token-1",
+                        "captured_at": "2026-03-16T10:00:00+00:00",
+                        "last_response_status": 403,
+                        "resource": "core",
+                        "limit": 5000,
+                        "remaining": 0,
+                        "used": 5000,
+                        "reset_at": "2026-03-16T10:15:00+00:00",
+                        "retry_after_seconds": 900,
+                        "exhausted": True,
+                        "resource_budgets": [
+                            {
+                                "resource": "core",
+                                "captured_at": "2026-03-16T10:00:00+00:00",
+                                "limit": 5000,
+                                "remaining": 0,
+                                "used": 5000,
+                                "reset_at": "2026-03-16T10:15:00+00:00",
+                                "retry_after_seconds": 900,
+                                "exhausted": True,
+                            }
+                        ],
+                    }
+                ],
             }
         ),
         encoding="utf-8",
@@ -354,6 +380,102 @@ def test_gateway_contract_service_exposes_github_budget_snapshot(tmp_path: Path)
     assert response.runtime.github_api_budget.limit == 5000
     assert response.runtime.github_api_budget.resource == "core"
     assert response.runtime.github_api_budget.exhausted is True
+    assert response.runtime.github_api_budget.tokens[0].label == "token-1"
+
+
+def test_gateway_contract_service_expands_legacy_github_budget_snapshot_to_full_token_pool(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "github").mkdir()
+    (tmp_path / "github" / "quota.json").write_text(
+        json.dumps(
+            {
+                "provider": "github",
+                "captured_at": "2026-03-16T10:00:00+00:00",
+                "last_response_status": 200,
+                "resource": "core",
+                "limit": 5000,
+                "remaining": 4111,
+                "used": 889,
+                "reset_at": "2026-03-16T11:00:00+00:00",
+                "retry_after_seconds": 2690,
+                "exhausted": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    service = GatewayContractService(
+        adapter=FakeAdapter(
+            GatewayTargetResolution(
+                configured=False,
+                url=None,
+                scheme=None,
+                token_configured=False,
+                allow_insecure_tls=False,
+                source="settings-placeholder",
+            )
+        ),
+        runtime_dir=tmp_path,
+        github_token_labels=("token-1", "token-2"),
+    )
+
+    response = service.get_runtime_surface()
+
+    assert response.runtime.github_api_budget is not None
+    assert [token.label for token in response.runtime.github_api_budget.tokens] == [
+        "token-1",
+        "token-2",
+    ]
+    assert response.runtime.github_api_budget.tokens[0].remaining == 4111
+    assert response.runtime.github_api_budget.tokens[1].remaining is None
+
+
+def test_gateway_contract_service_exposes_gemini_key_pool_snapshot(tmp_path: Path) -> None:
+    (tmp_path / "gemini").mkdir()
+    (tmp_path / "gemini" / "key_pool.json").write_text(
+        json.dumps(
+            {
+                "provider": "gemini-compatible",
+                "captured_at": "2026-03-16T10:00:00+00:00",
+                "model_name": "google/gemini-2.0-flash-001",
+                "base_url": "https://api.haimaker.ai/v1",
+                "keys": [
+                    {
+                        "label": "key-1",
+                        "status": "daily-limit",
+                        "last_used_at": "2026-03-16T09:59:00+00:00",
+                        "cooldown_until": "2026-03-17T09:59:00+00:00",
+                        "last_error": "Daily request limit reached",
+                        "last_response_status": 401,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    service = GatewayContractService(
+        adapter=FakeAdapter(
+            GatewayTargetResolution(
+                configured=False,
+                url=None,
+                scheme=None,
+                token_configured=False,
+                allow_insecure_tls=False,
+                source="settings-placeholder",
+            )
+        ),
+        runtime_dir=tmp_path,
+        gemini_key_labels=("key-1", "key-2"),
+    )
+
+    response = service.get_runtime_surface()
+
+    assert response.runtime.gemini_api_key_pool is not None
+    assert [key.label for key in response.runtime.gemini_api_key_pool.keys] == ["key-1", "key-2"]
+    assert response.runtime.gemini_api_key_pool.keys[0].status == "daily-limit"
+    assert response.runtime.gemini_api_key_pool.keys[1].status == "configured"
 
 
 def test_gateway_contract_service_returns_zero_value_buckets_for_empty_intake_state(

@@ -18,6 +18,7 @@ class WorkerRuntimeSettings(BaseModel):
 
 class WorkerProviderSettings(BaseModel):
     github_provider_token_configured: bool
+    github_provider_token_count: int
     github_requests_per_minute: int
     intake_pacing_seconds: int
     firehose_interval_seconds: int
@@ -46,6 +47,7 @@ class Settings(BaseSettings):
     OPENCLAW_CONFIG_PATH: Path | None = Path("~/.openclaw/openclaw.json")
     OPENCLAW_WORKSPACE_DIR: Path | None = None
     GITHUB_PROVIDER_TOKEN: SecretStr | None = None
+    GITHUB_PROVIDER_TOKENS: Annotated[tuple[str, ...], NoDecode] = ()
     GITHUB_REQUESTS_PER_MINUTE: int = 60
     INTAKE_PACING_SECONDS: int = 30
     FIREHOSE_INTERVAL_SECONDS: int = 3600
@@ -62,6 +64,7 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: SecretStr | None = None
     ANALYST_MODEL_NAME: str = "claude-3-5-haiku-20241022"
     GEMINI_API_KEY: SecretStr | None = None
+    GEMINI_API_KEYS: Annotated[tuple[str, ...], NoDecode] = ()
     GEMINI_BASE_URL: str = "https://api.haimaker.ai/v1"
     GEMINI_MODEL_NAME: str = "google/gemini-2.0-flash-001"
 
@@ -87,6 +90,26 @@ class Settings(BaseSettings):
             return candidate or None
         return value
 
+    @field_validator("GITHUB_PROVIDER_TOKENS", mode="before")
+    @classmethod
+    def _normalize_github_token_list(cls, value: object) -> tuple[str, ...] | object:
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            candidate = value.strip()
+            if not candidate:
+                return ()
+            if candidate.startswith("["):
+                try:
+                    parsed = json.loads(candidate)
+                    return tuple(str(part).strip() for part in parsed if str(part).strip())
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            return tuple(part.strip() for part in candidate.split(",") if part.strip())
+        if isinstance(value, (list, tuple)):
+            return tuple(str(part).strip() for part in value if str(part).strip())
+        return value
+
     @field_validator("ANTHROPIC_API_KEY", mode="before")
     @classmethod
     def _normalize_anthropic_key(cls, value: object) -> object:
@@ -101,6 +124,26 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             candidate = value.strip()
             return candidate or None
+        return value
+
+    @field_validator("GEMINI_API_KEYS", mode="before")
+    @classmethod
+    def _normalize_gemini_key_list(cls, value: object) -> tuple[str, ...] | object:
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            candidate = value.strip()
+            if not candidate:
+                return ()
+            if candidate.startswith("["):
+                try:
+                    parsed = json.loads(candidate)
+                    return tuple(str(part).strip() for part in parsed if str(part).strip())
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            return tuple(part.strip() for part in candidate.split(",") if part.strip())
+        if isinstance(value, (list, tuple)):
+            return tuple(str(part).strip() for part in value if str(part).strip())
         return value
 
     @field_validator("ANALYST_PROVIDER", mode="before")
@@ -122,8 +165,8 @@ class Settings(BaseSettings):
         super().__init__(**data)
         if self.ANALYST_PROVIDER == "llm" and not self.ANTHROPIC_API_KEY:
             raise ValueError("ANTHROPIC_API_KEY is required when ANALYST_PROVIDER=llm")
-        if self.ANALYST_PROVIDER == "gemini" and not self.GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY is required when ANALYST_PROVIDER=gemini")
+        if self.ANALYST_PROVIDER == "gemini" and not self.gemini_api_key_values:
+            raise ValueError("GEMINI_API_KEY or GEMINI_API_KEYS is required when ANALYST_PROVIDER=gemini")
 
     @field_validator("AGENTIC_RUNTIME_DIR", "OPENCLAW_CONFIG_PATH", "OPENCLAW_WORKSPACE_DIR", mode="before")
     @classmethod
@@ -181,6 +224,50 @@ class Settings(BaseSettings):
         return self.GITHUB_PROVIDER_TOKEN.get_secret_value()
 
     @property
+    def github_provider_token_values(self) -> tuple[str, ...]:
+        configured: list[str] = []
+        seen: set[str] = set()
+
+        primary = self.github_provider_token_value
+        if primary:
+            configured.append(primary)
+            seen.add(primary)
+
+        for candidate in self.GITHUB_PROVIDER_TOKENS:
+            token = str(candidate).strip()
+            if not token or token in seen:
+                continue
+            configured.append(token)
+            seen.add(token)
+
+        return tuple(configured)
+
+    @property
+    def gemini_api_key_value(self) -> str | None:
+        if self.GEMINI_API_KEY is None:
+            return None
+        return self.GEMINI_API_KEY.get_secret_value()
+
+    @property
+    def gemini_api_key_values(self) -> tuple[str, ...]:
+        configured: list[str] = []
+        seen: set[str] = set()
+
+        primary = self.gemini_api_key_value
+        if primary:
+            configured.append(primary)
+            seen.add(primary)
+
+        for candidate in self.GEMINI_API_KEYS:
+            key = str(candidate).strip()
+            if not key or key in seen:
+                continue
+            configured.append(key)
+            seen.add(key)
+
+        return tuple(configured)
+
+    @property
     def runtime(self) -> WorkerRuntimeSettings:
         return WorkerRuntimeSettings(
             database_url=self.DATABASE_URL,
@@ -192,7 +279,8 @@ class Settings(BaseSettings):
     @property
     def provider(self) -> WorkerProviderSettings:
         return WorkerProviderSettings(
-            github_provider_token_configured=bool(self.github_provider_token_value),
+            github_provider_token_configured=bool(self.github_provider_token_values),
+            github_provider_token_count=len(self.github_provider_token_values),
             github_requests_per_minute=self.GITHUB_REQUESTS_PER_MINUTE,
             intake_pacing_seconds=self.INTAKE_PACING_SECONDS,
             firehose_interval_seconds=self.FIREHOSE_INTERVAL_SECONDS,

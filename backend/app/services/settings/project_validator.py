@@ -177,14 +177,21 @@ def project_setting_summaries(app_settings: Settings) -> list[MaskedSettingSumma
         ),
         MaskedSettingSummary(
             key="GITHUB_PROVIDER_TOKEN",
-            label="GitHub provider token",
+            label="GitHub provider token pool",
             owner="agentic-workflow",
             source="project-env",
             configured=provider.github_provider_token_configured,
             required=False,
             secret=True,
-            value="configured" if provider.github_provider_token_configured else "missing",
-            notes=["Provider credentials remain project-owned and are never returned raw."],
+            value=(
+                f"configured ({provider.github_provider_token_count} tokens)"
+                if provider.github_provider_token_configured
+                else "missing"
+            ),
+            notes=[
+                "Provider credentials remain project-owned and are never returned raw.",
+                "You can configure multiple GitHub user tokens to increase available hourly budget and rotate automatically.",
+            ],
         ),
         MaskedSettingSummary(
             key="GITHUB_REQUESTS_PER_MINUTE",
@@ -356,10 +363,15 @@ def project_setting_summaries(app_settings: Settings) -> list[MaskedSettingSumma
             configured=provider.gemini_api_key_configured,
             required=provider.analyst_provider == "gemini",
             secret=True,
-            value="configured" if provider.gemini_api_key_configured else "missing",
+            value=(
+                f"configured ({provider.gemini_api_key_count} keys)"
+                if provider.gemini_api_key_configured
+                else "missing"
+            ),
             notes=[
                 "Required when ANALYST_PROVIDER=gemini.",
                 "Secrets remain masked and are never returned raw.",
+                "Multiple Gemini-compatible keys can rotate automatically when one key hits a daily limit.",
             ],
         ),
         MaskedSettingSummary(

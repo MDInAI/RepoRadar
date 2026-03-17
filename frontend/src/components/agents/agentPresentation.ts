@@ -101,6 +101,23 @@ export function formatItemsSummary(run: AgentRunEvent | null): string {
   )} ok / ${formatItemsCount(run.items_failed)} failed`;
 }
 
+export function formatRunOrRuntimeSummary(
+  run: AgentRunEvent | null,
+  progress: AgentRuntimeProgress | null | undefined,
+): string {
+  if (
+    run?.status === "running" &&
+    run.items_processed == null &&
+    progress?.completed_count != null &&
+    progress?.total_count != null
+  ) {
+    const unitLabel = progress.unit_label ?? "items";
+    return `${formatItemsCount(progress.completed_count)} / ${formatItemsCount(progress.total_count)} ${unitLabel} in the current run`;
+  }
+
+  return formatItemsSummary(run);
+}
+
 export function formatRuntimeProgressCounts(progress: AgentRuntimeProgress | null | undefined): string {
   if (!progress) {
     return "No live progress snapshot";
@@ -108,12 +125,32 @@ export function formatRuntimeProgressCounts(progress: AgentRuntimeProgress | nul
 
   const unitLabel = progress.unit_label ?? "items";
   if (progress.completed_count != null && progress.total_count != null) {
-    return `${formatItemsCount(progress.completed_count)} / ${formatItemsCount(progress.total_count)} ${unitLabel}`;
+    const counts = `${formatItemsCount(progress.completed_count)} / ${formatItemsCount(progress.total_count)} ${unitLabel}`;
+    return progress.primary_counts_label ? `${progress.primary_counts_label}: ${counts}` : counts;
   }
   if (progress.remaining_count != null) {
-    return `${formatItemsCount(progress.remaining_count)} ${unitLabel} remaining`;
+    const counts = `${formatItemsCount(progress.remaining_count)} ${unitLabel} remaining`;
+    return progress.primary_counts_label ? `${progress.primary_counts_label}: ${counts}` : counts;
   }
   return progress.status_label;
+}
+
+export function formatRuntimeSecondaryCounts(progress: AgentRuntimeProgress | null | undefined): string | null {
+  if (!progress) {
+    return null;
+  }
+
+  const label = progress.secondary_counts_label;
+  const unitLabel = progress.secondary_unit_label ?? progress.unit_label ?? "items";
+  if (progress.secondary_completed_count != null && progress.secondary_total_count != null) {
+    const counts = `${formatItemsCount(progress.secondary_completed_count)} / ${formatItemsCount(progress.secondary_total_count)} ${unitLabel}`;
+    return label ? `${label}: ${counts}` : counts;
+  }
+  if (progress.secondary_remaining_count != null) {
+    const counts = `${formatItemsCount(progress.secondary_remaining_count)} ${unitLabel} remaining`;
+    return label ? `${label}: ${counts}` : counts;
+  }
+  return null;
 }
 
 export function formatRuntimeProgressHeadline(progress: AgentRuntimeProgress | null | undefined): string {

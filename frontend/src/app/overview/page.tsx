@@ -12,6 +12,7 @@ import {
 } from "@/api/agents";
 import { fetchOverviewSummary, getOverviewSummaryQueryKey } from "@/api/overview";
 import { fetchGatewayRuntime } from "@/api/readiness";
+import { GeminiKeyPoolPanel } from "@/components/agents/GeminiKeyPoolPanel";
 import { GitHubBudgetPanel } from "@/components/agents/GitHubBudgetPanel";
 import { AgentOperatorSummary } from "@/components/agents/AgentOperatorSummary";
 import { OperationalAlertsPanel } from "@/components/agents/OperationalAlertsPanel";
@@ -130,6 +131,7 @@ export default function OverviewPage() {
               agentStatuses={latestRunsQuery.data?.agents ?? []}
             />
             <GitHubBudgetPanel snapshot={gatewayRuntimeQuery.data?.runtime.github_api_budget} />
+            <GeminiKeyPoolPanel snapshot={gatewayRuntimeQuery.data?.runtime.gemini_api_key_pool} />
 
             <div className="hero-strip mb-16">
               <div>

@@ -152,10 +152,14 @@ def run_configured_firehose_job(
     sleep_fn: Callable[[int], None] = time.sleep,
     should_stop: Callable[[], bool] | None = None,
 ) -> FirehoseRunResult:
-    provider = GitHubFirehoseProvider(
+    github_tokens = getattr(settings, "github_provider_token_values", ())
+    provider_kwargs = dict(
         github_token=settings.github_provider_token_value,
         runtime_dir=settings.runtime.runtime_dir,
     )
+    if github_tokens:
+        provider_kwargs["github_tokens"] = github_tokens
+    provider = GitHubFirehoseProvider(**provider_kwargs)
     with Session(engine) as session:
         return _run_tracked_job(
             session=session,
@@ -190,10 +194,14 @@ def run_configured_backfill_job(
     sleep_fn: Callable[[int], None] = time.sleep,
     should_stop: Callable[[], bool] | None = None,
 ) -> BackfillRunResult:
-    provider = GitHubFirehoseProvider(
+    github_tokens = getattr(settings, "github_provider_token_values", ())
+    provider_kwargs = dict(
         github_token=settings.github_provider_token_value,
         runtime_dir=settings.runtime.runtime_dir,
     )
+    if github_tokens:
+        provider_kwargs["github_tokens"] = github_tokens
+    provider = GitHubFirehoseProvider(**provider_kwargs)
     with Session(engine) as session:
         return _run_tracked_job(
             session=session,
@@ -257,10 +265,15 @@ def run_configured_analyst_job(
     *,
     should_stop: Callable[[], bool] | None = None,
 ) -> AnalystRunResult:
-    provider = GitHubFirehoseProvider(
+    github_tokens = getattr(settings, "github_provider_token_values", ())
+    gemini_keys = getattr(settings, "gemini_api_key_values", ())
+    provider_kwargs = dict(
         github_token=settings.github_provider_token_value,
         runtime_dir=settings.runtime.runtime_dir,
     )
+    if github_tokens:
+        provider_kwargs["github_tokens"] = github_tokens
+    provider = GitHubFirehoseProvider(**provider_kwargs)
     api_key = settings.ANTHROPIC_API_KEY.get_secret_value() if settings.ANTHROPIC_API_KEY else None
     gemini_key = settings.GEMINI_API_KEY.get_secret_value() if settings.GEMINI_API_KEY else None
     analysis_provider = create_analysis_provider(
@@ -268,8 +281,10 @@ def run_configured_analyst_job(
         api_key,
         settings.ANALYST_MODEL_NAME,
         gemini_key,
+        gemini_keys,
         settings.GEMINI_BASE_URL,
-        settings.GEMINI_MODEL_NAME
+        settings.GEMINI_MODEL_NAME,
+        settings.runtime.runtime_dir,
     )
     with Session(engine) as session:
         return _run_tracked_job(

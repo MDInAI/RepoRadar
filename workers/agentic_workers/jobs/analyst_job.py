@@ -135,8 +135,10 @@ def run_analyst_job(
             api_key,
             settings.ANALYST_MODEL_NAME,
             gemini_key,
+            settings.gemini_api_key_values,
             settings.GEMINI_BASE_URL,
-            settings.GEMINI_MODEL_NAME
+            settings.GEMINI_MODEL_NAME,
+            runtime_dir,
         )
     provider_name = getattr(effective_analysis_provider, "provider_name", None)
     model_name = getattr(effective_analysis_provider, "model_name", None)
@@ -540,6 +542,7 @@ def run_analyst_job(
             )
         except ValidationError as exc:
             consecutive_failures += 1
+            classification = FailureClassification.RETRYABLE
             recovery_error = _record_failure(
                 session=session,
                 repository_id=repository.github_repository_id,
@@ -569,11 +572,8 @@ def run_analyst_job(
                     full_name=repository.full_name,
                     failure_code=RepositoryAnalysisFailureCode.INVALID_ANALYSIS_OUTPUT,
                     message=_join_messages(str(exc), recovery_error) or str(exc),
-                    classification=FailureClassification.BLOCKING,
-                    failure_severity=determine_severity(
-                        FailureClassification.BLOCKING,
-                        consecutive_failures,
-                    ),
+                    classification=classification,
+                    failure_severity=determine_severity(classification, consecutive_failures),
                     consecutive_failures=consecutive_failures,
                     upstream_provider="llm",
                 )

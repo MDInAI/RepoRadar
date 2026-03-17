@@ -181,9 +181,16 @@ class AgentRuntimeProgressService:
         latest_event: SystemEvent | None,
     ) -> AgentRuntimeProgress:
         snapshot = self._load_progress_snapshot("analyst")
+        accepted_total = self._count_repositories(
+            RepositoryIntake.triage_status == RepositoryTriageStatus.ACCEPTED,
+        )
         pending = self._count_repositories(
             RepositoryIntake.triage_status == RepositoryTriageStatus.ACCEPTED,
             RepositoryIntake.analysis_status == RepositoryAnalysisStatus.PENDING,
+        )
+        completed = self._count_repositories(
+            RepositoryIntake.triage_status == RepositoryTriageStatus.ACCEPTED,
+            RepositoryIntake.analysis_status == RepositoryAnalysisStatus.COMPLETED,
         )
         in_progress = self._count_repositories(
             RepositoryIntake.triage_status == RepositoryTriageStatus.ACCEPTED,
@@ -212,6 +219,12 @@ class AgentRuntimeProgressService:
             ),
             source_fallback="analysis queue snapshot",
             details=details,
+            primary_counts_label="Processed in this Gemini refresh run",
+            secondary_counts_label="Already analyzed across accepted repos",
+            secondary_completed_count=completed,
+            secondary_total_count=accepted_total,
+            secondary_remaining_count=pending + in_progress + failed,
+            secondary_unit_label="repos",
         )
 
     def _build_combiner_progress(
@@ -282,6 +295,12 @@ class AgentRuntimeProgressService:
         current_target_fallback: str,
         source_fallback: str,
         details: list[str],
+        primary_counts_label: str | None = None,
+        secondary_counts_label: str | None = None,
+        secondary_completed_count: int | None = None,
+        secondary_total_count: int | None = None,
+        secondary_remaining_count: int | None = None,
+        secondary_unit_label: str | None = None,
     ) -> AgentRuntimeProgress:
         is_running = latest_run is not None and latest_run.status is AgentRunStatus.RUNNING
         if snapshot is not None:
@@ -317,10 +336,16 @@ class AgentRuntimeProgressService:
                         else current_target_fallback
                     ),
                     progress_percent=progress_percent,
+                    primary_counts_label=primary_counts_label,
                     completed_count=completed_count,
                     total_count=total_count,
                     remaining_count=remaining_count,
                     unit_label=self._to_optional_str(snapshot.get("unit_label")),
+                    secondary_counts_label=secondary_counts_label,
+                    secondary_completed_count=secondary_completed_count,
+                    secondary_total_count=secondary_total_count,
+                    secondary_remaining_count=secondary_remaining_count,
+                    secondary_unit_label=secondary_unit_label,
                     updated_at=snapshot_updated_at,
                     source=self._to_optional_str(snapshot.get("source")) or source_fallback,
                     details=[
@@ -338,10 +363,16 @@ class AgentRuntimeProgressService:
             current_activity=running_label if is_running else idle_label,
             current_target=current_target_fallback,
             progress_percent=None,
+            primary_counts_label=primary_counts_label,
             completed_count=latest_run.items_processed if latest_run is not None else None,
             total_count=None,
             remaining_count=None,
             unit_label="repos" if latest_run is not None else None,
+            secondary_counts_label=secondary_counts_label,
+            secondary_completed_count=secondary_completed_count,
+            secondary_total_count=secondary_total_count,
+            secondary_remaining_count=secondary_remaining_count,
+            secondary_unit_label=secondary_unit_label,
             updated_at=latest_run.started_at if latest_run is not None else None,
             source=source_fallback,
             details=details,

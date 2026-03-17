@@ -42,6 +42,7 @@ class WorkerSettingsProjection:
     anthropic_api_key_configured: bool
     analyst_model_name: str
     gemini_api_key_configured: bool
+    gemini_api_key_count: int
     gemini_base_url: str
     gemini_model_name: str
     source: str
@@ -262,6 +263,21 @@ def _analyst_provider_override(
         )
     )
     return fallback
+
+
+def _parse_secret_list(raw_value: str | None) -> tuple[str, ...]:
+    if raw_value is None:
+        return ()
+    candidate = raw_value.strip()
+    if not candidate:
+        return ()
+    if candidate.startswith("["):
+        try:
+            parsed = json.loads(candidate)
+            return tuple(str(part).strip() for part in parsed if str(part).strip())
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return tuple(part.strip() for part in candidate.split(",") if part.strip())
 
 
 def _process_env_int(key: str, *, default: int) -> int:
@@ -680,6 +696,24 @@ def build_worker_projection(
         app_settings.GEMINI_API_KEY.get_secret_value() if app_settings.GEMINI_API_KEY is not None else None,
         applied_override_keys=applied_override_keys,
     )
+    gemini_api_keys = _parse_secret_list(
+        _optional_string_override(
+            overrides,
+            "GEMINI_API_KEYS",
+            ",".join(app_settings.gemini_api_key_values[1:]) if len(app_settings.gemini_api_key_values) > 1 else None,
+            applied_override_keys=applied_override_keys,
+        )
+    )
+    all_gemini_keys: list[str] = []
+    seen_gemini_keys: set[str] = set()
+    for candidate in [gemini_api_key, *gemini_api_keys]:
+        if not candidate:
+            continue
+        value = str(candidate).strip()
+        if not value or value in seen_gemini_keys:
+            continue
+        all_gemini_keys.append(value)
+        seen_gemini_keys.add(value)
     gemini_base_url = _env_override(
         overrides,
         "GEMINI_BASE_URL",
@@ -714,7 +748,8 @@ def build_worker_projection(
         analyst_provider=analyst_provider,
         anthropic_api_key_configured=bool(anthropic_api_key),
         analyst_model_name=analyst_model_name,
-        gemini_api_key_configured=bool(gemini_api_key),
+        gemini_api_key_configured=bool(all_gemini_keys),
+        gemini_api_key_count=len(all_gemini_keys),
         gemini_base_url=gemini_base_url,
         gemini_model_name=gemini_model_name,
         source=source,
@@ -987,10 +1022,15 @@ def worker_setting_summaries(
             configured=worker.gemini_api_key_configured,
             required=worker.analyst_provider == "gemini",
             secret=True,
-            value="configured" if worker.gemini_api_key_configured else "missing",
+            value=(
+                f"configured ({worker.gemini_api_key_count} keys)"
+                if worker.gemini_api_key_configured
+                else "missing"
+            ),
             notes=[
                 source_notes,
                 "Required when ANALYST_PROVIDER=gemini.",
+                "Multiple Gemini-compatible keys can rotate automatically when one key hits a daily limit.",
             ],
         ),
         MaskedSettingSummary(

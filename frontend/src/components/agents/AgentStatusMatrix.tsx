@@ -12,9 +12,11 @@ import {
   formatAgentName,
   formatAgentRunStatus,
   formatItemsSummary,
+  formatRunOrRuntimeSummary,
   formatRelativeTimestamp,
   formatRuntimeProgressCounts,
   formatRuntimeProgressHeadline,
+  formatRuntimeSecondaryCounts,
   getRunStatusBadgeClassName,
 } from "./agentPresentation";
 import { PauseAgentButton } from "./PauseAgentButton";
@@ -160,6 +162,11 @@ export function AgentStatusMatrix({
                     <p className="mt-1 text-xs text-slate-500">
                       {formatRuntimeProgressCounts(entry.runtime_progress)}
                     </p>
+                    {formatRuntimeSecondaryCounts(entry.runtime_progress) ? (
+                      <p className="mt-1 text-xs text-slate-400">
+                        {formatRuntimeSecondaryCounts(entry.runtime_progress)}
+                      </p>
+                    ) : null}
                     {renderProgressBar(entry.runtime_progress?.progress_percent)}
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -288,7 +295,7 @@ export function AgentStatusMatrix({
                   <div>
                     <dt className="text-xs uppercase tracking-[0.2em] text-slate-500">Items</dt>
                     <dd className="mt-1 font-medium text-slate-900">
-                      {formatItemsSummary(entry.latest_run)}
+                      {formatRunOrRuntimeSummary(entry.latest_run, entry.runtime_progress)}
                     </dd>
                   </div>
                   <div>
@@ -301,6 +308,11 @@ export function AgentStatusMatrix({
                     <div className="mt-1 text-xs text-slate-600">
                       {formatRuntimeProgressCounts(entry.runtime_progress)}
                     </div>
+                    {formatRuntimeSecondaryCounts(entry.runtime_progress) ? (
+                      <div className="mt-1 text-xs text-slate-500">
+                        {formatRuntimeSecondaryCounts(entry.runtime_progress)}
+                      </div>
+                    ) : null}
                     {renderProgressBar(entry.runtime_progress?.progress_percent)}
                   </div>
                   <div>

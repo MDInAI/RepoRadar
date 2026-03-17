@@ -5,8 +5,10 @@ import logging
 from pathlib import Path
 from typing import Protocol
 
+from app.core.config import settings
 from app.core.errors import AppError
 from app.schemas.gateway_contract import (
+    GeminiApiKeyPoolSnapshot,
     GitHubApiBudgetSnapshot,
     GatewayAgentIntakeQueueSummary,
     GatewayAgentMonitoringPlaceholder,
@@ -145,10 +147,32 @@ class GatewayContractService:
         adapter: GatewayContractAdapter | None = None,
         intake_runtime_service: GatewayIntakeRuntimeService | None = None,
         runtime_dir: Path | None = None,
+        github_token_labels: tuple[str, ...] | list[str] | None = None,
+        gemini_key_labels: tuple[str, ...] | list[str] | None = None,
     ) -> None:
         self.adapter = adapter or SettingsGatewayContractAdapter()
         self.intake_runtime_service = intake_runtime_service
         self.runtime_dir = runtime_dir
+        configured_labels = github_token_labels
+        if configured_labels is None:
+            configured_labels = tuple(
+                f"token-{index + 1}" for index, _ in enumerate(settings.github_provider_token_values)
+            )
+        self.github_token_labels = tuple(
+            label.strip()
+            for label in configured_labels
+            if isinstance(label, str) and label.strip()
+        )
+        configured_gemini_labels = gemini_key_labels
+        if configured_gemini_labels is None:
+            configured_gemini_labels = tuple(
+                f"key-{index + 1}" for index, _ in enumerate(settings.gemini_api_key_values)
+            )
+        self.gemini_key_labels = tuple(
+            label.strip()
+            for label in configured_gemini_labels
+            if isinstance(label, str) and label.strip()
+        )
 
     def get_contract_metadata(self) -> GatewayContractResponse:
         target = self._resolve_target()
@@ -315,6 +339,7 @@ class GatewayContractService:
                 route_owner="/api/v1/gateway/runtime",
                 agent_states=self._named_agent_summaries(queue_overrides=queue_overrides),
                 github_api_budget=self._load_github_api_budget(),
+                gemini_api_key_pool=self._load_gemini_api_key_pool(),
                 notes=[
                     "The runtime surface keeps Gateway routing metadata and Agentic-Workflow intake data on one backend-owned contract.",
                     "Gateway connectivity does not belong to the generic /health endpoint.",
@@ -411,10 +436,134 @@ class GatewayContractService:
             return None
 
         try:
-            return GitHubApiBudgetSnapshot.model_validate(payload)
+            return GitHubApiBudgetSnapshot.model_validate(
+                self._normalize_github_budget_payload(payload)
+            )
         except Exception:
             logger.debug("GitHub quota snapshot had unexpected shape.", exc_info=True)
             return None
+
+    def _load_gemini_api_key_pool(self) -> GeminiApiKeyPoolSnapshot | None:
+        if self.runtime_dir is None:
+            return None
+
+        snapshot_path = self.runtime_dir / "gemini" / "key_pool.json"
+        if not snapshot_path.is_file():
+            if not self.gemini_key_labels:
+                return None
+            payload = {
+                "provider": "gemini-compatible",
+                "captured_at": "1970-01-01T00:00:00+00:00",
+                "model_name": settings.GEMINI_MODEL_NAME,
+                "base_url": settings.GEMINI_BASE_URL,
+                "keys": [
+                    {
+                        "label": label,
+                        "status": "configured",
+                        "last_used_at": None,
+                        "cooldown_until": None,
+                        "last_error": None,
+                        "last_response_status": None,
+                    }
+                    for label in self.gemini_key_labels
+                ],
+            }
+            return GeminiApiKeyPoolSnapshot.model_validate(payload)
+
+        try:
+            payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            logger.debug("Gemini key pool snapshot could not be read.", exc_info=True)
+            return None
+        if not isinstance(payload, dict):
+            return None
+
+        normalized_payload = dict(payload)
+        existing_keys = payload.get("keys")
+        key_entries = existing_keys if isinstance(existing_keys, list) else []
+        by_label = {
+            str(entry.get("label")): dict(entry)
+            for entry in key_entries
+            if isinstance(entry, dict) and isinstance(entry.get("label"), str)
+        }
+        for label in self.gemini_key_labels:
+            by_label.setdefault(
+                label,
+                {
+                    "label": label,
+                    "status": "configured",
+                    "last_used_at": None,
+                    "cooldown_until": None,
+                    "last_error": None,
+                    "last_response_status": None,
+                },
+            )
+        normalized_payload["keys"] = (
+            [by_label[label] for label in self.gemini_key_labels]
+            if self.gemini_key_labels
+            else list(by_label.values())
+        )
+
+        try:
+            return GeminiApiKeyPoolSnapshot.model_validate(normalized_payload)
+        except Exception:
+            logger.debug("Gemini key pool snapshot had unexpected shape.", exc_info=True)
+            return None
+
+    def _normalize_github_budget_payload(self, payload: dict[str, object]) -> dict[str, object]:
+        labels = list(self.github_token_labels)
+        if not labels:
+            return payload
+
+        normalized = dict(payload)
+        captured_at = payload.get("captured_at")
+        existing_tokens = payload.get("tokens")
+        token_entries = existing_tokens if isinstance(existing_tokens, list) else []
+        normalized_tokens = [entry for entry in token_entries if isinstance(entry, dict)]
+        by_label = {
+            str(entry.get("label")): dict(entry)
+            for entry in normalized_tokens
+            if isinstance(entry.get("label"), str) and str(entry.get("label")).strip()
+        }
+
+        # Legacy snapshots only stored a single top-level observation. Preserve it as token-1.
+        if labels and labels[0] not in by_label:
+            by_label[labels[0]] = {
+                "label": labels[0],
+                "captured_at": captured_at,
+                "last_response_status": payload.get("last_response_status"),
+                "request_url": payload.get("request_url"),
+                "resource": payload.get("resource"),
+                "limit": payload.get("limit"),
+                "remaining": payload.get("remaining"),
+                "used": payload.get("used"),
+                "reset_at": payload.get("reset_at"),
+                "retry_after_seconds": payload.get("retry_after_seconds"),
+                "exhausted": payload.get("exhausted"),
+                "resource_budgets": [],
+            }
+
+        for label in labels:
+            by_label.setdefault(
+                label,
+                {
+                    "label": label,
+                    "captured_at": captured_at,
+                    "last_response_status": None,
+                    "request_url": None,
+                    "resource": None,
+                    "limit": None,
+                    "remaining": None,
+                    "used": None,
+                    "reset_at": None,
+                    "retry_after_seconds": None,
+                    "exhausted": None,
+                    "resource_budgets": [],
+                },
+            )
+
+        normalized["tokens"] = [by_label[label] for label in labels]
+        return normalized
 
     @staticmethod
     def _as_transport_target(

@@ -27,6 +27,7 @@ import type {
 } from "@/lib/settings-contract";
 import { formatAppDateTime } from "@/lib/time";
 import { AgentRunHistoryTable } from "@/components/agents/AgentRunHistoryTable";
+import { GeminiKeyPoolPanel } from "@/components/agents/GeminiKeyPoolPanel";
 import { GitHubBudgetPanel } from "@/components/agents/GitHubBudgetPanel";
 import { AgentOperatorSummary } from "@/components/agents/AgentOperatorSummary";
 import { OperationalAlertsPanel } from "@/components/agents/OperationalAlertsPanel";
@@ -111,6 +112,22 @@ function formatTimeUntilScheduledRun(value: string | null | undefined): string {
   if (diffSeconds > 0) return `In ${formatDuration(diffSeconds)}`;
   if (diffSeconds === 0) return "Due now";
   return `Overdue by ${formatDuration(Math.abs(diffSeconds))}`;
+}
+
+function formatRuntimeSecondaryCounts(progress: AgentStatusEntry["runtime_progress"]): string | null {
+  if (!progress) {
+    return null;
+  }
+  const unitLabel = progress.secondary_unit_label ?? progress.unit_label ?? "items";
+  if (progress.secondary_completed_count != null && progress.secondary_total_count != null) {
+    const counts = `${progress.secondary_completed_count} / ${progress.secondary_total_count} ${unitLabel}`;
+    return progress.secondary_counts_label ? `${progress.secondary_counts_label}: ${counts}` : counts;
+  }
+  if (progress.secondary_remaining_count != null) {
+    const counts = `${progress.secondary_remaining_count} ${unitLabel} remaining`;
+    return progress.secondary_counts_label ? `${progress.secondary_counts_label}: ${counts}` : counts;
+  }
+  return null;
 }
 
 function toValidTimestamp(value: string | null | undefined): number | null {
@@ -561,6 +578,7 @@ export default function AgentsClient() {
           agentStatuses={agents}
         />
         <GitHubBudgetPanel snapshot={gatewayRuntimeQuery.data?.runtime.github_api_budget} />
+        <GeminiKeyPoolPanel snapshot={gatewayRuntimeQuery.data?.runtime.gemini_api_key_pool} />
 
         <div style={{ display: "grid", gridTemplateColumns: "200px 1fr 280px", gap: "16px" }}>
           <div className="flex flex-col gap-8">
@@ -796,13 +814,17 @@ export default function AgentsClient() {
                   <strong style={{ color: "var(--text-0)" }}>Progress:</strong>{" "}
                   {selectedAgentData?.runtime_progress?.completed_count != null &&
                   selectedAgentData?.runtime_progress?.total_count != null
-                    ? `${selectedAgentData.runtime_progress.completed_count} / ${selectedAgentData.runtime_progress.total_count} ${selectedAgentData.runtime_progress.unit_label ?? "items"}`
+                    ? `${selectedAgentData.runtime_progress.primary_counts_label ? `${selectedAgentData.runtime_progress.primary_counts_label}: ` : ""}${selectedAgentData.runtime_progress.completed_count} / ${selectedAgentData.runtime_progress.total_count} ${selectedAgentData.runtime_progress.unit_label ?? "items"}`
                     : selectedAgentData?.runtime_progress?.remaining_count != null
-                      ? `${selectedAgentData.runtime_progress.remaining_count} ${selectedAgentData.runtime_progress.unit_label ?? "items"} remaining`
+                      ? `${selectedAgentData.runtime_progress.primary_counts_label ? `${selectedAgentData.runtime_progress.primary_counts_label}: ` : ""}${selectedAgentData.runtime_progress.remaining_count} ${selectedAgentData.runtime_progress.unit_label ?? "items"} remaining`
                       : "Unavailable"}
                   {selectedAgentData?.runtime_progress?.progress_percent != null
                     ? ` (${selectedAgentData.runtime_progress.progress_percent}%)`
                     : ""}
+                </div>
+                <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                  <strong style={{ color: "var(--text-0)" }}>Overall corpus:</strong>{" "}
+                  {formatRuntimeSecondaryCounts(selectedAgentData?.runtime_progress) ?? "Unavailable"}
                 </div>
                 <div style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
                   <strong style={{ color: cadence.schedulerStatusTone === "good" ? "var(--green)" : cadence.schedulerStatusTone === "warn" ? "var(--amber)" : "var(--text-0)" }}>

@@ -1,0 +1,32 @@
+{
+  "base_url": "https://api.haimaker.ai/v1",
+  "captured_at": "2026-03-17T00:46:21.909714+00:00",
+  "keys": [
+    {
+      "cooldown_until": null,
+      "label": "key-1",
+      "last_error": null,
+      "last_response_status": 200,
+      "last_used_at": "2026-03-17T00:46:16.808421+00:00",
+      "status": "healthy"
+    },
+    {
+      "cooldown_until": null,
+      "label": "key-2",
+      "last_error": null,
+      "last_response_status": 200,
+      "last_used_at": "2026-03-17T00:45:58.458548+00:00",
+      "status": "healthy"
+    },
+    {
+      "cooldown_until": null,
+      "label": "key-3",
+      "last_error": null,
+      "last_response_status": 200,
+      "last_used_at": "2026-03-17T00:46:02.047410+00:00",
+      "status": "healthy"
+    }
+  ],
+  "model_name": "google/gemini-2.0-flash-001",
+  "provider": "gemini-compatible"
+}

@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from agentic_workers.providers.readme_analyst import (
     CONTROLLED_AGENT_TAGS,
+    GeminiReadmeAnalysisProvider,
     HeuristicReadmeAnalysisProvider,
     LLMReadmeAnalysisProvider,
     LLMReadmeBusinessAnalysis,
@@ -76,6 +77,35 @@ def test_invalid_json_raises_validation_error(sample_readme):
 
         with pytest.raises(ValidationError):
             provider.analyze(repository_full_name="test/repo", readme=sample_readme)
+
+
+def test_invalid_json_is_repaired_before_raising_validation_error(sample_readme):
+    initial_response = Mock()
+    initial_response.content = [
+        Mock(
+            text=(
+                '{\n'
+                '  "category": "workflow"\n'
+                '  "category_confidence_score": 85,\n'
+                '  "confidence_score": 80,\n'
+                '  "monetization_potential": "medium"\n'
+                '}'
+            )
+        )
+    ]
+    initial_response.usage = Mock(input_tokens=20, output_tokens=10)
+
+    with patch("agentic_workers.providers.readme_analyst.Anthropic") as mock_anthropic:
+        mock_client = Mock()
+        mock_client.messages.create.return_value = initial_response
+        mock_anthropic.return_value = mock_client
+
+        provider = LLMReadmeAnalysisProvider(api_key="test-key")
+        result = provider.analyze(repository_full_name="test/repo", readme=sample_readme)
+
+        assert '"category": "workflow"' in result
+        assert mock_client.messages.create.call_count == 1
+        assert provider.last_usage.total_tokens == 30
 
 
 def test_invalid_field_type_raises_validation_error(sample_readme):
@@ -168,6 +198,50 @@ def test_create_analysis_provider_heuristic():
     assert isinstance(provider, HeuristicReadmeAnalysisProvider)
     assert provider.provider_name == "heuristic-readme-analysis"
     assert provider.model_name is None
+
+
+def test_gemini_provider_rotates_to_next_key_on_daily_limit(sample_readme):
+    class FakeGeminiError(Exception):
+        def __init__(self, message: str, status_code: int) -> None:
+            super().__init__(message)
+            self.status_code = status_code
+
+    class FakeCompletions:
+        def __init__(self, api_key: str) -> None:
+            self.api_key = api_key
+
+        def create(self, **_kwargs):
+            if self.api_key == "key-1":
+                raise FakeGeminiError(
+                    "Authentication Error: Daily request limit reached. Free accounts are limited to 500 requests per day.",
+                    401,
+                )
+            response = Mock()
+            response.choices = [
+                Mock(
+                    message=Mock(
+                        content='{"category": "workflow", "category_confidence_score": 84, "confidence_score": 79, "monetization_potential": "medium"}'
+                    )
+                )
+            ]
+            response.usage = Mock(prompt_tokens=40, completion_tokens=12, total_tokens=52)
+            return response
+
+    class FakeOpenAIClient:
+        def __init__(self, *, api_key: str, base_url: str | None = None) -> None:
+            del base_url
+            self.chat = Mock(completions=FakeCompletions(api_key))
+
+    with patch("agentic_workers.providers.readme_analyst.OpenAI", FakeOpenAIClient):
+        provider = GeminiReadmeAnalysisProvider(
+            api_keys=("key-1", "key-2"),
+            base_url="https://example.invalid/v1",
+            model_name="gemini-test",
+        )
+        result = provider.analyze(repository_full_name="test/repo", readme=sample_readme)
+
+        assert '"category": "workflow"' in result
+        assert provider.last_usage.total_tokens == 52
 
 
 def test_invalid_category_outside_controlled_vocabulary_raises_validation_error(sample_readme):

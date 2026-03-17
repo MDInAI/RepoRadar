@@ -1,17 +1,17 @@
 {
-  "completed_count": 317,
+  "completed_count": 44,
   "current_activity": "Analyzing accepted repositories.",
-  "current_target": "ChromeDevTools/chrome-devtools-mcp",
+  "current_target": "danielmiessler/SecLists",
   "details": [
-    "Completed outcomes: 317",
-    "Failed outcomes: 0",
-    "Provider: heuristic-readme-analysis"
+    "Completed outcomes: 44",
+    "Failed outcomes: 1",
+    "Provider: gemini-compatible"
   ],
-  "generated_at": "2026-03-16T21:57:47.737539+00:00",
-  "progress_percent": 45,
-  "remaining_count": 393,
+  "generated_at": "2026-03-17T00:46:05.402279+00:00",
+  "progress_percent": 2,
+  "remaining_count": 1762,
   "source": "analyst queue snapshot",
   "status_label": "running",
-  "total_count": 710,
+  "total_count": 1806,
   "unit_label": "repos"
 }

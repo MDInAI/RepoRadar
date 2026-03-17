@@ -1,9 +1,59 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 
 from agentic_workers.storage.agent_progress_snapshots import _write_snapshot
+
+
+def initialize_github_quota_snapshot(
+    *,
+    runtime_dir: Path | None,
+    token_labels: tuple[str, ...] | list[str],
+) -> Path | None:
+    if runtime_dir is None:
+        return None
+
+    labels = [label.strip() for label in token_labels if isinstance(label, str) and label.strip()]
+    snapshot_path = runtime_dir / "github" / "quota.json"
+    existing_payload = _load_existing_payload(snapshot_path)
+    existing_tokens = existing_payload.get("tokens")
+    token_entries = existing_tokens if isinstance(existing_tokens, list) else []
+    normalized_tokens = [entry for entry in token_entries if isinstance(entry, dict)]
+    by_label = {
+        str(entry.get("label")): dict(entry)
+        for entry in normalized_tokens
+        if isinstance(entry.get("label"), str) and str(entry.get("label")).strip()
+    }
+
+    captured_at = datetime.now(timezone.utc).isoformat()
+    for label in labels:
+        by_label.setdefault(
+            label,
+            {
+                "label": label,
+                "captured_at": captured_at,
+                "last_response_status": None,
+                "request_url": None,
+                "resource": None,
+                "limit": None,
+                "remaining": None,
+                "used": None,
+                "reset_at": None,
+                "retry_after_seconds": None,
+                "exhausted": None,
+                "resource_budgets": [],
+            },
+        )
+
+    payload = {
+        **existing_payload,
+        "provider": "github",
+        "tokens": [by_label[label] for label in sorted(by_label)],
+    }
+    _write_snapshot(snapshot_path, payload)
+    return snapshot_path
 
 
 def write_github_quota_snapshot(
@@ -11,6 +61,8 @@ def write_github_quota_snapshot(
     runtime_dir: Path | None,
     status_code: int | None,
     headers: object,
+    token_label: str | None = None,
+    token_labels: tuple[str, ...] | list[str] = (),
     request_url: str | None = None,
 ) -> Path | None:
     if runtime_dir is None or headers is None:
@@ -53,8 +105,127 @@ def write_github_quota_snapshot(
         "exhausted": exhausted,
     }
     snapshot_path = runtime_dir / "github" / "quota.json"
-    _write_snapshot(snapshot_path, snapshot_payload)
+    merged_payload = _merge_snapshot_payload(
+        snapshot_path=snapshot_path,
+        observation=snapshot_payload,
+        token_label=token_label,
+        token_labels=token_labels,
+    )
+    _write_snapshot(snapshot_path, merged_payload)
     return snapshot_path
+
+
+def _merge_snapshot_payload(
+    *,
+    snapshot_path: Path,
+    observation: dict[str, object],
+    token_label: str | None,
+    token_labels: tuple[str, ...] | list[str],
+) -> dict[str, object]:
+    existing_payload = _load_existing_payload(snapshot_path)
+    merged = {
+        **existing_payload,
+        **observation,
+    }
+
+    existing_tokens = existing_payload.get("tokens")
+    token_entries = existing_tokens if isinstance(existing_tokens, list) else []
+    normalized_tokens = [entry for entry in token_entries if isinstance(entry, dict)]
+    by_label = {
+        str(entry.get("label")): dict(entry)
+        for entry in normalized_tokens
+        if isinstance(entry.get("label"), str) and str(entry.get("label")).strip()
+    }
+
+    all_labels = [
+        label.strip()
+        for label in token_labels
+        if isinstance(label, str) and label.strip()
+    ]
+    if token_label and token_label not in all_labels:
+        all_labels.append(token_label)
+
+    if token_label:
+        previous = by_label.get(token_label, {})
+        resource_budgets = previous.get("resource_budgets")
+        budget_entries = resource_budgets if isinstance(resource_budgets, list) else []
+        normalized_budgets = [entry for entry in budget_entries if isinstance(entry, dict)]
+        resource_name = observation.get("resource")
+        updated_budgets = []
+        matched_resource = False
+        for entry in normalized_budgets:
+            if isinstance(resource_name, str) and entry.get("resource") == resource_name:
+                updated_budgets.append(
+                    {
+                        "resource": resource_name,
+                        "captured_at": observation.get("captured_at"),
+                        "limit": observation.get("limit"),
+                        "remaining": observation.get("remaining"),
+                        "used": observation.get("used"),
+                        "reset_at": observation.get("reset_at"),
+                        "retry_after_seconds": observation.get("retry_after_seconds"),
+                        "exhausted": observation.get("exhausted"),
+                    }
+                )
+                matched_resource = True
+            else:
+                updated_budgets.append(entry)
+        if isinstance(resource_name, str) and not matched_resource:
+            updated_budgets.append(
+                {
+                    "resource": resource_name,
+                    "captured_at": observation.get("captured_at"),
+                    "limit": observation.get("limit"),
+                    "remaining": observation.get("remaining"),
+                    "used": observation.get("used"),
+                    "reset_at": observation.get("reset_at"),
+                    "retry_after_seconds": observation.get("retry_after_seconds"),
+                    "exhausted": observation.get("exhausted"),
+                }
+            )
+
+        by_label[token_label] = {
+            **previous,
+            **observation,
+            "label": token_label,
+            "resource_budgets": sorted(
+                updated_budgets,
+                key=lambda entry: str(entry.get("resource") or ""),
+            ),
+        }
+
+    captured_at = str(observation.get("captured_at") or datetime.now(timezone.utc).isoformat())
+    for label in all_labels:
+        by_label.setdefault(
+            label,
+            {
+                "label": label,
+                "captured_at": captured_at,
+                "last_response_status": None,
+                "request_url": None,
+                "resource": None,
+                "limit": None,
+                "remaining": None,
+                "used": None,
+                "reset_at": None,
+                "retry_after_seconds": None,
+                "exhausted": None,
+                "resource_budgets": [],
+            },
+        )
+
+    merged["tokens"] = [by_label[label] for label in sorted(by_label)]
+    return merged
+
+
+def _load_existing_payload(snapshot_path: Path) -> dict[str, object]:
+    if not snapshot_path.is_file():
+        return {}
+    try:
+        payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _parse_optional_int(value: object) -> int | None:
