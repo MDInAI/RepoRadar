@@ -47,10 +47,16 @@ export interface AgentRuntimeProgress {
   current_activity: string;
   current_target: string | null;
   progress_percent: number | null;
+  primary_counts_label: string | null;
   completed_count: number | null;
   total_count: number | null;
   remaining_count: number | null;
   unit_label: string | null;
+  secondary_counts_label: string | null;
+  secondary_completed_count: number | null;
+  secondary_total_count: number | null;
+  secondary_remaining_count: number | null;
+  secondary_unit_label: string | null;
   updated_at: string | null;
   source: string;
   details: string[];
@@ -491,10 +497,16 @@ function isAgentStatusEntry(value: unknown): value is AgentStatusEntry {
         typeof value.runtime_progress.current_activity === "string" &&
         isNullableString(value.runtime_progress.current_target) &&
         isNullableNumber(value.runtime_progress.progress_percent) &&
+        isNullableString(value.runtime_progress.primary_counts_label) &&
         isNullableNumber(value.runtime_progress.completed_count) &&
         isNullableNumber(value.runtime_progress.total_count) &&
         isNullableNumber(value.runtime_progress.remaining_count) &&
         isNullableString(value.runtime_progress.unit_label) &&
+        isNullableString(value.runtime_progress.secondary_counts_label) &&
+        isNullableNumber(value.runtime_progress.secondary_completed_count) &&
+        isNullableNumber(value.runtime_progress.secondary_total_count) &&
+        isNullableNumber(value.runtime_progress.secondary_remaining_count) &&
+        isNullableString(value.runtime_progress.secondary_unit_label) &&
         isNullableString(value.runtime_progress.updated_at) &&
         typeof value.runtime_progress.source === "string" &&
         Array.isArray(value.runtime_progress.details) &&

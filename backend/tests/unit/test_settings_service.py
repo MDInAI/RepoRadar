@@ -41,9 +41,14 @@ def test_settings_service_returns_masked_configuration_summary(tmp_path: Path) -
         OPENCLAW_CONFIG_PATH=config_path,
         OPENCLAW_WORKSPACE_DIR=workspace_dir,
         AGENTIC_RUNTIME_DIR=tmp_path / "runtime",
+        ANALYST_PROVIDER="heuristic",
         GITHUB_PROVIDER_TOKEN="github-provider-token",
+        GITHUB_PROVIDER_TOKENS=(),
+        GEMINI_API_KEYS=(),
         GITHUB_REQUESTS_PER_MINUTE=45,
         INTAKE_PACING_SECONDS=20,
+        FIREHOSE_INTERVAL_SECONDS=3600,
+        BACKFILL_INTERVAL_SECONDS=21600,
     )
 
     response = SettingsService(app_settings=app_settings, project_root=tmp_path).get_settings_summary()
@@ -84,7 +89,7 @@ def test_settings_service_returns_masked_configuration_summary(tmp_path: Path) -
     assert gateway_url.value == "wss://gateway.local:18789"
     assert gateway_token.value == "configured"
     assert gateway_token.secret is True
-    assert provider_token.value == "configured"
+    assert provider_token.value == "configured (1 tokens)"
     assert provider_token.secret is True
     assert firehose_interval.value == "3600"
     assert backfill_interval.value == "21600"
@@ -129,6 +134,8 @@ def test_settings_service_surfaces_analyst_runtime_configuration(tmp_path: Path)
             ANALYST_PROVIDER="llm",
             ANTHROPIC_API_KEY="anthropic-project-key",
             ANALYST_MODEL_NAME="claude-3-5-haiku-20241022",
+            GITHUB_PROVIDER_TOKENS=(),
+            GEMINI_API_KEYS=(),
             GEMINI_BASE_URL="https://project.example/v1",
             GEMINI_MODEL_NAME="project-gemini-model",
         ),
@@ -145,7 +152,7 @@ def test_settings_service_surfaces_analyst_runtime_configuration(tmp_path: Path)
     assert project_anthropic_key.value == "configured"
     assert project_anthropic_key.secret is True
     assert worker_provider.value == "gemini"
-    assert worker_gemini_key.value == "configured"
+    assert worker_gemini_key.value == "configured (1 keys)"
     assert worker_gemini_key.secret is True
     assert worker_gemini_url.value == "https://example.invalid/v1"
 
@@ -481,6 +488,8 @@ def test_settings_service_surfaces_worker_drift_warnings(tmp_path: Path) -> None
             OPENCLAW_CONFIG_PATH=config_path,
             OPENCLAW_WORKSPACE_DIR=backend_workspace,
             GITHUB_PROVIDER_TOKEN="",
+            GITHUB_PROVIDER_TOKENS=(),
+            GEMINI_API_KEYS=(),
             GITHUB_REQUESTS_PER_MINUTE=60,
             INTAKE_PACING_SECONDS=30,
         ),

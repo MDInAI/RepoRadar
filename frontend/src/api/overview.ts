@@ -57,10 +57,16 @@ export interface OverviewSummary {
       current_activity: string;
       current_target: string | null;
       progress_percent: number | null;
+      primary_counts_label: string | null;
       completed_count: number | null;
       total_count: number | null;
       remaining_count: number | null;
       unit_label: string | null;
+      secondary_counts_label: string | null;
+      secondary_completed_count: number | null;
+      secondary_total_count: number | null;
+      secondary_remaining_count: number | null;
+      secondary_unit_label: string | null;
       updated_at: string | null;
       source: string;
       details: string[];

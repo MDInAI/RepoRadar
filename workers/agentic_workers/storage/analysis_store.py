@@ -45,6 +45,24 @@ _REQUIRED_ANALYSIS_METADATA_KEYS = frozenset(
 )
 
 
+def _expected_analysis_provider_name() -> str:
+    provider_mode = settings.ANALYST_PROVIDER
+    if provider_mode == "llm":
+        return "anthropic"
+    if provider_mode == "gemini":
+        return "gemini-compatible"
+    return "heuristic-readme-analysis"
+
+
+def _expected_analysis_model_name() -> str | None:
+    provider_mode = settings.ANALYST_PROVIDER
+    if provider_mode == "llm":
+        return settings.ANALYST_MODEL_NAME or None
+    if provider_mode == "gemini":
+        return settings.GEMINI_MODEL_NAME or None
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class PersistedAnalysisArtifacts:
     readme_artifact: RepositoryArtifactPayload | None
@@ -103,6 +121,17 @@ def _analysis_requires_reanalysis(analysis: RepositoryAnalysisResult | None) -> 
         return True
 
     if metadata.get("analysis_schema_version") != CURRENT_ANALYSIS_SCHEMA_VERSION:
+        return True
+
+    if metadata.get("analysis_provider") != _expected_analysis_provider_name():
+        return True
+
+    expected_model_name = _expected_analysis_model_name()
+    recorded_model_name = metadata.get("analysis_model_name")
+    if expected_model_name is None:
+        if recorded_model_name not in (None, ""):
+            return True
+    elif recorded_model_name != expected_model_name:
         return True
 
     return any(key not in metadata for key in _REQUIRED_ANALYSIS_METADATA_KEYS)

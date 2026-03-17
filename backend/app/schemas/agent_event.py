@@ -56,10 +56,16 @@ class AgentRuntimeProgress(BaseModel):
     current_activity: str
     current_target: str | None = None
     progress_percent: int | None = None
+    primary_counts_label: str | None = None
     completed_count: int | None = None
     total_count: int | None = None
     remaining_count: int | None = None
     unit_label: str | None = None
+    secondary_counts_label: str | None = None
+    secondary_completed_count: int | None = None
+    secondary_total_count: int | None = None
+    secondary_remaining_count: int | None = None
+    secondary_unit_label: str | None = None
     updated_at: datetime | None = None
     source: str
     details: list[str] = Field(default_factory=list)

@@ -28,6 +28,7 @@ import {
   type AgentStatusEntry,
 } from "@/api/agents";
 import { AgentOperatorSummary } from "@/components/agents/AgentOperatorSummary";
+import { GeminiKeyPoolPanel } from "@/components/agents/GeminiKeyPoolPanel";
 import { GitHubBudgetPanel } from "@/components/agents/GitHubBudgetPanel";
 import { OperationalAlertsPanel } from "@/components/agents/OperationalAlertsPanel";
 import { formatAppDateTime } from "@/lib/time";
@@ -1979,6 +1980,7 @@ export default function ControlPanel() {
               title="Runtime Alerts"
             />
             <GitHubBudgetPanel snapshot={gatewayRuntimeQuery.data?.runtime.github_api_budget} />
+            <GeminiKeyPoolPanel snapshot={gatewayRuntimeQuery.data?.runtime.gemini_api_key_pool} />
 
             <div className="card" style={{ marginBottom: "20px" }}>
               <div

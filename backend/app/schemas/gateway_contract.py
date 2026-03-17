@@ -157,6 +157,50 @@ class GitHubApiBudgetSnapshot(BaseModel):
     reset_at: datetime | None = None
     retry_after_seconds: int | None = None
     exhausted: bool | None = None
+    tokens: list["GitHubTokenBudgetSnapshot"] = Field(default_factory=list)
+
+
+class GitHubTokenResourceBudgetSnapshot(BaseModel):
+    resource: str
+    captured_at: datetime | None = None
+    limit: int | None = None
+    remaining: int | None = None
+    used: int | None = None
+    reset_at: datetime | None = None
+    retry_after_seconds: int | None = None
+    exhausted: bool | None = None
+
+
+class GitHubTokenBudgetSnapshot(BaseModel):
+    label: str
+    captured_at: datetime
+    last_response_status: int | None = None
+    request_url: str | None = None
+    resource: str | None = None
+    limit: int | None = None
+    remaining: int | None = None
+    used: int | None = None
+    reset_at: datetime | None = None
+    retry_after_seconds: int | None = None
+    exhausted: bool | None = None
+    resource_budgets: list[GitHubTokenResourceBudgetSnapshot] = Field(default_factory=list)
+
+
+class GeminiApiKeySnapshot(BaseModel):
+    label: str
+    status: str
+    last_used_at: datetime | None = None
+    cooldown_until: datetime | None = None
+    last_error: str | None = None
+    last_response_status: int | None = None
+
+
+class GeminiApiKeyPoolSnapshot(BaseModel):
+    provider: Literal["gemini-compatible"] = "gemini-compatible"
+    captured_at: datetime
+    model_name: str | None = None
+    base_url: str | None = None
+    keys: list[GeminiApiKeySnapshot] = Field(default_factory=list)
 
 
 class GatewayNamedAgentSummary(BaseModel):
@@ -200,6 +244,7 @@ class NormalizedGatewayRuntimeState(BaseModel):
     route_owner: str
     agent_states: list[GatewayNamedAgentSummary] = Field(default_factory=list)
     github_api_budget: GitHubApiBudgetSnapshot | None = None
+    gemini_api_key_pool: GeminiApiKeyPoolSnapshot | None = None
     notes: list[str] = Field(default_factory=list)
 
 

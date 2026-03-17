@@ -68,7 +68,7 @@ def get_agent_metadata(agent_name: str) -> AgentMetadata:
             configured_provider="github",
             configured_model=None,
             notes=(
-                "Uses GITHUB_PROVIDER_TOKEN for GitHub API requests.",
+                "Uses the configured GitHub token pool for GitHub API requests.",
                 "Does not call an LLM model.",
             ),
         ),
@@ -84,7 +84,7 @@ def get_agent_metadata(agent_name: str) -> AgentMetadata:
             configured_provider="github",
             configured_model=None,
             notes=(
-                "Uses GITHUB_PROVIDER_TOKEN for GitHub API requests.",
+                "Uses the configured GitHub token pool for GitHub API requests.",
                 "Does not call an LLM model.",
             ),
         ),

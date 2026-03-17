@@ -132,6 +132,8 @@ def _current_analysis_row(repository_id: int) -> RepositoryAnalysisResult:
             "analysis_evidence_version": "fast-evidence-v1",
             "analysis_summary_short": "Current evidence-backed analysis is present.",
             "score_breakdown": {"technical_maturity_score": 50},
+            "analysis_provider": analysis_store_module._expected_analysis_provider_name(),
+            "analysis_model_name": analysis_store_module._expected_analysis_model_name(),
         },
         monetization_potential="medium",
         category=RepositoryCategory.WORKFLOW,
@@ -259,6 +261,68 @@ def test_analyst_job_reprocesses_completed_repositories_with_legacy_analysis_met
     assert analysis_row.source_metadata["analysis_mode"] == "fast"
 
 
+def test_analyst_job_reprocesses_completed_repositories_when_provider_mode_changes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    provider = StubGitHubProvider(
+        {
+            121: RepositoryReadme(
+                owner_login="octocat",
+                repository_name="provider-refresh",
+                content="# Product\n\nTeam workflow automation with analytics and API access.",
+                fetched_at=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc),
+                source_url="https://api.github.com/repos/octocat/provider-refresh/readme",
+            )
+        }
+    )
+    analysis_provider = StaticAnalysisProvider(
+        '{"monetization_potential":"high","pros":["Clear workflow"],'
+        '"cons":["Pricing unclear"],"missing_feature_signals":["Missing billing"]}'
+    )
+
+    monkeypatch.setattr(analysis_store_module.settings, "ANALYST_PROVIDER", "gemini")
+    monkeypatch.setattr(analysis_store_module.settings, "GEMINI_MODEL_NAME", "google/gemini-2.0-flash-001")
+
+    with _make_session(tmp_path) as session:
+        repo = _accepted_row(121, "octocat/provider-refresh")
+        repo.analysis_status = RepositoryAnalysisStatus.COMPLETED
+        session.add(repo)
+        session.add(
+            RepositoryAnalysisResult(
+                github_repository_id=121,
+                source_provider="github",
+                source_kind="repository_readme",
+                source_metadata={
+                    "analysis_schema_version": analysis_store_module.CURRENT_ANALYSIS_SCHEMA_VERSION,
+                    "analysis_mode": "fast",
+                    "analysis_outcome": "completed",
+                    "analysis_evidence_version": "fast-evidence-v1",
+                    "analysis_summary_short": "Current evidence-backed analysis is present.",
+                    "score_breakdown": {"technical_maturity_score": 50},
+                    "analysis_provider": "heuristic-readme-analysis",
+                    "analysis_model_name": None,
+                },
+                monetization_potential="low",
+                analyzed_at=datetime(2026, 3, 8, 11, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+
+        result = run_analyst_job(
+            session=session,
+            provider=provider,  # type: ignore[arg-type]
+            runtime_dir=tmp_path / "runtime",
+            analysis_provider=analysis_provider,
+        )
+        analysis_row = session.get(RepositoryAnalysisResult, 121)
+
+    assert result.status is AnalystRunStatus.SUCCESS
+    assert provider.calls == [("octocat", "provider-refresh")]
+    assert analysis_row is not None
+    assert analysis_row.source_metadata["analysis_provider"] == "static-analysis"
+
+
 def test_missing_readme_failure_event_does_not_pause_analyst(tmp_path: Path) -> None:
     with _make_session(tmp_path) as session:
         session.add(_accepted_row(112, "octocat/no-readme"))
@@ -318,6 +382,10 @@ def test_analyst_job_records_invalid_analysis_output_without_overwriting_unrelat
         )
         reloaded = session.get(RepositoryIntake, 505)
         analysis_row = session.get(RepositoryAnalysisResult, 505)
+        pause_state = session.get(AgentPauseState, "analyst")
+        failure_event = session.exec(
+            select(SystemEvent).where(SystemEvent.event_type == "repository_analysis_failed")
+        ).one()
 
     assert result.status is AnalystRunStatus.FAILED
     assert reloaded is not None
@@ -328,6 +396,8 @@ def test_analyst_job_records_invalid_analysis_output_without_overwriting_unrelat
     assert reloaded.repository_description == "Keep this description"
     assert reloaded.triaged_at == triaged_at
     assert analysis_row is None
+    assert pause_state is None
+    assert failure_event.failure_classification is FailureClassification.RETRYABLE
 
 
 def test_analyst_job_completes_with_insufficient_evidence_when_readme_is_missing(tmp_path: Path) -> None:

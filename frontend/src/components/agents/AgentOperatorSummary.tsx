@@ -10,9 +10,11 @@ import { formatAppDateTime } from "@/lib/time";
 import {
   formatAgentRunStatus,
   formatItemsSummary,
+  formatRunOrRuntimeSummary,
   formatRelativeTimestamp,
   formatRuntimeProgressCounts,
   formatRuntimeProgressHeadline,
+  formatRuntimeSecondaryCounts,
 } from "./agentPresentation";
 import { isAgentEffectivelyRunning } from "./alertState";
 
@@ -77,7 +79,7 @@ function buildLastRunOutcome(entry: AgentStatusEntry): string {
     return `Last run completed successfully: ${formatItemsSummary(entry.latest_run)}.`;
   }
   if (entry.latest_run.status === "running") {
-    return `Current run is still active: ${formatItemsSummary(entry.latest_run)}.`;
+    return `Current run is still active: ${formatRunOrRuntimeSummary(entry.latest_run, entry.runtime_progress)}.`;
   }
   if (entry.latest_run.status === "skipped_paused") {
     return "Latest attempted run did not start because the agent was already paused.";
@@ -183,6 +185,7 @@ export function AgentOperatorSummary({
   const whyThisLooksThisWay = buildWhyThisLooksThisWay(entry, pauseState);
   const recommendedAction = buildRecommendedAction(entry, pauseState, failureEvent);
   const retryGuidance = buildRetryGuidance(failureEvent);
+  const secondaryCounts = formatRuntimeSecondaryCounts(entry.runtime_progress);
 
   return (
     <section className="card">
@@ -215,6 +218,11 @@ export function AgentOperatorSummary({
           <div style={{ color: "var(--text-2)", marginTop: "6px", lineHeight: 1.6 }}>
             {whyThisLooksThisWay}
           </div>
+          {secondaryCounts ? (
+            <div style={{ color: "var(--text-1)", marginTop: "6px", lineHeight: 1.6 }}>
+              {secondaryCounts}
+            </div>
+          ) : null}
           <div style={{ color: "var(--text-2)", marginTop: "6px", fontSize: "12px" }}>
             Current target: {entry.runtime_progress?.current_target ?? "No active target"}
           </div>

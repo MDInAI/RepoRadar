@@ -50,12 +50,14 @@ class RecordingTransport:
         url: str,
         headers: dict[str, str],
         params: dict[str, str],
+        token_label: str | None = None,
     ) -> dict[str, object]:
         self.calls.append(
             {
                 "url": url,
                 "headers": headers,
                 "params": params,
+                "token_label": token_label,
             }
         )
         call_index = len(self.calls) - 1
@@ -69,6 +71,7 @@ class RecordingTransport:
         url: str,
         headers: dict[str, str],
         params: dict[str, str],
+        token_label: str | None = None,
     ) -> str:
         self.calls.append(
             {
@@ -76,6 +79,7 @@ class RecordingTransport:
                 "headers": headers,
                 "params": params,
                 "text": True,
+                "token_label": token_label,
             }
         )
         call_index = sum(1 for call in self.calls if call.get("text")) - 1
@@ -117,6 +121,7 @@ class ReadmeTransport:
         url: str,
         headers: dict[str, str],
         params: dict[str, str],
+        token_label: str | None = None,
     ) -> dict[str, object]:
         raise AssertionError("get_json should not be called in this test")
 
@@ -126,8 +131,11 @@ class ReadmeTransport:
         url: str,
         headers: dict[str, str],
         params: dict[str, str],
+        token_label: str | None = None,
     ) -> str:
-        self.calls.append({"url": url, "headers": headers, "params": params})
+        self.calls.append(
+            {"url": url, "headers": headers, "params": params, "token_label": token_label}
+        )
         if isinstance(self.response, Exception):
             raise self.response
         return self.response
@@ -458,6 +466,7 @@ def test_transport_writes_shared_github_quota_snapshot(
         url="https://api.github.com/search/repositories",
         headers={},
         params={"q": "created:>=2026-03-07"},
+        token_label="token-1",
     )
 
     assert payload == {"items": []}
@@ -468,6 +477,26 @@ def test_transport_writes_shared_github_quota_snapshot(
     assert snapshot["used"] == 12
     assert snapshot["resource"] == "core"
     assert snapshot["last_response_status"] == 200
+    assert snapshot["tokens"][0]["label"] == "token-1"
+    assert snapshot["tokens"][0]["resource_budgets"][0]["resource"] == "core"
+
+
+def test_provider_rotates_across_multiple_github_tokens() -> None:
+    transport = RecordingTransport({"items": [_repository_payload(101)]})
+    provider = GitHubFirehoseProvider(
+        transport=transport,
+        github_token=None,
+        github_tokens=("token-a", "token-b"),
+        today=date(2026, 3, 7),
+    )
+
+    provider.discover(mode=FirehoseMode.NEW, per_page=1, page=1)
+    provider.discover(mode=FirehoseMode.NEW, per_page=1, page=2)
+
+    assert transport.calls[0]["headers"]["Authorization"] == "Bearer token-a"
+    assert transport.calls[0]["token_label"] == "token-1"
+    assert transport.calls[1]["headers"]["Authorization"] == "Bearer token-b"
+    assert transport.calls[1]["token_label"] == "token-2"
 
 
 def test_provider_rejects_malformed_repository_payloads() -> None:

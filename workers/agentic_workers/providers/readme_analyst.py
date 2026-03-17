@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from functools import lru_cache
 import json
+from pathlib import Path
 import re
-from typing import Protocol
+from typing import Callable, Protocol
 
 from anthropic import Anthropic
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from agentic_workers.storage.gemini_key_pool_snapshots import write_gemini_key_pool_snapshot
 
 try:
     from openai import OpenAI
@@ -246,6 +250,101 @@ class ReadmeAnalysisUsage:
 
 
 @dataclass(frozen=True, slots=True)
+class GeminiKeySelection:
+    label: str
+    api_key: str
+
+
+@dataclass(slots=True)
+class GeminiKeyState:
+    label: str
+    api_key: str
+    last_used_at: datetime | None = None
+    cooldown_until: datetime | None = None
+    last_error: str | None = None
+    last_status: str = "idle"
+    last_response_status: int | None = None
+
+
+class GeminiKeyPool:
+    def __init__(self, api_keys: tuple[str, ...] | list[str]) -> None:
+        configured_keys = [key for key in api_keys if isinstance(key, str) and key.strip()]
+        if not configured_keys:
+            raise ValueError("At least one Gemini API key is required")
+        self._states = [
+            GeminiKeyState(label=f"key-{index + 1}", api_key=key.strip())
+            for index, key in enumerate(configured_keys)
+        ]
+        self._next_index = 0
+
+    def select(self) -> GeminiKeySelection:
+        now = datetime.now(timezone.utc)
+        healthy_states = [
+            state for state in self._states if state.cooldown_until is None or state.cooldown_until <= now
+        ]
+        candidate_states = healthy_states or self._states
+        selected = candidate_states[self._next_index % len(candidate_states)]
+        self._next_index += 1
+        selected.last_used_at = now
+        if selected.cooldown_until is not None and selected.cooldown_until <= now:
+            selected.cooldown_until = None
+            selected.last_status = "healthy"
+            selected.last_error = None
+            selected.last_response_status = None
+        return GeminiKeySelection(label=selected.label, api_key=selected.api_key)
+
+    def mark_success(self, label: str) -> None:
+        state = self._state_by_label(label)
+        if state is None:
+            return
+        state.cooldown_until = None
+        state.last_error = None
+        state.last_status = "healthy"
+        state.last_response_status = 200
+
+    def mark_cooldown(
+        self,
+        *,
+        label: str,
+        error_message: str,
+        status_code: int | None,
+        cooldown_seconds: int,
+        status_label: str,
+    ) -> None:
+        state = self._state_by_label(label)
+        if state is None:
+            return
+        state.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=max(cooldown_seconds, 1))
+        state.last_error = error_message
+        state.last_status = status_label
+        state.last_response_status = status_code
+
+    def snapshot_payload(self) -> list[dict[str, object]]:
+        return [
+            {
+                "label": state.label,
+                "status": state.last_status,
+                "last_used_at": state.last_used_at.isoformat() if state.last_used_at is not None else None,
+                "cooldown_until": state.cooldown_until.isoformat()
+                if state.cooldown_until is not None
+                else None,
+                "last_error": state.last_error,
+                "last_response_status": state.last_response_status,
+            }
+            for state in self._states
+        ]
+
+    def key_count(self) -> int:
+        return len(self._states)
+
+    def _state_by_label(self, label: str) -> GeminiKeyState | None:
+        for state in self._states:
+            if state.label == label:
+                return state
+        return None
+
+
+@dataclass(frozen=True, slots=True)
 class HeuristicEvidenceSnapshot:
     summary: str
     signals: dict[str, object]
@@ -466,12 +565,39 @@ Return ONLY valid JSON, no markdown formatting."""
                 output_tokens=output_tokens,
                 total_tokens=input_tokens + output_tokens,
             )
-            response_text = _strip_json_code_fences(response_text)
-            validated = LLMReadmeBusinessAnalysis.model_validate_json(response_text)
+            validated = _validate_or_repair_analysis_output(
+                response_text,
+                repair_json=self._repair_json_response,
+            )
             return json.dumps(validated.model_dump(), sort_keys=True)
         except Exception:
             self._last_usage = ReadmeAnalysisUsage()
             raise
+
+    def _repair_json_response(self, invalid_json: str) -> str:
+        message = self._client.messages.create(
+            model=self._model_name,
+            max_tokens=2048,
+            timeout=30.0,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        "Repair this malformed JSON so it becomes valid JSON matching the same intent. "
+                        "Return only valid JSON with no markdown fences.\n\n"
+                        f"{invalid_json}"
+                    ),
+                }
+            ],
+        )
+        input_tokens = _coerce_token_count(getattr(getattr(message, "usage", None), "input_tokens", 0))
+        output_tokens = _coerce_token_count(getattr(getattr(message, "usage", None), "output_tokens", 0))
+        self._last_usage = ReadmeAnalysisUsage(
+            input_tokens=self._last_usage.input_tokens + input_tokens,
+            output_tokens=self._last_usage.output_tokens + output_tokens,
+            total_tokens=self._last_usage.total_tokens + input_tokens + output_tokens,
+        )
+        return _extract_anthropic_text(message)
 
     @property
     def provider_name(self) -> str:
@@ -489,14 +615,40 @@ Return ONLY valid JSON, no markdown formatting."""
 class GeminiReadmeAnalysisProvider:
     """Gemini-backed README analysis using OpenAI-compatible API."""
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None, model_name: str | None = None):
-        if not api_key:
-            raise ValueError("api_key is required for GeminiReadmeAnalysisProvider")
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model_name: str | None = None,
+        api_keys: tuple[str, ...] | list[str] | None = None,
+        runtime_dir: Path | None = None,
+    ):
+        configured_keys = [
+            *(api_keys or ()),
+            *( [api_key] if isinstance(api_key, str) and api_key.strip() else [] ),
+        ]
+        deduped_keys: list[str] = []
+        seen_keys: set[str] = set()
+        for raw_key in configured_keys:
+            candidate = str(raw_key).strip()
+            if not candidate or candidate in seen_keys:
+                continue
+            deduped_keys.append(candidate)
+            seen_keys.add(candidate)
+        if not deduped_keys:
+            raise ValueError("api_key or api_keys is required for GeminiReadmeAnalysisProvider")
         if OpenAI is None:
             raise ImportError("openai package is required for GeminiReadmeAnalysisProvider")
-        self._client = OpenAI(api_key=api_key, base_url=base_url or "https://api.haimaker.ai/v1")
+        self._base_url = base_url or "https://api.haimaker.ai/v1"
+        self._runtime_dir = runtime_dir
         self._model_name = model_name or "google/gemini-2.0-flash-001"
         self._last_usage = ReadmeAnalysisUsage()
+        self._key_pool = GeminiKeyPool(deduped_keys)
+        self._clients = {
+            f"key-{index + 1}": OpenAI(api_key=key, base_url=self._base_url)
+            for index, key in enumerate(deduped_keys)
+        }
+        self._write_pool_snapshot()
 
     def analyze(
         self,
@@ -544,32 +696,94 @@ Return valid JSON matching this schema:
 
 Return ONLY valid JSON, no markdown formatting."""
 
-        try:
-            response = self._client.chat.completions.create(
-                model=self._model_name,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=2048,
-                timeout=30.0
-            )
+        last_error: Exception | None = None
+        self._last_usage = ReadmeAnalysisUsage()
 
-            response_text = response.choices[0].message.content
-            if not response_text:
-                raise ValueError("Empty response from Gemini API")
-            usage = getattr(response, "usage", None)
-            input_tokens = _coerce_token_count(getattr(usage, "prompt_tokens", 0))
-            output_tokens = _coerce_token_count(getattr(usage, "completion_tokens", 0))
-            total_tokens = _coerce_token_count(getattr(usage, "total_tokens", input_tokens + output_tokens))
-            self._last_usage = ReadmeAnalysisUsage(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=total_tokens,
-            )
-            response_text = _strip_json_code_fences(response_text)
-            validated = LLMReadmeBusinessAnalysis.model_validate_json(response_text)
-            return json.dumps(validated.model_dump(), sort_keys=True)
-        except Exception:
-            self._last_usage = ReadmeAnalysisUsage()
-            raise
+        for _ in range(self._key_pool.key_count()):
+            selection = self._key_pool.select()
+            client = self._clients[selection.label]
+            try:
+                response = client.chat.completions.create(
+                    model=self._model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=2048,
+                    timeout=30.0
+                )
+
+                response_text = response.choices[0].message.content
+                if not response_text:
+                    raise ValueError("Empty response from Gemini API")
+                usage = getattr(response, "usage", None)
+                input_tokens = _coerce_token_count(getattr(usage, "prompt_tokens", 0))
+                output_tokens = _coerce_token_count(getattr(usage, "completion_tokens", 0))
+                total_tokens = _coerce_token_count(getattr(usage, "total_tokens", input_tokens + output_tokens))
+                self._last_usage = ReadmeAnalysisUsage(
+                    input_tokens=self._last_usage.input_tokens + input_tokens,
+                    output_tokens=self._last_usage.output_tokens + output_tokens,
+                    total_tokens=self._last_usage.total_tokens + total_tokens,
+                )
+                validated = _validate_or_repair_analysis_output(
+                    response_text,
+                    repair_json=lambda invalid_json: self._repair_json_response(
+                        invalid_json,
+                        selection_label=selection.label,
+                    ),
+                )
+                self._key_pool.mark_success(selection.label)
+                self._write_pool_snapshot()
+                return json.dumps(validated.model_dump(), sort_keys=True)
+            except Exception as exc:
+                if _should_rotate_gemini_key(exc):
+                    self._key_pool.mark_cooldown(
+                        label=selection.label,
+                        error_message=str(exc),
+                        status_code=_extract_openai_status_code(exc),
+                        cooldown_seconds=_derive_gemini_cooldown_seconds(exc),
+                        status_label=_derive_gemini_status_label(exc),
+                    )
+                    self._write_pool_snapshot()
+                    last_error = exc
+                    continue
+                self._write_pool_snapshot()
+                self._last_usage = ReadmeAnalysisUsage()
+                raise
+
+        self._write_pool_snapshot()
+        self._last_usage = ReadmeAnalysisUsage()
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("Gemini key pool exhausted without a usable key")
+
+    def _repair_json_response(self, invalid_json: str, *, selection_label: str) -> str:
+        client = self._clients[selection_label]
+        response = client.chat.completions.create(
+            model=self._model_name,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        "Repair this malformed JSON so it becomes valid JSON matching the same intent. "
+                        "Return only valid JSON with no markdown fences.\n\n"
+                        f"{invalid_json}"
+                    ),
+                }
+            ],
+            max_tokens=2048,
+            timeout=30.0,
+        )
+        response_text = response.choices[0].message.content
+        if not response_text:
+            raise ValueError("Empty repair response from Gemini API")
+        usage = getattr(response, "usage", None)
+        input_tokens = _coerce_token_count(getattr(usage, "prompt_tokens", 0))
+        output_tokens = _coerce_token_count(getattr(usage, "completion_tokens", 0))
+        total_tokens = _coerce_token_count(getattr(usage, "total_tokens", input_tokens + output_tokens))
+        self._last_usage = ReadmeAnalysisUsage(
+            input_tokens=self._last_usage.input_tokens + input_tokens,
+            output_tokens=self._last_usage.output_tokens + output_tokens,
+            total_tokens=self._last_usage.total_tokens + total_tokens,
+        )
+        return response_text
 
     @property
     def provider_name(self) -> str:
@@ -583,14 +797,24 @@ Return ONLY valid JSON, no markdown formatting."""
     def last_usage(self) -> ReadmeAnalysisUsage:
         return self._last_usage
 
+    def _write_pool_snapshot(self) -> None:
+        write_gemini_key_pool_snapshot(
+            runtime_dir=self._runtime_dir,
+            model_name=self._model_name,
+            base_url=self._base_url,
+            keys=self._key_pool.snapshot_payload(),
+        )
+
 
 def create_analysis_provider(
     analyst_provider: str,
     anthropic_api_key: str | None = None,
     model_name: str | None = None,
     gemini_api_key: str | None = None,
+    gemini_api_keys: tuple[str, ...] | list[str] | None = None,
     gemini_base_url: str | None = None,
-    gemini_model_name: str | None = None
+    gemini_model_name: str | None = None,
+    runtime_dir: Path | None = None,
 ) -> ReadmeAnalysisProvider:
     """Factory function to create the appropriate analysis provider."""
     if analyst_provider == "llm":
@@ -598,8 +822,10 @@ def create_analysis_provider(
     if analyst_provider == "gemini":
         return GeminiReadmeAnalysisProvider(
             api_key=gemini_api_key,
+            api_keys=gemini_api_keys,
             base_url=gemini_base_url,
-            model_name=gemini_model_name
+            model_name=gemini_model_name,
+            runtime_dir=runtime_dir,
         )
     return HeuristicReadmeAnalysisProvider()
 
@@ -671,6 +897,70 @@ def _strip_json_code_fences(text: str) -> str:
     return candidate.strip()
 
 
+def _validate_or_repair_analysis_output(
+    response_text: str,
+    *,
+    repair_json: Callable[[str], str] | None = None,
+) -> LLMReadmeBusinessAnalysis:
+    candidate = _strip_json_code_fences(response_text)
+    try:
+        return LLMReadmeBusinessAnalysis.model_validate_json(candidate)
+    except Exception as original_error:
+        repaired_candidate = _attempt_local_json_repair(candidate)
+        if repaired_candidate is not None:
+            try:
+                return LLMReadmeBusinessAnalysis.model_validate_json(repaired_candidate)
+            except Exception:
+                pass
+
+        if repair_json is not None:
+            repaired_remote = _strip_json_code_fences(repair_json(candidate))
+            local_repaired_remote = _attempt_local_json_repair(repaired_remote) or repaired_remote
+            return LLMReadmeBusinessAnalysis.model_validate_json(local_repaired_remote)
+        raise original_error
+
+
+def _attempt_local_json_repair(candidate: str) -> str | None:
+    extracted = _extract_json_object(candidate)
+    if extracted is None:
+        return None
+
+    repaired = extracted.replace("\r\n", "\n").replace("\r", "\n")
+    repaired = _insert_missing_commas_between_lines(repaired)
+    repaired = re.sub(r",(\s*[}\]])", r"\1", repaired)
+    repaired = repaired.strip()
+    return repaired or None
+
+
+def _extract_json_object(candidate: str) -> str | None:
+    start = candidate.find("{")
+    end = candidate.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    return candidate[start : end + 1]
+
+
+def _insert_missing_commas_between_lines(text: str) -> str:
+    lines = text.splitlines()
+    if len(lines) < 2:
+        return text
+
+    repaired_lines: list[str] = []
+    for index, line in enumerate(lines):
+        stripped = line.rstrip()
+        next_line = lines[index + 1].lstrip() if index + 1 < len(lines) else ""
+        if (
+            stripped
+            and next_line
+            and not stripped.endswith(("{", "[", ",", ":"))
+            and not next_line.startswith(("}", "]", ","))
+        ):
+            repaired_lines.append(f"{stripped},")
+        else:
+            repaired_lines.append(line)
+    return "\n".join(repaired_lines)
+
+
 def _normalize_tag_candidate(value: str) -> str:
     candidate = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
     return candidate
@@ -693,6 +983,53 @@ def _extract_anthropic_text(message: object) -> str:
     if not text_parts:
         raise ValueError("Anthropic response did not include any text content")
     return "".join(text_parts)
+
+
+def _extract_openai_status_code(error: Exception) -> int | None:
+    for attribute in ("status_code", "status"):
+        value = getattr(error, attribute, None)
+        if isinstance(value, int):
+            return value
+    response = getattr(error, "response", None)
+    value = getattr(response, "status_code", None)
+    return value if isinstance(value, int) else None
+
+
+def _should_rotate_gemini_key(error: Exception) -> bool:
+    message = str(error).lower()
+    status_code = _extract_openai_status_code(error)
+    if any(
+        phrase in message
+        for phrase in (
+            "daily request limit reached",
+            "free accounts are limited to 500 requests per day",
+            "too many requests",
+            "rate limit",
+            "rate_limit",
+        )
+    ):
+        return True
+    if status_code in {401, 429}:
+        return True
+    return False
+
+
+def _derive_gemini_cooldown_seconds(error: Exception) -> int:
+    message = str(error).lower()
+    if "daily request limit reached" in message or "500 requests per day" in message:
+        return 24 * 60 * 60
+    return 15 * 60
+
+
+def _derive_gemini_status_label(error: Exception) -> str:
+    message = str(error).lower()
+    if "daily request limit reached" in message or "500 requests per day" in message:
+        return "daily-limit"
+    if "rate limit" in message or "rate_limit" in message or _extract_openai_status_code(error) == 429:
+        return "rate-limited"
+    if _extract_openai_status_code(error) == 401:
+        return "auth-error"
+    return "cooldown"
 
 
 _SKIPPED_SECTION_HEADINGS = {
