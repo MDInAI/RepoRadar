@@ -1,67 +1,87 @@
 {
-  "captured_at": "2026-03-17T00:46:16.765134+00:00",
+  "captured_at": "2026-03-17T13:12:19.079416+00:00",
   "exhausted": false,
   "last_response_status": 200,
-  "limit": 5000,
+  "limit": 30,
   "provider": "github",
-  "remaining": 4356,
-  "request_url": "https://api.github.com/repos/danielmiessler/SecLists/contents/.github/workflows/wordlist-updater_fuzzing_etc_files.yml",
-  "reset_at": "2026-03-17T01:00:11+00:00",
-  "resource": "core",
-  "retry_after_seconds": 835,
+  "remaining": 29,
+  "request_url": "https://api.github.com/search/repositories?page=3&per_page=100&order=desc&q=pushed%3A%3E%3D2026-03-10+stars%3A%3E%3D50+archived%3Afalse+is%3Apublic&sort=stars",
+  "reset_at": "2026-03-17T13:13:19+00:00",
+  "resource": "search",
+  "retry_after_seconds": 60,
   "tokens": [
     {
-      "captured_at": "2026-03-17T00:46:16.397777+00:00",
+      "captured_at": "2026-03-17T13:11:44.469790+00:00",
       "exhausted": false,
       "label": "token-1",
       "last_response_status": 200,
-      "limit": 5000,
+      "limit": 30,
       "provider": "github",
-      "remaining": 4357,
-      "request_url": "https://api.github.com/repos/danielmiessler/SecLists/contents/.github/workflows/wordlist-updater_default-passwords.yml",
-      "reset_at": "2026-03-17T01:29:55+00:00",
-      "resource": "core",
+      "remaining": 29,
+      "request_url": "https://api.github.com/search/repositories?page=2&per_page=100&order=desc&q=pushed%3A%3E%3D2026-03-10+stars%3A%3E%3D50+archived%3Afalse+is%3Apublic&sort=stars",
+      "reset_at": "2026-03-17T13:12:44+00:00",
+      "resource": "search",
       "resource_budgets": [
         {
-          "captured_at": "2026-03-17T00:46:16.397777+00:00",
+          "captured_at": "2026-03-17T12:06:18.637805+00:00",
           "exhausted": false,
           "limit": 5000,
-          "remaining": 4357,
-          "reset_at": "2026-03-17T01:29:55+00:00",
+          "remaining": 4993,
+          "reset_at": "2026-03-17T13:06:15+00:00",
           "resource": "core",
-          "retry_after_seconds": 2619,
-          "used": 643
+          "retry_after_seconds": 3597,
+          "used": 7
+        },
+        {
+          "captured_at": "2026-03-17T13:11:44.469790+00:00",
+          "exhausted": false,
+          "limit": 30,
+          "remaining": 29,
+          "reset_at": "2026-03-17T13:12:44+00:00",
+          "resource": "search",
+          "retry_after_seconds": 60,
+          "used": 1
         }
       ],
-      "retry_after_seconds": 2619,
-      "used": 643
+      "retry_after_seconds": 60,
+      "used": 1
     },
     {
-      "captured_at": "2026-03-17T00:46:16.765134+00:00",
+      "captured_at": "2026-03-17T13:12:19.079416+00:00",
       "exhausted": false,
       "label": "token-2",
       "last_response_status": 200,
-      "limit": 5000,
+      "limit": 30,
       "provider": "github",
-      "remaining": 4356,
-      "request_url": "https://api.github.com/repos/danielmiessler/SecLists/contents/.github/workflows/wordlist-updater_fuzzing_etc_files.yml",
-      "reset_at": "2026-03-17T01:00:11+00:00",
-      "resource": "core",
+      "remaining": 29,
+      "request_url": "https://api.github.com/search/repositories?page=3&per_page=100&order=desc&q=pushed%3A%3E%3D2026-03-10+stars%3A%3E%3D50+archived%3Afalse+is%3Apublic&sort=stars",
+      "reset_at": "2026-03-17T13:13:19+00:00",
+      "resource": "search",
       "resource_budgets": [
         {
-          "captured_at": "2026-03-17T00:46:16.765134+00:00",
+          "captured_at": "2026-03-17T12:06:17.951677+00:00",
           "exhausted": false,
           "limit": 5000,
-          "remaining": 4356,
-          "reset_at": "2026-03-17T01:00:11+00:00",
+          "remaining": 4996,
+          "reset_at": "2026-03-17T13:06:16+00:00",
           "resource": "core",
-          "retry_after_seconds": 835,
-          "used": 644
+          "retry_after_seconds": 3599,
+          "used": 4
+        },
+        {
+          "captured_at": "2026-03-17T13:12:19.079416+00:00",
+          "exhausted": false,
+          "limit": 30,
+          "remaining": 29,
+          "reset_at": "2026-03-17T13:13:19+00:00",
+          "resource": "search",
+          "retry_after_seconds": 60,
+          "used": 1
         }
       ],
-      "retry_after_seconds": 835,
-      "used": 644
+      "retry_after_seconds": 60,
+      "used": 1
     }
   ],
-  "used": 644
+  "used": 1
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
@@ -240,3 +241,39 @@ def test_has_running_agent_run_recovers_stale_superseded_runs() -> None:
     assert stale_run.status is AgentRunStatus.FAILED
     assert stale_run.completed_at is not None
     assert stale_run.error_summary == "Recovered stale running job after worker state drift."
+
+
+def test_has_running_agent_run_keeps_fresh_progress_snapshot_runs_active(tmp_path) -> None:
+    runtime_dir = tmp_path / "runtime"
+    analyst_dir = runtime_dir / "analyst"
+    analyst_dir.mkdir(parents=True, exist_ok=True)
+    (analyst_dir / "progress.json").write_text(
+        json.dumps(
+            {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "status_label": "running",
+                "current_activity": "Analyzing accepted repositories.",
+                "current_target": "serverless/serverless",
+            }
+        )
+    )
+
+    with _make_session() as session:
+        session.add(
+            AgentRun(
+                id=20,
+                agent_name="analyst",
+                status=AgentRunStatus.RUNNING,
+                started_at=datetime(2026, 3, 10, 10, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+
+        repository = AgentEventRepository(session, runtime_dir=runtime_dir)
+        has_running = repository.has_running_agent_run("analyst")
+        run = session.get(AgentRun, 20)
+
+    assert has_running is True
+    assert run is not None
+    assert run.status is AgentRunStatus.RUNNING
+    assert run.completed_at is None

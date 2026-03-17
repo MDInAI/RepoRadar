@@ -184,6 +184,32 @@ def test_unknown_agent_tags_are_redirected_to_suggested_new_tags(sample_readme):
         assert set(result.agent_tags).issubset(set(CONTROLLED_AGENT_TAGS))
 
 
+def test_unknown_category_is_redirected_to_suggested_new_categories(sample_readme):
+    mock_response = Mock()
+    mock_response.content = [
+        Mock(
+            text=(
+                '{"category": "education", "suggested_new_categories": ["edtech"], '
+                '"category_confidence_score": 72, "confidence_score": 68, '
+                '"monetization_potential": "medium"}'
+            )
+        )
+    ]
+
+    with patch("agentic_workers.providers.readme_analyst.Anthropic") as mock_anthropic:
+        mock_client = Mock()
+        mock_client.messages.create.return_value = mock_response
+        mock_anthropic.return_value = mock_client
+
+        provider = LLMReadmeAnalysisProvider(api_key="test-key")
+        result = LLMReadmeBusinessAnalysis.model_validate_json(
+            provider.analyze(repository_full_name="test/repo", readme=sample_readme)
+        )
+
+        assert result.category is None
+        assert result.suggested_new_categories == ["education", "edtech"]
+
+
 def test_create_analysis_provider_llm():
     """Test factory creates LLM provider when specified."""
     provider = create_analysis_provider("llm", "test-key", "test-model")
@@ -244,8 +270,8 @@ def test_gemini_provider_rotates_to_next_key_on_daily_limit(sample_readme):
         assert provider.last_usage.total_tokens == 52
 
 
-def test_invalid_category_outside_controlled_vocabulary_raises_validation_error(sample_readme):
-    """Test that uncontrolled categories are rejected instead of silently persisted."""
+def test_invalid_category_outside_controlled_vocabulary_becomes_suggestion(sample_readme):
+    """Test that uncontrolled categories are redirected into suggestions instead of failing the run."""
     mock_response = Mock()
     mock_response.content = [Mock(text='{"category": "blockchain", "confidence_score": 80, "monetization_potential": "medium"}')]
 
@@ -255,9 +281,12 @@ def test_invalid_category_outside_controlled_vocabulary_raises_validation_error(
         mock_anthropic.return_value = mock_client
 
         provider = LLMReadmeAnalysisProvider(api_key="test-key")
-
-        with pytest.raises(ValidationError):
+        result = LLMReadmeBusinessAnalysis.model_validate_json(
             provider.analyze(repository_full_name="test/repo", readme=sample_readme)
+        )
+
+        assert result.category is None
+        assert result.suggested_new_categories == ["blockchain"]
 
 
 def test_heuristic_provider_uses_evidence_and_emits_real_confidence(sample_readme):

@@ -68,7 +68,7 @@ def get_agent_event_service(
     session: Session = Depends(get_db_session),
 ) -> AgentEventService:
     return AgentEventService(
-        AgentEventRepository(session),
+        AgentEventRepository(session, runtime_dir=settings.AGENTIC_RUNTIME_DIR),
         broadcaster=get_event_broadcaster(request),
         runtime_dir=settings.AGENTIC_RUNTIME_DIR,
     )
@@ -77,7 +77,9 @@ def get_agent_event_service(
 def get_agent_operator_service(
     session: Session = Depends(get_db_session),
 ) -> AgentOperatorService:
-    return AgentOperatorService(AgentEventRepository(session))
+    return AgentOperatorService(
+        AgentEventRepository(session, runtime_dir=settings.AGENTIC_RUNTIME_DIR)
+    )
 
 
 def get_overlord_service(

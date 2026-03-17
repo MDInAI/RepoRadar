@@ -37,8 +37,12 @@ async def bridge_persisted_events(app: FastAPI) -> None:
         try:
             with Session(engine) as session:
                 service = AgentEventService(
-                    AgentEventRepository(session),
+                    AgentEventRepository(
+                        session,
+                        runtime_dir=settings.AGENTIC_RUNTIME_DIR,
+                    ),
                     broadcaster=broadcaster,
+                    runtime_dir=settings.AGENTIC_RUNTIME_DIR,
                 )
                 if last_event_id is None:
                     last_event_id = service.get_latest_system_event_id()

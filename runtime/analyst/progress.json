@@ -1,17 +1,17 @@
 {
-  "completed_count": 44,
-  "current_activity": "Analyzing accepted repositories.",
-  "current_target": "danielmiessler/SecLists",
+  "completed_count": 505,
+  "current_activity": "Analyst run finished with warnings or failures.",
+  "current_target": null,
   "details": [
-    "Completed outcomes: 44",
-    "Failed outcomes: 1",
+    "Completed outcomes: 505",
+    "Failed outcomes: 6",
     "Provider: gemini-compatible"
   ],
-  "generated_at": "2026-03-17T00:46:05.402279+00:00",
-  "progress_percent": 2,
-  "remaining_count": 1762,
+  "generated_at": "2026-03-17T12:06:19.291255+00:00",
+  "progress_percent": 31,
+  "remaining_count": 1122,
   "source": "analyst queue snapshot",
-  "status_label": "running",
-  "total_count": 1806,
+  "status_label": "partial failure",
+  "total_count": 1627,
   "unit_label": "repos"
 }

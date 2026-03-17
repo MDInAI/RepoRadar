@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import json
+from pathlib import Path
 
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -48,8 +50,9 @@ class IncidentListFilters:
 
 
 class AgentEventRepository:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, runtime_dir: Path | None = None) -> None:
         self.session = session
+        self.runtime_dir = runtime_dir
 
     def create_agent_run(self, agent_name: str) -> AgentRun:
         record = AgentRun(agent_name=agent_name, status=AgentRunStatus.RUNNING)
@@ -127,6 +130,7 @@ class AgentEventRepository:
     def reconcile_stale_running_agent_runs(self, agent_name: str) -> int:
         now = datetime.now(timezone.utc)
         stale_before = now - timedelta(minutes=10)
+        fresh_progress_after = now - timedelta(minutes=3)
         running_runs = list(
             self.session.exec(
                 select(AgentRun)
@@ -148,7 +152,13 @@ class AgentEventRepository:
             ).one()
             has_newer_run = bool(newer_run_count or 0)
             timed_out = run.started_at <= stale_before
+            has_fresh_progress = self._has_fresh_progress_snapshot(
+                agent_name=agent_name,
+                fresh_after=fresh_progress_after,
+            )
             if not has_newer_run and not timed_out:
+                continue
+            if not has_newer_run and has_fresh_progress:
                 continue
 
             run.status = AgentRunStatus.FAILED
@@ -166,6 +176,40 @@ class AgentEventRepository:
             self.session.commit()
 
         return recovered
+
+    def _has_fresh_progress_snapshot(
+        self,
+        *,
+        agent_name: str,
+        fresh_after: datetime,
+    ) -> bool:
+        if self.runtime_dir is None:
+            return False
+
+        snapshot_path = self.runtime_dir / agent_name / "progress.json"
+        if not snapshot_path.is_file():
+            return False
+
+        try:
+            payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        if not isinstance(payload, dict):
+            return False
+
+        generated_at_raw = payload.get("generated_at")
+        if not isinstance(generated_at_raw, str):
+            return False
+        try:
+            generated_at = datetime.fromisoformat(generated_at_raw)
+        except ValueError:
+            return False
+
+        status_label = payload.get("status_label")
+        if isinstance(status_label, str) and status_label.strip().lower() in {"idle", "waiting"}:
+            return False
+
+        return generated_at >= fresh_after
 
     def get_latest_run_per_agent(self) -> list[AgentRun]:
         ranked_runs = (

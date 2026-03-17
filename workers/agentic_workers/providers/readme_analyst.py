@@ -138,10 +138,6 @@ class LLMReadmeBusinessAnalysis(BaseModel):
         normalized = value.strip().lower()
         if not normalized:
             return None
-        if normalized not in CONTROLLED_REPOSITORY_CATEGORIES:
-            raise ValueError(
-                f"category must be one of {CONTROLLED_REPOSITORY_CATEGORIES!r} or null"
-            )
         return normalized
 
     @field_validator(
@@ -218,6 +214,16 @@ class LLMReadmeBusinessAnalysis(BaseModel):
 
         normalized_categories: list[str] = []
         seen_categories: set[str] = set()
+        category_candidate = _normalize_category_candidate(self.category)
+        if category_candidate and category_candidate not in CONTROLLED_REPOSITORY_CATEGORIES:
+            seen_categories.add(category_candidate)
+            normalized_categories.append(category_candidate)
+            self.category = None
+        elif category_candidate:
+            self.category = category_candidate
+        else:
+            self.category = None
+
         for raw_category in self.suggested_new_categories:
             normalized = _normalize_category_candidate(raw_category)
             if not normalized or normalized in CONTROLLED_REPOSITORY_CATEGORIES:
@@ -920,6 +926,43 @@ def _validate_or_repair_analysis_output(
         raise original_error
 
 
+def coerce_analysis_json(response_text: str) -> str:
+    """Normalize raw provider JSON into a taxonomy-safe payload string.
+
+    This is a defensive job-layer fallback so unknown categories like
+    `education` become `suggested_new_categories` instead of failing the run.
+    """
+
+    candidate = _strip_json_code_fences(response_text)
+    try:
+        payload = json.loads(candidate)
+    except json.JSONDecodeError:
+        return candidate
+    if not isinstance(payload, dict):
+        return candidate
+
+    category_candidate = _normalize_category_candidate(payload.get("category"))
+    if category_candidate and category_candidate not in CONTROLLED_REPOSITORY_CATEGORIES:
+        raw_suggested = payload.get("suggested_new_categories")
+        suggested = raw_suggested if isinstance(raw_suggested, list) else []
+        normalized_suggested: list[str] = []
+        seen: set[str] = set()
+        for item in suggested:
+            if not isinstance(item, str):
+                continue
+            normalized = _normalize_category_candidate(item)
+            if not normalized or normalized in CONTROLLED_REPOSITORY_CATEGORIES or normalized in seen:
+                continue
+            seen.add(normalized)
+            normalized_suggested.append(normalized)
+        if category_candidate not in seen:
+            normalized_suggested.insert(0, category_candidate)
+        payload["suggested_new_categories"] = normalized_suggested
+        payload["category"] = None
+
+    return json.dumps(payload, sort_keys=True)
+
+
 def _attempt_local_json_repair(candidate: str) -> str | None:
     extracted = _extract_json_object(candidate)
     if extracted is None:
@@ -966,7 +1009,9 @@ def _normalize_tag_candidate(value: str) -> str:
     return candidate
 
 
-def _normalize_category_candidate(value: str) -> str:
+def _normalize_category_candidate(value: str | None) -> str:
+    if not value:
+        return ""
     candidate = re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
     return candidate
 

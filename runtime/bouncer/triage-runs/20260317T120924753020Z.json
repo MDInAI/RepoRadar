@@ -1,0 +1,4057 @@
+{
+  "exclude_rules": [
+    "gaming",
+    "homework",
+    "tutorial"
+  ],
+  "generated_at": "2026-03-17T12:09:24.753035+00:00",
+  "include_rules": [
+    "saas",
+    "developer tools",
+    "infrastructure"
+  ],
+  "outcomes": [
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.213916+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "DGoettlich/history-llms",
+      "github_repository_id": 1116246785,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.218894+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "aiflowy/aiflowy",
+      "github_repository_id": 1116658452,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.222362+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "Tongyi-MAI/MAI-UI",
+      "github_repository_id": 1116665379,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.226456+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "steveyegge/gastown",
+      "github_repository_id": 1117184424,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.230031+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: infrastructure.",
+      "full_name": "productdevbook/port-killer",
+      "github_repository_id": 1117208510,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "infrastructure"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.232899+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "GuDaStudio/skills",
+      "github_repository_id": 1117607477,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.236007+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "agentskills/agentskills",
+      "github_repository_id": 1117639997,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.239248+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "buildermethods/design-os",
+      "github_repository_id": 1117771059,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.242285+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "2025Emma/vibe-coding-cn",
+      "github_repository_id": 1117874367,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.245325+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "gemini-cli-extensions/conductor",
+      "github_repository_id": 1117942206,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.248227+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools, infrastructure.",
+      "full_name": "alibaba/OpenSandbox",
+      "github_repository_id": 1118085970,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools",
+        "infrastructure"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.251620+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "steipete/summarize",
+      "github_repository_id": 1118209243,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.254264+00:00",
+      "explanation_kind": "exclude_rule",
+      "explanation_summary": "Rejected because exclude rules matched: gaming.",
+      "full_name": "MineDojo/NitroGen",
+      "github_repository_id": 1118380578,
+      "matched_exclude_rules": [
+        "gaming"
+      ],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.257145+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Wei-Shaw/sub2api",
+      "github_repository_id": 1118601518,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.259779+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "QwenLM/Qwen-Image-Layered",
+      "github_repository_id": 1118770071,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.262385+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Lulzx/tinypdf",
+      "github_repository_id": 1119104697,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.265388+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "GargantuaX/gemini-watermark-remover",
+      "github_repository_id": 1119523584,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.268109+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools, infrastructure.",
+      "full_name": "badrisnarayanan/antigravity-claude-proxy",
+      "github_repository_id": 1119580695,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools",
+        "infrastructure"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.270900+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "pranshuparmar/witr",
+      "github_repository_id": 1120195677,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.273889+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "alexzhang13/rlm",
+      "github_repository_id": 1120304511,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.276845+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "muratcankoylan/Agent-Skills-for-Context-Engineering",
+      "github_repository_id": 1120349776,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.279951+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "libukai/awesome-agent-skills",
+      "github_repository_id": 1120540348,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.282580+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "bellard/mquickjs",
+      "github_repository_id": 1121153522,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.285491+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "antonmedv/textarea",
+      "github_repository_id": 1121376975,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.288269+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "parcadei/Continuous-Claude-v3",
+      "github_repository_id": 1121405464,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.291019+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "jacob-bd/notebooklm-mcp-cli",
+      "github_repository_id": 1121438740,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.293573+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "vercel-labs/just-bash",
+      "github_repository_id": 1121859126,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.296338+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "abusoww/tuxmate",
+      "github_repository_id": 1122062847,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.299259+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "tiann/hapi",
+      "github_repository_id": 1122242121,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.303110+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "nguyenphutrong/quotio",
+      "github_repository_id": 1122347787,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.305932+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "rberg27/doom-coding",
+      "github_repository_id": 1122735930,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.308831+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "backnotprop/plannotator",
+      "github_repository_id": 1123956658,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.311549+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "AnmolSaini16/mapcn",
+      "github_repository_id": 1124108056,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.314121+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "HKUDS/DeepTutor",
+      "github_repository_id": 1124219907,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.316946+00:00",
+      "explanation_kind": "exclude_rule",
+      "explanation_summary": "Rejected because exclude rules matched: tutorial.",
+      "full_name": "datawhalechina/easy-vibe",
+      "github_repository_id": 1124249918,
+      "matched_exclude_rules": [
+        "tutorial"
+      ],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.319608+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: infrastructure.",
+      "full_name": "Finsys/dockhand",
+      "github_repository_id": 1124326845,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "infrastructure"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.322755+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "itshover/itshover",
+      "github_repository_id": 1124513619,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.325444+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Tencent-Hunyuan/HY-Motion-1.0",
+      "github_repository_id": 1124641891,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.328318+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "samugit83/redamon",
+      "github_repository_id": 1124754056,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.330950+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "pixlcore/xyops",
+      "github_repository_id": 1124814381,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.333730+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "heilcheng/awesome-agent-skills",
+      "github_repository_id": 1124920990,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.336384+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "buyukakyuz/corroded",
+      "github_repository_id": 1124944486,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.339063+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "Dimillian/Skills",
+      "github_repository_id": 1125330672,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.341764+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "AutoForgeAI/autoforge",
+      "github_repository_id": 1125402869,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.344875+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Universal-Commerce-Protocol/ucp",
+      "github_repository_id": 1125591841,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.347614+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "can1357/oh-my-pi",
+      "github_repository_id": 1125856365,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.350973+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: saas.",
+      "full_name": "zarzet/SpotiFLAC-Mobile",
+      "github_repository_id": 1125992130,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "saas"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.355862+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "aagentah/nw_wrld",
+      "github_repository_id": 1126036125,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.358652+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "fluxerapp/fluxer",
+      "github_repository_id": 1126407668,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.361714+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "aiming-lab/SimpleMem",
+      "github_repository_id": 1126449798,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.364646+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "jarrodwatts/claude-hud",
+      "github_repository_id": 1126473386,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.367616+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "zs1083339604/FaceWinUnlock-Tauri",
+      "github_repository_id": 1126550681,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.370451+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "entireio/cli",
+      "github_repository_id": 1126841840,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.373409+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "kepano/obsidian-skills",
+      "github_repository_id": 1126947080,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.376652+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "numman-ali/cc-mirror",
+      "github_repository_id": 1126960247,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.379978+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "PDFCraftTool/pdfcraft",
+      "github_repository_id": 1127001921,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.382887+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "ZeframLou/call-me",
+      "github_repository_id": 1127052092,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.385665+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Lightricks/LTX-2",
+      "github_repository_id": 1127234517,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.388489+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "openclaw/clawhub",
+      "github_repository_id": 1127248221,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.391362+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "huseyinbabal/taws",
+      "github_repository_id": 1127637581,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.394055+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "fengshao1227/ccg-workflow",
+      "github_repository_id": 1127793756,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.397016+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "MedUnes/go-kata",
+      "github_repository_id": 1127889323,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.399902+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Dammyjay93/interface-design",
+      "github_repository_id": 1127982345,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.404109+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "volcengine/OpenViking",
+      "github_repository_id": 1128123594,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.407148+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "chatfire-AI/huobao-drama",
+      "github_repository_id": 1128267392,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.410069+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "NVIDIA/personaplex",
+      "github_repository_id": 1128525239,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.412818+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "openclaw/skills",
+      "github_repository_id": 1128712337,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.415787+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "ophub/fnnas",
+      "github_repository_id": 1129017991,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.418832+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "ChrisWiles/claude-code-showcase",
+      "github_repository_id": 1129202884,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.421764+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: infrastructure.",
+      "full_name": "x011/smtp-tunnel-proxy",
+      "github_repository_id": 1129225913,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "infrastructure"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.424602+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "apify/agent-skills",
+      "github_repository_id": 1129716674,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.427397+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "hicccc77/WeFlow",
+      "github_repository_id": 1129718813,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.430576+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "snarktank/ralph",
+      "github_repository_id": 1129759677,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.433472+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "teng-lin/notebooklm-py",
+      "github_repository_id": 1129786550,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.436407+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "kyutai-labs/pocket-tts",
+      "github_repository_id": 1129863360,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.439352+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "hipcityreg/situation-monitor",
+      "github_repository_id": 1129882787,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.442522+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "corbindavenport/just-the-browser",
+      "github_repository_id": 1129945442,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.445411+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "imbue-bit/AlphaGPT",
+      "github_repository_id": 1130076953,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.448132+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "builtbybel/Winslop",
+      "github_repository_id": 1130260802,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.464917+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "ILoveBingLu/CipherTalk",
+      "github_repository_id": 1130274368,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.468016+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: infrastructure.",
+      "full_name": "yuaotian/antigravity-proxy",
+      "github_repository_id": 1130311831,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "infrastructure"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.471539+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "originalankur/maptoposter",
+      "github_repository_id": 1130381422,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.474200+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "torvalds/AudioNoise",
+      "github_repository_id": 1130786764,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.476667+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "Yeachan-Heo/oh-my-claudecode",
+      "github_repository_id": 1130809465,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.479485+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "op7418/NanoBanana-PPT-Skills",
+      "github_repository_id": 1130841791,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.482319+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "FlorianBruniaux/claude-code-ultimate-guide",
+      "github_repository_id": 1131107802,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.485298+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "axtonliu/axton-obsidian-visual-skills",
+      "github_repository_id": 1131797886,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.488018+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "1rgs/nanocode",
+      "github_repository_id": 1131946571,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.490577+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Dimillian/CodexMonitor",
+      "github_repository_id": 1132046564,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.493891+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "KartikLabhshetwar/better-shot",
+      "github_repository_id": 1132082476,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.496490+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "subsy/ralph-tui",
+      "github_repository_id": 1132100727,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.499167+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "zenc-lang/zenc",
+      "github_repository_id": 1132223692,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.503469+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "LibPDF-js/core",
+      "github_repository_id": 1132418305,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.506229+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "aden-hive/hive",
+      "github_repository_id": 1132431999,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.508911+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "deepseek-ai/Engram",
+      "github_repository_id": 1132541200,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.511551+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "lcoutodemos/clui-cc",
+      "github_repository_id": 1182790403,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.514316+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "kitlib/tauri-app-template",
+      "github_repository_id": 1182873757,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.517154+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "AbdelStark/attnres",
+      "github_repository_id": 1182930881,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.520008+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "CTCT-CT2/openclaw-security-watchdog",
+      "github_repository_id": 1182948288,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.522655+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "johunsang/octo-captures",
+      "github_repository_id": 1182971623,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.525518+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "numb34blackmysoul/Umbrella-Spoofer-Update",
+      "github_repository_id": 1182975923,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.528850+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "dinsortir5/BF6-Executor-Menu-2026",
+      "github_repository_id": 1182979436,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.531701+00:00",
+      "explanation_kind": "exclude_rule",
+      "explanation_summary": "Rejected because exclude rules matched: gaming.",
+      "full_name": "sweetgermosephad/Arc-Raiders-Performance-Booster-Update-2026",
+      "github_repository_id": 1182981801,
+      "matched_exclude_rules": [
+        "gaming"
+      ],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.534628+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "saileaxh/cpueaxh",
+      "github_repository_id": 1182982599,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.537280+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "NoDeskAI/SkillKeeper",
+      "github_repository_id": 1182988226,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.540126+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools, infrastructure.",
+      "full_name": "ru-yee/Life-Agent-RU-YEE",
+      "github_repository_id": 1182990295,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools",
+        "infrastructure"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.543721+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "xschen-beb/awesome-openclaw-projects",
+      "github_repository_id": 1183012617,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.546674+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "CRYPTO-BLACKSKY/Polymarket-sports-copy-trading-bot",
+      "github_repository_id": 1183034526,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.549331+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "naver-ai/seoul-world-model",
+      "github_repository_id": 1183042183,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.552098+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Rising0321/WMFactory",
+      "github_repository_id": 1183053592,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.555177+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "sudoevolve/EUI",
+      "github_repository_id": 1183072164,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.557886+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "5h3rd1l/zen-os",
+      "github_repository_id": 1183078926,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.560599+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "H-EmbodVis/DOMINO",
+      "github_repository_id": 1183176344,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.563791+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "sydpidoras452/DAEMON-Tools-Pro-Update-2026",
+      "github_repository_id": 1183238151,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.566448+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "lubbewinter285/studio-producer-2026-pro",
+      "github_repository_id": 1183273738,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.569169+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "mubokoxhidden7/delta-2026",
+      "github_repository_id": 1183312095,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.572165+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "excutcrazyminder7/gimkit-2026-secret",
+      "github_repository_id": 1183323830,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.574892+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "leerob/march-arena",
+      "github_repository_id": 1183348835,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.577671+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "williamnie/aegisFlow",
+      "github_repository_id": 1183361956,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.580313+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools, infrastructure.",
+      "full_name": "skernelx/MySearch-Proxy",
+      "github_repository_id": 1183378042,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools",
+        "infrastructure"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.583054+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "baibizhe/Awesome-Skills-Paper",
+      "github_repository_id": 1183409043,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.585703+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Jiangzy520/DreamleStockRadar",
+      "github_repository_id": 1183447497,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:19.588717+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "lightsoultandyleo/kms-auto-update-2026",
+      "github_repository_id": 1183478672,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.067989+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "faradons9755/Windows-Pause-Updates",
+      "github_repository_id": 1183484199,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.072517+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "dev-protocol/Polymarket-Trading-Bot-with-Synth-AI",
+      "github_repository_id": 1183488366,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.076080+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "archilochosmccutchrvon547/Kalshi-Trading-Bot",
+      "github_repository_id": 1183491150,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.079373+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "deepcon3/Binance-Claw",
+      "github_repository_id": 1183498293,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.081935+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "8figalltimepro/8enterprise-public",
+      "github_repository_id": 1183506646,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.084960+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "dev-protocoI/polymarket-copytrading-bot-sport",
+      "github_repository_id": 1183510084,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.087795+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "dev-protocol/polymarket-arbitrage-bot",
+      "github_repository_id": 1183524705,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.090653+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "dev-protocol/polymarket-copytrading-bot-sport",
+      "github_repository_id": 1183527718,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.251648+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "mkhsu2002/openclaw-agent-feeds",
+      "github_repository_id": 1183530709,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.467763+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "umbrellaDocumentation/Web-Data-Scraper",
+      "github_repository_id": 1183531440,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.472003+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "Innei/media-library-organizer-skill",
+      "github_repository_id": 1183549630,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.475734+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "pharaondog/FarmSolanaBot",
+      "github_repository_id": 1183560298,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.479002+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "joshmillgate/arche",
+      "github_repository_id": 1183569699,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.482312+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Krypto-Hashers-Community/polymarket-trading-bot",
+      "github_repository_id": 1183571141,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.486958+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: infrastructure.",
+      "full_name": "yourfriendnessa29/Purple-Gem-Discovery",
+      "github_repository_id": 1183585280,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "infrastructure"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.490524+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "raechao93/OpenGestureXR",
+      "github_repository_id": 1183609597,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.650954+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "jazzband/polymarket-trading-bot",
+      "github_repository_id": 1183622462,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.654339+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "hustvl/MoDA",
+      "github_repository_id": 1183633480,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.657514+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "HazAT/pi-interactive-subagents",
+      "github_repository_id": 1183640881,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.660170+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "nv-tlabs/kimodo",
+      "github_repository_id": 1183645536,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.663186+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "elforsrike13/njrat-2026-update",
+      "github_repository_id": 1183650855,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.666082+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "vedangvatsa123/vedang-swarm-prediction",
+      "github_repository_id": 1183651079,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.670072+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "saneklee3961/gnmath-best-games-collection-2026",
+      "github_repository_id": 1183656018,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.673108+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "shrewsendlessmer84/powerbi-full-panel-2026",
+      "github_repository_id": 1183662722,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.676062+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "romhans59/bunkr-downloader-2026",
+      "github_repository_id": 1183670038,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.678657+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Psyz3/Multi-Coin-Flasher-Tool",
+      "github_repository_id": 1183676760,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.681240+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Gr122lyBr/voicetag",
+      "github_repository_id": 1183678209,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.684085+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: infrastructure.",
+      "full_name": "missuo/remodex-relay",
+      "github_repository_id": 1183695030,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "infrastructure"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.687552+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "NeoVertex1/nuggets",
+      "github_repository_id": 1183723892,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.690751+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "makimyys-afk/agent-network-visualizer-v3.1",
+      "github_repository_id": 1183726087,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.693888+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "peteromallet/Moirae",
+      "github_repository_id": 1183742395,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.697274+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "johunsang/reddit-campaign-cli",
+      "github_repository_id": 1184029341,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.700254+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "6551Team/daily-news",
+      "github_repository_id": 1184035099,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.703401+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "kenmick/skills",
+      "github_repository_id": 1182826356,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.706314+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "lighthouse-strategy/claude-code-starter",
+      "github_repository_id": 1182845545,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.711718+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "mphinance/momentum-mcp",
+      "github_repository_id": 1182858302,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.714704+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Tencent/Covo-Audio",
+      "github_repository_id": 1182868007,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.717794+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "divs1210/libgoc",
+      "github_repository_id": 1182868397,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.720797+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: saas, developer tools, infrastructure.",
+      "full_name": "AntonioAEMartins/claude-code-proxy",
+      "github_repository_id": 1182892220,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "saas",
+        "developer tools",
+        "infrastructure"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.724259+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "aldefy/compose-pinch-grid",
+      "github_repository_id": 1182918026,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.727026+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "lukescholefield/Matrix",
+      "github_repository_id": 1182956841,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.729853+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "tengxiao1/MR-Search",
+      "github_repository_id": 1182969556,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.733109+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "darox/UniFiBar",
+      "github_repository_id": 1182975908,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.735897+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "SonOfTroll/ShadowProbe",
+      "github_repository_id": 1182985889,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.739025+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "YuxiaoWang-520/codex-skills",
+      "github_repository_id": 1183013361,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.742139+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "joeseesun/info-card-designer",
+      "github_repository_id": 1183019519,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.745395+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "Lawliet-ai/openclaw-skills-Lawliet",
+      "github_repository_id": 1183026917,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.749314+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "momotech/LinkWork",
+      "github_repository_id": 1183043963,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.751800+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "panewslab/skills",
+      "github_repository_id": 1183090926,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.754300+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "yukangcao/HSImul3R",
+      "github_repository_id": 1183095196,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.757138+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Yoan98/ai-key-manage",
+      "github_repository_id": 1183097669,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.761264+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "cuiliyuan121/AvatarForcing",
+      "github_repository_id": 1183163388,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.764128+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "AnyAI-Labs/AnyAI",
+      "github_repository_id": 1183164075,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.766772+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "modoterra/dazzle-dusk",
+      "github_repository_id": 1183168804,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.769837+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "SkyworkAI/Skywork-Skills",
+      "github_repository_id": 1183219573,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.774891+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: infrastructure.",
+      "full_name": "zhongruan0522/OpenCode-Docker",
+      "github_repository_id": 1183264504,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "infrastructure"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:20.779318+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "namas191297/cigpose-onnx",
+      "github_repository_id": 1183282613,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:23.950767+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "greem6819/kaliscan-downloader-2026",
+      "github_repository_id": 1183284331,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:23.956539+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Shiven0504/my-nvim",
+      "github_repository_id": 1183287133,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:23.961786+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "tiansuo-114/AE-agent",
+      "github_repository_id": 1183298041,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:23.966233+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "ahacker-1/cre-acquisition-orchestrator",
+      "github_repository_id": 1183306112,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:23.970113+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "chenyang-an/proof_agent",
+      "github_repository_id": 1183307381,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:23.976148+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "actuallyclover/sourceCodeProgramsH1",
+      "github_repository_id": 1183312173,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:23.981952+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "TaszkSecLabs/xiaomi-c400-pwn",
+      "github_repository_id": 1183326091,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.142621+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "charaxzx/xjtlu-email-ai",
+      "github_repository_id": 1183339879,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.146625+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "pipios4006-boop/KIS-API-Python-Trading-Bot-Example",
+      "github_repository_id": 1183350101,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.149495+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "XXXxx7258/comfyui-cli",
+      "github_repository_id": 1183372772,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.153681+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "icebear0828/notebooklm-client",
+      "github_repository_id": 1183413153,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.156365+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "huami1314/WCEnableUnreadView",
+      "github_repository_id": 1183424667,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.160691+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "cloudstudio/gemini-mac-pilot",
+      "github_repository_id": 1183428693,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.231348+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "chgeuer/jido_symphony",
+      "github_repository_id": 1183446035,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.235185+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Anuraj-IND/Modernization-Engine",
+      "github_repository_id": 1183466918,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.238398+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "roypeter/esp32-obd2-logger",
+      "github_repository_id": 1183470388,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.368538+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "imnoob59/BIN-Toolkit",
+      "github_repository_id": 1183483132,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.372087+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "HackTuah/HackTUI-Hermes-Jido",
+      "github_repository_id": 1183506942,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.375471+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "zach22-1999/amazon-skills",
+      "github_repository_id": 1183518114,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.379490+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "JaumeLloretRubio/Steel",
+      "github_repository_id": 1183547559,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.383744+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "dev-protocol/Polymarket-Arbitrage-Trading-Bot",
+      "github_repository_id": 1183558717,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.386669+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "bdioo/bijou-gemini",
+      "github_repository_id": 1183559099,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.389598+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "PermaShipAI/nexus",
+      "github_repository_id": 1183564081,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.392366+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "JJenglert1/video-production-workflow",
+      "github_repository_id": 1183565987,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.395453+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "simonepri/ifttt-lint",
+      "github_repository_id": 1183658516,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.398212+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "maajiko/slte-theme",
+      "github_repository_id": 1183659935,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.401497+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "PolymarketTool/Polymarket-Trading-Bot",
+      "github_repository_id": 1183676302,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.404293+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Edenzzzz/claude-history-sync",
+      "github_repository_id": 1183682434,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.407399+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "babyghost-ys/twotimesusage",
+      "github_repository_id": 1183724123,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.410646+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Frankcastleauditor/Solana-Audit-Arena",
+      "github_repository_id": 1183749564,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.413562+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "miawinter98/vibe-yaml",
+      "github_repository_id": 1183765033,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.416686+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "binnu-dev/video-subtitle-toolkit",
+      "github_repository_id": 1183836748,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.419425+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "liuhaoduoduo/git-hook",
+      "github_repository_id": 1183846622,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.422262+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "IShadowDeep/TerrariaLink",
+      "github_repository_id": 1183853812,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.426243+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Raynaendow32880/Phantom-fake-balance",
+      "github_repository_id": 1183868659,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.428869+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "jay6697117/cx-switch",
+      "github_repository_id": 1183880924,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.431721+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "whynowlab/zclean",
+      "github_repository_id": 1183971506,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.434407+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Aman-4-Real/DPWriter",
+      "github_repository_id": 1183997276,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.437425+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "dododook/NaiveProxy",
+      "github_repository_id": 1184014419,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.440740+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "bebr2/OpenClaw-MemCraft",
+      "github_repository_id": 1184026387,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.443700+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "bingo-taiwan/taiwan-student-benefits",
+      "github_repository_id": 1184093877,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.446809+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "orcakit/lightclaw",
+      "github_repository_id": 1184120464,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.449545+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "lotusarthur/an-open-source-application-that-supports-the-DeepSeek-API",
+      "github_repository_id": 1184122471,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.452562+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "IBM/OpenDsStar",
+      "github_repository_id": 1184148060,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.455269+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "gaprj/TelegramChannelCloner",
+      "github_repository_id": 1182778927,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.464100+00:00",
+      "explanation_kind": "exclude_rule",
+      "explanation_summary": "Rejected because exclude rules matched: tutorial.",
+      "full_name": "sweatydeveloper/coloraim-tutorial",
+      "github_repository_id": 1182783635,
+      "matched_exclude_rules": [
+        "tutorial"
+      ],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.468622+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "cma3il/loguiops",
+      "github_repository_id": 1182783855,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.471457+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "dankmeme01/wsx",
+      "github_repository_id": 1182784534,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.474652+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Sidsector9/local-wordpress-supercharged",
+      "github_repository_id": 1182786538,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.478346+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "amadad/mirofish",
+      "github_repository_id": 1182810087,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.481082+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "ChenLiangChong/knowledgeGraph",
+      "github_repository_id": 1182811519,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.484033+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "dgerydp/amazon-ad-workbench",
+      "github_repository_id": 1182813426,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.486715+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "DMontgomery40/bambu-printer-mcp",
+      "github_repository_id": 1182828832,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.489421+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "exsinger-hub/Airpush",
+      "github_repository_id": 1182845034,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.492239+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "aiwebb/llmonster-rancher",
+      "github_repository_id": 1182857039,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.494929+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "bysiber/flashq",
+      "github_repository_id": 1182871408,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.497677+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: infrastructure.",
+      "full_name": "mathumathi-v/finops-cloud",
+      "github_repository_id": 1182880636,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "infrastructure"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.500437+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "libtv-labs/libtv-skills",
+      "github_repository_id": 1182887560,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.503247+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "zanekoch/airpods-go-brrrrr",
+      "github_repository_id": 1182900624,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.505966+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "zmanian/ceo",
+      "github_repository_id": 1182906800,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.508803+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "5c0/metropolis",
+      "github_repository_id": 1182919047,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.511653+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "cjtestuse/Workshop-Native",
+      "github_repository_id": 1182929424,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.514755+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "JudyaiLab/paper-research-tool",
+      "github_repository_id": 1182931371,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.519232+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "BruceStayHungry/CradleSelf",
+      "github_repository_id": 1182975674,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.522130+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "ilang-ai/autocode",
+      "github_repository_id": 1183004571,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.525042+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "brianstm/obsidian-supabase-jump",
+      "github_repository_id": 1183041739,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.528211+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "memory-of-star/OpenSUN",
+      "github_repository_id": 1183050104,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.533560+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "RA1NCS/svelte-lsp",
+      "github_repository_id": 1183054846,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.536842+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "tangshunpu/paper_granny",
+      "github_repository_id": 1183062709,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.539672+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Linxyhaha/Awesome-Agentic-RecSys-Paper-List",
+      "github_repository_id": 1183066302,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.542597+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "a692570/bolo",
+      "github_repository_id": 1183080903,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.545774+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "manggaladev/rest-api",
+      "github_repository_id": 1183118697,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.548760+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "arezous/pm-pilot",
+      "github_repository_id": 1183198964,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.551613+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "chgeuer/copilot_lv",
+      "github_repository_id": 1183199826,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.554416+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "numtide/nix-relay",
+      "github_repository_id": 1183201543,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.557213+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "mingj7235/yapnotes",
+      "github_repository_id": 1183203827,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.560047+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "Attilio81/MCP_AGNO",
+      "github_repository_id": 1183204113,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.562751+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "StarsTom/mobileCodexHelper",
+      "github_repository_id": 1183204860,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.565542+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "TeaBambooNGU/openclaw-multi-agent-example",
+      "github_repository_id": 1183206318,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.568547+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "iremembermyname/AscendTritonGenerator",
+      "github_repository_id": 1183228729,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.571369+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "1001-digital/simple-indexer",
+      "github_repository_id": 1183233209,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.574299+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "BushidoUK/Grab-Bulk-CVE-Details",
+      "github_repository_id": 1183235747,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.577198+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "djteang/orangetv-java-vue",
+      "github_repository_id": 1183248074,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.581867+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "rmtxcl-hub/Multilayer-Mapping-UI",
+      "github_repository_id": 1183270202,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.584936+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "A-Kui/XcodeAgentsConfig",
+      "github_repository_id": 1183271805,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.587907+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "unixfox/opencode-claude-code-plugin",
+      "github_repository_id": 1183274642,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.590863+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Jvluoyeah/SleepHaven",
+      "github_repository_id": 1183325767,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.593797+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Hommy-master/CutAuto",
+      "github_repository_id": 1183339334,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.596551+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "ccnetcore/yxaicode",
+      "github_repository_id": 1183348073,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.599742+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "EmbodiedFX/LeRobot-Mac",
+      "github_repository_id": 1183355272,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.602617+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "GH0ST3CH/BLE-Hound",
+      "github_repository_id": 1183356070,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.605343+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "onevcat/skills",
+      "github_repository_id": 1183356600,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.608276+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "PatsnapOfficial/patsnap-skills",
+      "github_repository_id": 1183370265,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.612174+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "liberzon/claude-hooks",
+      "github_repository_id": 1183383121,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.615245+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "AlexRamosBrazil/sharknight",
+      "github_repository_id": 1183384396,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.618209+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "giacomocavalieri/orbital",
+      "github_repository_id": 1183387839,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.621076+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "star-whisper9/sts2-tazeu",
+      "github_repository_id": 1183395016,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.623787+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "datawhalechina/mala-claw",
+      "github_repository_id": 1183403163,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.626550+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "sxzz/skills",
+      "github_repository_id": 1183410120,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.630326+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Maty156/masu-hyprland-installer",
+      "github_repository_id": 1183435184,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.633264+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "denysosadchyi/adhd-time-tracker",
+      "github_repository_id": 1183438763,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.636161+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "hahavguoqu/SimpleBili",
+      "github_repository_id": 1183495599,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.638954+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "mwero-abdalla/gomycode-advanced-git-workflow",
+      "github_repository_id": 1183517277,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.641966+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "tarulahsan/softchip-studio",
+      "github_repository_id": 1183518411,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.644901+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "Microck/kagi-cli",
+      "github_repository_id": 1183524630,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.648322+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "xiaolajiaoyyds/TgStickerBot",
+      "github_repository_id": 1183528325,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.651539+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "aubymori/no-reddit-image-viewer",
+      "github_repository_id": 1183548307,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.654603+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "1137043480/word-learning-system",
+      "github_repository_id": 1183585437,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.657773+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "harmanbtcflash/BtcFlashSenderBlockchain",
+      "github_repository_id": 1183589866,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.660628+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "modery68/meta-google-ads-dashboard",
+      "github_repository_id": 1183700611,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.663436+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "albert-ying/agentic-cortex",
+      "github_repository_id": 1183724207,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.666594+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "linerta/instagram-reporting-bot",
+      "github_repository_id": 1183730334,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.669488+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "KimMadsen/theSKULD",
+      "github_repository_id": 1183736615,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.672179+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "maumcrez-svg/idol-frame",
+      "github_repository_id": 1183738428,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.674872+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "brunogabriel/opencode-moonlight-theme",
+      "github_repository_id": 1183738445,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.677799+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "jakeittakeit2/lua5.1-decompiler",
+      "github_repository_id": 1183764047,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.681912+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "agentver/agentver",
+      "github_repository_id": 1183788179,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.684816+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "ElizaNews/ElizaNews",
+      "github_repository_id": 1183835485,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.687668+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "nguyenvchuong/mjlab-agility",
+      "github_repository_id": 1183850358,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.690769+00:00",
+      "explanation_kind": "include_rule",
+      "explanation_summary": "Accepted because include rules matched: developer tools.",
+      "full_name": "xjtulyc/awesome-rosetta-skills",
+      "github_repository_id": 1183875385,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [
+        "developer tools"
+      ],
+      "queue_status": "completed",
+      "triage_status": "accepted"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.693563+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "abinggo/obesidain-claude-chat",
+      "github_repository_id": 1183880823,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.708741+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "zeroxjf/Coruna-Tweaks-Collection",
+      "github_repository_id": 1183884216,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.711391+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "yijichar/Inference_acceleration",
+      "github_repository_id": 1183951792,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.714150+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "zepher-kk/rt-detr-rk3588-deploy",
+      "github_repository_id": 1183954488,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.716806+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Awuqing/BackupX",
+      "github_repository_id": 1183960373,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.719477+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "shashpicious/BR0WSR",
+      "github_repository_id": 1183964608,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.722273+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "sysprog21/kbox",
+      "github_repository_id": 1184006193,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.724912+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "sine-io/nanobot-playbook",
+      "github_repository_id": 1184013282,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.727823+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "gbshs/github-lecture-practice",
+      "github_repository_id": 1184026135,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.731181+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "drylikov/JS_yaml",
+      "github_repository_id": 1184150785,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.734195+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Shindora/torch2bt",
+      "github_repository_id": 1184155627,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.736967+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "Y3Code/AI-TaskBoard",
+      "github_repository_id": 1184171137,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.740034+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "microsoft/ML-For-Beginners",
+      "github_repository_id": 343965132,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.742769+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "tesseract-ocr/tesseract",
+      "github_repository_id": 22887094,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.745527+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "thedaviddias/Front-End-Checklist",
+      "github_repository_id": 107111421,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.748368+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "psf/requests",
+      "github_repository_id": 1362490,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    },
+    {
+      "error": null,
+      "explained_at": "2026-03-17T12:09:24.750953+00:00",
+      "explanation_kind": "allowlist_miss",
+      "explanation_summary": "Rejected because no include rules matched the configured allowlist.",
+      "full_name": "microsoft/AI-For-Beginners",
+      "github_repository_id": 344190478,
+      "matched_exclude_rules": [],
+      "matched_include_rules": [],
+      "queue_status": "completed",
+      "triage_status": "rejected"
+    }
+  ],
+  "status": "success",
+  "summary": {
+    "accepted": 108,
+    "failed": 0,
+    "rejected": 209
+  }
+}

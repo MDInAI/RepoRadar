@@ -343,19 +343,20 @@ function deriveCadenceForAgent({
       return {
         mode: "interval",
         stateLabel: "Cadence unavailable",
-        explanation: "The control panel could not resolve the current worker interval settings.",
+        explanation:
+          "The control panel could not resolve the current worker interval settings. Automatic cadence health is unclear, but you can still start a manual run now.",
         intervalSeconds: null,
         remainingSeconds: null,
         nextDueAt: null,
         lastCheckpointAt,
         progressRatio: null,
         actionLabel: "Run Now",
-        actionAvailable: false,
-        actionReason: "The control panel could not resolve the current worker interval settings.",
+        actionAvailable: true,
+        actionReason: null,
         schedulerStatusLabel: "Unavailable",
         schedulerStatusTone: "warn",
         schedulerStatusExplanation:
-          "The control panel could not resolve the worker cadence, so it cannot infer whether auto-run scheduling is healthy.",
+          "The control panel could not resolve the worker cadence, so it cannot infer whether auto-run scheduling is healthy. This only affects scheduler visibility; manual runs are still allowed.",
         lastSchedulerEvidenceAt,
       };
     }

@@ -35,6 +35,7 @@ from agentic_workers.providers.readme_analyst import (
     LLMReadmeBusinessAnalysis,
     NormalizedReadme,
     ReadmeAnalysisProvider,
+    coerce_analysis_json,
     create_analysis_provider,
     normalize_readme,
 )
@@ -290,7 +291,9 @@ def run_analyst_job(
                         )
                         session.commit()
                     continue
-                analysis = LLMReadmeBusinessAnalysis.model_validate_json(raw_analysis)
+                analysis = LLMReadmeBusinessAnalysis.model_validate_json(
+                    coerce_analysis_json(raw_analysis)
+                )
                 if _should_run_deep_analysis(repository=repository, evidence=evidence, analysis=analysis):
                     raw_deep_analysis = effective_analysis_provider.analyze(
                         repository_full_name=repository.full_name,
@@ -313,7 +316,9 @@ def run_analyst_job(
                         )
                         or 0
                     )
-                    analysis = LLMReadmeBusinessAnalysis.model_validate_json(raw_deep_analysis)
+                    analysis = LLMReadmeBusinessAnalysis.model_validate_json(
+                        coerce_analysis_json(raw_deep_analysis)
+                    )
                     analysis_mode = "deep"
 
             analysis_outcome = determine_analysis_outcome(
