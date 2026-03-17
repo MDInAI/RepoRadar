@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib import error as urlerror
 from urllib import parse, request
@@ -64,7 +64,7 @@ class OverlordService:
         runtime_dir: Path | None = None,
     ) -> None:
         self.session = session
-        self.repository = AgentEventRepository(session)
+        self.repository = AgentEventRepository(session, runtime_dir=runtime_dir)
         self.overview_service = OverviewService(session)
         self.gateway_contract_service = gateway_contract_service
         self.settings = settings

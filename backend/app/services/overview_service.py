@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlmodel import Session
@@ -36,9 +37,10 @@ from app.services.agent_runtime_progress_service import AgentRuntimeProgressServ
 
 
 class OverviewService:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, runtime_dir: Path | None = None) -> None:
         self.session = session
         self.repo_repository = RepositoryExplorationRepository(session)
+        self.runtime_dir = runtime_dir or settings.AGENTIC_RUNTIME_DIR
 
     def get_summary(self) -> OverviewSummaryResponse:
         return OverviewSummaryResponse(
@@ -158,7 +160,10 @@ class OverviewService:
     def _get_agent_health_metrics(self) -> list[AgentHealthMetrics]:
         latest_runs = {
             row.agent_name: row
-            for row in AgentEventRepository(self.session).get_latest_run_per_agent()
+            for row in AgentEventRepository(
+                self.session,
+                runtime_dir=self.runtime_dir,
+            ).get_latest_run_per_agent()
         }
 
         all_pause_states = list(self.session.execute(select(AgentPauseState)).scalars().all())

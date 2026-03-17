@@ -258,6 +258,48 @@ def test_analyst_job_reprocesses_completed_repositories_with_legacy_analysis_met
         analysis_row.source_metadata["analysis_schema_version"]
         == analysis_store_module.CURRENT_ANALYSIS_SCHEMA_VERSION
     )
+
+
+def test_analyst_job_redirects_unknown_category_to_suggested_categories(
+    tmp_path: Path,
+) -> None:
+    provider = StubGitHubProvider(
+        {
+            112: RepositoryReadme(
+                owner_login="octocat",
+                repository_name="unknown-category",
+                content="# Product\n\nEducation workflow tooling for teams.",
+                fetched_at=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc),
+                source_url="https://api.github.com/repos/octocat/unknown-category/readme",
+            )
+        }
+    )
+    analysis_provider = StaticAnalysisProvider(
+        '{"category":"education","category_confidence_score":72,'
+        '"confidence_score":68,"suggested_new_categories":["edtech"],'
+        '"monetization_potential":"medium"}'
+    )
+
+    with _make_session(tmp_path) as session:
+        session.add(_accepted_row(112, "octocat/unknown-category"))
+        session.commit()
+
+        result = run_analyst_job(
+            session=session,
+            provider=provider,  # type: ignore[arg-type]
+            runtime_dir=tmp_path / "runtime",
+            analysis_provider=analysis_provider,
+        )
+        analysis_row = session.get(RepositoryAnalysisResult, 112)
+        intake_row = session.get(RepositoryIntake, 112)
+
+    assert result.status is AnalystRunStatus.SUCCESS
+    assert analysis_row is not None
+    assert analysis_row.category is None
+    assert analysis_row.suggested_new_categories == ["education", "edtech"]
+    assert analysis_row.source_metadata["analysis_mode"] == "fast"
+    assert intake_row is not None
+    assert intake_row.analysis_status is RepositoryAnalysisStatus.COMPLETED
     assert analysis_row.source_metadata["analysis_mode"] == "fast"
 
 
