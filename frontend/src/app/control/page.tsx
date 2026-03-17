@@ -33,6 +33,7 @@ import { GitHubBudgetPanel } from "@/components/agents/GitHubBudgetPanel";
 import { OperationalAlertsPanel } from "@/components/agents/OperationalAlertsPanel";
 import { formatAppDateTime } from "@/lib/time";
 import { fetchGatewayRuntime, fetchSettingsSummary } from "@/api/readiness";
+import { fetchOverlordSummary, getOverlordSummaryQueryKey } from "@/api/overlord";
 import type {
   GatewayAgentIntakeQueueSummary,
   GatewayAgentQueue,
@@ -1804,6 +1805,11 @@ export default function ControlPanel() {
     enabled: selectedAgent === "backfill",
     refetchInterval: 60_000,
   });
+  const overlordSummaryQuery = useQuery({
+    queryKey: getOverlordSummaryQueryKey(),
+    queryFn: fetchOverlordSummary,
+    refetchInterval: 15_000,
+  });
 
   const pauseMutation = useMutation({
     mutationFn: ({ agent, reason }: { agent: AgentName; reason: string }) =>
@@ -2483,6 +2489,31 @@ export default function ControlPanel() {
 
             {selectedAgent === "analyst" ? (
               <AnalystPanels entry={agentStatus} summary={settingsSummaryQuery.data} />
+            ) : null}
+
+            {selectedAgent === "overlord" && overlordSummaryQuery.data ? (
+              <ConfigPanel title="Overlord Control Plane">
+                <div style={{ fontSize: '12px', color: 'var(--text-0)', fontWeight: 600, marginBottom: '8px' }}>
+                  {overlordSummaryQuery.data.headline}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-2)', lineHeight: 1.6, marginBottom: '12px' }}>
+                  {overlordSummaryQuery.data.summary}
+                </div>
+                <DetailRow label="System status" value={overlordSummaryQuery.data.status} />
+                <DetailRow label="Active incidents" value={overlordSummaryQuery.data.incidents.length} />
+                <DetailRow label="Operator todos" value={overlordSummaryQuery.data.operator_todos.length} />
+                <DetailRow label="Telegram alerts" value={overlordSummaryQuery.data.telegram.enabled ? `Enabled (${overlordSummaryQuery.data.telegram.min_severity}+ )` : 'Disabled'} />
+                <div style={{ marginTop: '12px' }}>
+                  {overlordSummaryQuery.data.incidents.slice(0, 5).map((incident) => (
+                    <div key={incident.incident_key} style={{ padding: '10px 0', borderTop: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: '12px', color: 'var(--text-0)', fontWeight: 600 }}>{incident.title}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '4px', lineHeight: 1.5 }}>{incident.summary}</div>
+                      {incident.what_overlord_did ? <div style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '6px' }}>Overlord: {incident.what_overlord_did}</div> : null}
+                      {incident.operator_action ? <div style={{ fontSize: '11px', color: 'var(--amber)', marginTop: '4px' }}>You: {incident.operator_action}</div> : null}
+                    </div>
+                  ))}
+                </div>
+              </ConfigPanel>
             ) : null}
 
             {selectedAgent !== "firehose" &&
