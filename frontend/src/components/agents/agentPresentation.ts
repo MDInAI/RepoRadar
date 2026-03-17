@@ -95,6 +95,9 @@ export function formatItemsSummary(run: AgentRunEvent | null): string {
   if (!run) {
     return "No runs captured yet";
   }
+  if (run.items_processed == null && run.items_succeeded == null && run.items_failed == null) {
+    return "No per-item counters were recorded for this run";
+  }
 
   return `${formatItemsCount(run.items_processed)} processed / ${formatItemsCount(
     run.items_succeeded,

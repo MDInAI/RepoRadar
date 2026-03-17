@@ -9,7 +9,8 @@ from sqlmodel import Session
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app.api.routes import agents, events_stream, gateway, health, idea_families, incidents, memory, obsession, overview, repositories, settings as settings_routes, synthesis
+from app.api.routes import agents, events_stream, gateway, health, idea_families, incidents, memory, obsession, overlord, overview, repositories, settings as settings_routes, synthesis
+from app.api.deps import get_overlord_service
 from app.core.config import settings
 from app.core.database import engine
 from app.core.event_bridge_health import EventBridgeHealth
@@ -51,6 +52,17 @@ async def bridge_persisted_events(app: FastAPI) -> None:
         await asyncio.sleep(settings.EVENT_BRIDGE_POLL_INTERVAL_SECONDS)
 
 
+async def run_overlord_control_loop(app: FastAPI) -> None:
+    while True:
+        try:
+            with Session(engine) as session:
+                service = get_overlord_service(session)
+                service.evaluate_and_remediate()
+        except Exception:
+            logger.exception("Overlord control loop failed during evaluation.")
+        await asyncio.sleep(settings.OVERLORD_EVALUATION_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.event_bridge_health = EventBridgeHealth()
@@ -59,10 +71,14 @@ async def lifespan(app: FastAPI):
         queue_maxsize=settings.EVENT_STREAM_SUBSCRIBER_QUEUE_SIZE,
     )
     bridge_task = asyncio.create_task(bridge_persisted_events(app))
+    overlord_task = asyncio.create_task(run_overlord_control_loop(app))
     try:
         yield
     finally:
+        overlord_task.cancel()
         bridge_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await overlord_task
         with suppress(asyncio.CancelledError):
             await bridge_task
 
@@ -148,6 +164,7 @@ app.include_router(idea_families.router, prefix=f"{settings.API_V1_STR}/idea-fam
 app.include_router(incidents.router, prefix=settings.API_V1_STR, tags=["incidents"])
 app.include_router(memory.router, prefix=settings.API_V1_STR, tags=["memory"])
 app.include_router(obsession.router, prefix=f"{settings.API_V1_STR}/obsession", tags=["obsession"])
+app.include_router(overlord.router, prefix=settings.API_V1_STR, tags=["overlord"])
 app.include_router(overview.router, prefix=settings.API_V1_STR, tags=["overview"])
 app.include_router(repositories.router, prefix=settings.API_V1_STR)
 app.include_router(settings_routes.router, prefix=settings.API_V1_STR)

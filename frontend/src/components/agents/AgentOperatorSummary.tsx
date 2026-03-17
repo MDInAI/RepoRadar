@@ -137,6 +137,13 @@ function buildRecommendedAction(
     return "No operator action needed right now. Watch progress and intervene only if an alert appears.";
   }
 
+  if (entry.latest_run?.status === "failed") {
+    if (entry.agent_name === "analyst") {
+      return "Review the latest Analyst alert, then rerun Analyst after the validation or provider issue is resolved.";
+    }
+    return "Review the latest alert before rerunning this agent.";
+  }
+
   if (entry.agent_name === "bouncer") {
     return "No action needed unless new repositories enter triage.";
   }

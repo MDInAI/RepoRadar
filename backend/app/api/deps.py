@@ -29,6 +29,8 @@ from app.services.intake_runtime_service import GatewayIntakeRuntimeService
 from app.services.memory_service import MemoryService
 from app.services.obsession_service import ObsessionService
 from app.services.openclaw.contract_service import GatewayContractService
+from app.services.overlord_service import OverlordService, OverlordSettings
+from app.models import EventSeverity
 from app.services.repository_curation_service import RepositoryCurationService
 from app.services.repository_exploration_service import RepositoryExplorationService
 from app.services.repository_triage_service import RepositoryTriageService
@@ -76,6 +78,32 @@ def get_agent_operator_service(
     session: Session = Depends(get_db_session),
 ) -> AgentOperatorService:
     return AgentOperatorService(AgentEventRepository(session))
+
+
+def get_overlord_service(
+    session: Session = Depends(get_db_session),
+) -> OverlordService:
+    return OverlordService(
+        session=session,
+        gateway_contract_service=get_gateway_contract_service(session),
+        settings=OverlordSettings(
+            auto_remediation_enabled=settings.OVERLORD_AUTO_REMEDIATION_ENABLED,
+            safe_pause_enabled=settings.OVERLORD_SAFE_PAUSE_ENABLED,
+            safe_resume_enabled=settings.OVERLORD_SAFE_RESUME_ENABLED,
+            stale_state_cleanup_enabled=settings.OVERLORD_STALE_STATE_CLEANUP_ENABLED,
+            telegram_enabled=settings.OVERLORD_TELEGRAM_ENABLED,
+            telegram_bot_token=(
+                settings.OVERLORD_TELEGRAM_BOT_TOKEN.get_secret_value()
+                if settings.OVERLORD_TELEGRAM_BOT_TOKEN
+                else None
+            ),
+            telegram_chat_id=settings.OVERLORD_TELEGRAM_CHAT_ID,
+            telegram_min_severity=EventSeverity(settings.OVERLORD_TELEGRAM_MIN_SEVERITY),
+            telegram_daily_digest_enabled=settings.OVERLORD_TELEGRAM_DAILY_DIGEST_ENABLED,
+            evaluation_interval_seconds=settings.OVERLORD_EVALUATION_INTERVAL_SECONDS,
+        ),
+        runtime_dir=settings.AGENTIC_RUNTIME_DIR,
+    )
 
 
 def get_artifact_storage_status_service(

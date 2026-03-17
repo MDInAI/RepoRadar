@@ -83,6 +83,16 @@ class Settings(BaseSettings):
     GEMINI_API_KEYS: Annotated[tuple[str, ...], NoDecode] = ()
     GEMINI_BASE_URL: str = "https://api.haimaker.ai/v1"
     GEMINI_MODEL_NAME: str = "google/gemini-2.0-flash-001"
+    OVERLORD_AUTO_REMEDIATION_ENABLED: bool = True
+    OVERLORD_SAFE_PAUSE_ENABLED: bool = True
+    OVERLORD_SAFE_RESUME_ENABLED: bool = True
+    OVERLORD_STALE_STATE_CLEANUP_ENABLED: bool = True
+    OVERLORD_EVALUATION_INTERVAL_SECONDS: int = 60
+    OVERLORD_TELEGRAM_ENABLED: bool = False
+    OVERLORD_TELEGRAM_BOT_TOKEN: SecretStr | None = None
+    OVERLORD_TELEGRAM_CHAT_ID: str | None = None
+    OVERLORD_TELEGRAM_MIN_SEVERITY: str = "error"
+    OVERLORD_TELEGRAM_DAILY_DIGEST_ENABLED: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -98,9 +108,17 @@ class Settings(BaseSettings):
             return value.strip()
         return value
 
-    @field_validator("SECRET_KEY", "GITHUB_PROVIDER_TOKEN", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", mode="before")
+    @field_validator("SECRET_KEY", "GITHUB_PROVIDER_TOKEN", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OVERLORD_TELEGRAM_BOT_TOKEN", mode="before")
     @classmethod
     def _normalize_secret_strings(cls, value: object) -> object:
+        if isinstance(value, str):
+            candidate = value.strip()
+            return candidate or None
+        return value
+
+    @field_validator("OVERLORD_TELEGRAM_CHAT_ID", mode="before")
+    @classmethod
+    def _normalize_optional_string(cls, value: object) -> object:
         if isinstance(value, str):
             candidate = value.strip()
             return candidate or None
@@ -160,6 +178,16 @@ class Settings(BaseSettings):
             return candidate
         return value
 
+    @field_validator("OVERLORD_TELEGRAM_MIN_SEVERITY", mode="before")
+    @classmethod
+    def _validate_overlord_severity(cls, value: object) -> object:
+        if isinstance(value, str):
+            candidate = value.strip().lower()
+            if candidate not in ("info", "warning", "error", "critical"):
+                raise ValueError("must be one of: info, warning, error, critical")
+            return candidate
+        return value
+
     @field_validator(
         "AGENTIC_RUNTIME_DIR", "OPENCLAW_CONFIG_PATH", "OPENCLAW_WORKSPACE_DIR", mode="before"
     )
@@ -189,6 +217,7 @@ class Settings(BaseSettings):
         "BACKFILL_PER_PAGE",
         "BACKFILL_PAGES",
         "BACKFILL_WINDOW_DAYS",
+        "OVERLORD_EVALUATION_INTERVAL_SECONDS",
     )
     @classmethod
     def _require_positive_numbers(cls, value: int | float) -> int | float:

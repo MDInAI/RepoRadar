@@ -11,6 +11,7 @@ import {
   getFailureEventsQueryKey,
 } from "@/api/agents";
 import { fetchOverviewSummary, getOverviewSummaryQueryKey } from "@/api/overview";
+import { fetchOverlordSummary, getOverlordSummaryQueryKey } from "@/api/overlord";
 import { fetchGatewayRuntime } from "@/api/readiness";
 import { GeminiKeyPoolPanel } from "@/components/agents/GeminiKeyPoolPanel";
 import { GitHubBudgetPanel } from "@/components/agents/GitHubBudgetPanel";
@@ -58,6 +59,11 @@ export default function OverviewPage() {
     queryKey: ["gateway", "runtime"],
     queryFn: fetchGatewayRuntime,
     refetchInterval: 30_000,
+  });
+  const overlordQuery = useQuery({
+    queryKey: getOverlordSummaryQueryKey(),
+    queryFn: fetchOverlordSummary,
+    refetchInterval: 15_000,
   });
 
   if (error) {
@@ -132,6 +138,25 @@ export default function OverviewPage() {
             />
             <GitHubBudgetPanel snapshot={gatewayRuntimeQuery.data?.runtime.github_api_budget} />
             <GeminiKeyPoolPanel snapshot={gatewayRuntimeQuery.data?.runtime.gemini_api_key_pool} />
+            {overlordQuery.data ? (
+              <div className="card mb-16" style={{ borderColor: 'var(--border-h)' }}>
+                <div className="card-header"><span className="card-title">Overlord</span></div>
+                <div style={{ fontSize: '14px', color: 'var(--text-0)', marginBottom: '8px' }}>{overlordQuery.data.headline}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-2)', marginBottom: '12px' }}>{overlordQuery.data.summary}</div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                  <span className={`badge ${overlordQuery.data.incidents.length > 0 ? 'badge-yellow' : 'badge-green'}`}>{overlordQuery.data.status}</span>
+                  <span className="badge badge-muted">{overlordQuery.data.incidents.length} active incidents</span>
+                  <span className="badge badge-muted">{overlordQuery.data.operator_todos.length} operator todos</span>
+                </div>
+                {overlordQuery.data.incidents.slice(0, 3).map((incident) => (
+                  <div key={incident.incident_key} style={{ padding: '10px 0', borderTop: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--text-0)', fontWeight: 600 }}>{incident.title}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '4px' }}>{incident.summary}</div>
+                    {incident.operator_action ? <div style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '6px' }}>Next: {incident.operator_action}</div> : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             <div className="hero-strip mb-16">
               <div>
