@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from enum import StrEnum
@@ -11,7 +12,11 @@ from typing import Callable, Protocol
 from sqlmodel import Session
 
 from agentic_workers.core.events import emit_failure_event, pause_event_run_id
-from agentic_workers.core.failure_detector import classify_github_error, determine_severity
+from agentic_workers.core.failure_detector import (
+    classify_github_error,
+    classify_github_runtime_error,
+    determine_severity,
+)
 from agentic_workers.core.pause_manager import execute_pause, is_agent_paused
 from agentic_workers.core.pause_policy import evaluate_pause_policy
 from agentic_workers.providers.github_provider import (
@@ -68,6 +73,13 @@ class FirehoseRunResult:
     artifact_error: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _DiscoveryBatchResult:
+    page: int
+    repositories: list[DiscoveredRepository] | None = None
+    error: Exception | None = None
+
+
 class FirehoseProvider(Protocol):
     def discover(
         self,
@@ -98,6 +110,7 @@ def run_firehose_job(
     per_page: int = 100,
     page: int = 1,
     pages: int = 1,
+    search_lanes: int = 1,
     sleep_fn: Callable[[int], None],
     should_stop: Callable[[], bool] | None = None,
     persist_batch: Callable[
@@ -113,6 +126,26 @@ def run_firehose_job(
 ) -> FirehoseRunResult:
     if not modes:
         raise ValueError("At least one Firehose mode must be configured")
+    if search_lanes > 1:
+        return _run_firehose_job_parallel(
+            session=session,
+            provider=provider,
+            runtime_dir=runtime_dir,
+            pacing_seconds=pacing_seconds,
+            modes=modes,
+            per_page=per_page,
+            page=page,
+            pages=pages,
+            search_lanes=search_lanes,
+            sleep_fn=sleep_fn,
+            should_stop=should_stop,
+            persist_batch=persist_batch,
+            load_progress=load_progress,
+            save_progress=save_progress,
+            write_artifact=write_artifact,
+            today=today,
+            agent_run_id=agent_run_id,
+        )
 
     # Check if agent is paused
     if is_agent_paused(session, "firehose"):
@@ -391,13 +424,17 @@ def run_firehose_job(
                 )
             )
             try:
-                classification = FailureClassification.BLOCKING
+                classification = classify_github_runtime_error(exc)
                 failure_sev = determine_severity(classification, consecutive_failures)
                 event_id = emit_failure_event(
                     session,
                     event_type="repository_discovery_failed",
                     agent_name="firehose",
-                    message="firehose encountered an unexpected runtime failure.",
+                    message=(
+                        "firehose failed while discovering repositories from GitHub."
+                        if classification is not FailureClassification.BLOCKING
+                        else "firehose encountered an unexpected runtime failure."
+                    ),
                     classification=classification,
                     failure_severity=failure_sev,
                     context_json=json.dumps(
@@ -464,6 +501,292 @@ def run_firehose_job(
     )
 
 
+def _run_firehose_job_parallel(
+    *,
+    session: Session,
+    provider: FirehoseProvider,
+    runtime_dir: Path | None,
+    pacing_seconds: int,
+    modes: tuple[FirehoseMode, ...],
+    per_page: int,
+    page: int,
+    pages: int,
+    search_lanes: int,
+    sleep_fn: Callable[[int], None],
+    should_stop: Callable[[], bool] | None,
+    persist_batch: Callable[[Session, list[DiscoveredRepository]], IntakePersistenceResult] | None,
+    load_progress: LoadCheckpointFn | None,
+    save_progress: SaveCheckpointFn | None,
+    write_artifact: ArtifactWriter | None,
+    today: date | None,
+    agent_run_id: int | None,
+) -> FirehoseRunResult:
+    if is_agent_paused(session, "firehose"):
+        logger.info("Firehose is paused, skipping run")
+        return FirehoseRunResult(
+            status=FirehoseRunStatus.SKIPPED_PAUSED,
+            outcomes=[],
+            artifact_path=None,
+        )
+
+    persistence = persist_batch or _persist_batch
+    checkpoint_loader = load_progress or _load_checkpoint
+    checkpoint_saver = save_progress or _save_checkpoint
+    artifact_writer = write_artifact or _write_run_artifact
+    active_today = today or _utc_today()
+    checkpoint = checkpoint_loader(session)
+    if checkpoint is None or not checkpoint.resume_required or checkpoint.active_mode is None:
+        checkpoint = initialize_firehose_progress(today=active_today, active_mode=modes[0])
+
+    outcomes: list[FirehosePageOutcome] = []
+    interrupted = False
+    sleep_between_batches = False
+    snapshot_errors: list[str] = []
+    consecutive_failures = 0
+    lane_count = max(1, search_lanes)
+
+    while checkpoint.resume_required and checkpoint.active_mode is not None:
+        mode = checkpoint.active_mode
+        if checkpoint.pages_processed_in_run >= pages:
+            checkpoint = _checkpoint_after_mode_page_budget(
+                checkpoint=checkpoint,
+                modes=modes,
+                mode=mode,
+                processed_pages=checkpoint.pages_processed_in_run,
+                pages=pages,
+            )
+            checkpoint_saver(session, checkpoint)
+            session.commit()
+            try:
+                write_firehose_progress_snapshot(runtime_dir=runtime_dir, checkpoint=checkpoint)
+            except OSError as exc:
+                snapshot_errors.append(f"snapshot write failed: {exc}")
+            continue
+        if should_stop is not None and should_stop():
+            interrupted = True
+            break
+        if sleep_between_batches:
+            sleep_fn(pacing_seconds)
+            if should_stop is not None and should_stop():
+                interrupted = True
+                break
+
+        anchored_date = anchor_for_mode(checkpoint, mode)
+        remaining_pages = max(0, pages - checkpoint.pages_processed_in_run)
+        requested_pages = tuple(
+            range(checkpoint.next_page, checkpoint.next_page + min(lane_count, remaining_pages))
+        )
+        batch_results = _discover_firehose_batch(
+            provider=provider,
+            mode=mode,
+            anchor_date=anchored_date,
+            per_page=per_page,
+            requested_pages=requested_pages,
+        )
+
+        for batch_result in batch_results:
+            repositories = list(batch_result.repositories or [])
+            requested_page = batch_result.page
+            if batch_result.error is None:
+                try:
+                    persisted = persistence(session, repositories, mode=mode)
+                    processed_pages = checkpoint.pages_processed_in_run + 1
+                    next_checkpoint = _next_checkpoint(
+                        checkpoint=checkpoint,
+                        modes=modes,
+                        fetched_count=len(repositories),
+                        per_page=per_page,
+                        checkpointed_at=datetime.now(timezone.utc),
+                        processed_pages=processed_pages,
+                    )
+                    next_checkpoint = _checkpoint_after_mode_page_budget(
+                        checkpoint=next_checkpoint,
+                        modes=modes,
+                        mode=mode,
+                        processed_pages=processed_pages,
+                        pages=pages,
+                    )
+                    checkpoint_saver(session, next_checkpoint)
+                    session.commit()
+                    try:
+                        write_firehose_progress_snapshot(runtime_dir=runtime_dir, checkpoint=next_checkpoint)
+                    except OSError as exc:
+                        snapshot_errors.append(f"snapshot write failed: {exc}")
+                    outcomes.append(
+                        FirehosePageOutcome(
+                            mode=mode,
+                            page=requested_page,
+                            anchor_date=anchored_date,
+                            fetched_count=len(repositories),
+                            inserted_count=persisted.inserted_count,
+                            skipped_count=persisted.skipped_count,
+                        )
+                    )
+                    consecutive_failures = 0
+                    checkpoint = next_checkpoint
+                    sleep_between_batches = checkpoint.resume_required
+                    if checkpoint.active_mode is not mode:
+                        break
+                    continue
+                except Exception as exc:
+                    batch_result = _DiscoveryBatchResult(
+                        page=batch_result.page,
+                        repositories=repositories,
+                        error=exc,
+                    )
+
+            exc = batch_result.error
+            if isinstance(exc, GitHubRateLimitError):
+                consecutive_failures += 1
+                session.rollback()
+                backoff_seconds = max(pacing_seconds * 2, exc.retry_after_seconds or 0)
+                outcomes.append(
+                    FirehosePageOutcome(
+                        mode=mode,
+                        page=requested_page,
+                        anchor_date=anchored_date,
+                        fetched_count=len(repositories),
+                        inserted_count=0,
+                        skipped_count=0,
+                        error=str(exc),
+                    )
+                )
+                _emit_firehose_rate_limit(
+                    session=session,
+                    mode=mode,
+                    requested_page=requested_page,
+                    anchored_date=anchored_date,
+                    exc=exc,
+                    backoff_seconds=backoff_seconds,
+                    consecutive_failures=consecutive_failures,
+                    agent_run_id=agent_run_id,
+                )
+                if backoff_seconds > 0 and (should_stop is None or not should_stop()):
+                    sleep_fn(backoff_seconds)
+                break
+
+            if isinstance(exc, GitHubProviderError):
+                consecutive_failures += 1
+                session.rollback()
+                outcomes.append(
+                    FirehosePageOutcome(
+                        mode=mode,
+                        page=requested_page,
+                        anchor_date=anchored_date,
+                        fetched_count=len(repositories),
+                        inserted_count=0,
+                        skipped_count=0,
+                        error=str(exc),
+                    )
+                )
+                _emit_firehose_provider_failure(
+                    session=session,
+                    mode=mode,
+                    requested_page=requested_page,
+                    anchored_date=anchored_date,
+                    exc=exc,
+                    consecutive_failures=consecutive_failures,
+                    agent_run_id=agent_run_id,
+                )
+                break
+
+            consecutive_failures += 1
+            session.rollback()
+            outcomes.append(
+                FirehosePageOutcome(
+                    mode=mode,
+                    page=requested_page,
+                    anchor_date=anchored_date,
+                    fetched_count=len(repositories),
+                    inserted_count=0,
+                    skipped_count=0,
+                    error=str(exc),
+                )
+            )
+            _emit_firehose_unexpected_failure(
+                session=session,
+                mode=mode,
+                requested_page=requested_page,
+                anchored_date=anchored_date,
+                exc=exc if isinstance(exc, Exception) else RuntimeError("unknown firehose error"),
+                consecutive_failures=consecutive_failures,
+                agent_run_id=agent_run_id,
+            )
+            break
+
+    if should_stop is not None and should_stop():
+        interrupted = True
+
+    status = _determine_status(outcomes, interrupted=interrupted)
+    artifact_path: Path | None = None
+    artifact_errors: list[str] = list(snapshot_errors)
+    try:
+        artifact_path = artifact_writer(
+            runtime_dir=runtime_dir,
+            status=status,
+            outcomes=outcomes,
+            checkpoint=checkpoint,
+        )
+    except OSError as exc:
+        artifact_errors.append(str(exc))
+        if status is FirehoseRunStatus.SUCCESS:
+            status = FirehoseRunStatus.PARTIAL_FAILURE
+    return FirehoseRunResult(
+        status=status,
+        outcomes=outcomes,
+        artifact_path=artifact_path,
+        artifact_error="; ".join(artifact_errors) or None,
+    )
+
+
+def _discover_firehose_batch(
+    *,
+    provider: FirehoseProvider,
+    mode: FirehoseMode,
+    anchor_date: date,
+    per_page: int,
+    requested_pages: tuple[int, ...],
+) -> list[_DiscoveryBatchResult]:
+    if len(requested_pages) <= 1:
+        page = requested_pages[0]
+        try:
+            repositories = provider.discover(
+                mode=mode,
+                anchor_date=anchor_date,
+                per_page=per_page,
+                page=page,
+            )
+            return [_DiscoveryBatchResult(page=page, repositories=list(repositories))]
+        except Exception as exc:
+            return [_DiscoveryBatchResult(page=page, error=exc)]
+
+    with ThreadPoolExecutor(max_workers=len(requested_pages)) as executor:
+        futures = {
+            requested_page: executor.submit(
+                provider.discover,
+                mode=mode,
+                anchor_date=anchor_date,
+                per_page=per_page,
+                page=requested_page,
+            )
+            for requested_page in requested_pages
+        }
+        results: list[_DiscoveryBatchResult] = []
+        for requested_page in requested_pages:
+            future = futures[requested_page]
+            try:
+                repositories = future.result()
+                results.append(
+                    _DiscoveryBatchResult(
+                        page=requested_page,
+                        repositories=list(repositories),
+                    )
+                )
+            except Exception as exc:
+                results.append(_DiscoveryBatchResult(page=requested_page, error=exc))
+        return results
+
+
 def _persist_batch(
     session: Session,
     repositories: list[DiscoveredRepository],
@@ -479,6 +802,217 @@ def _load_checkpoint(session: Session) -> FirehoseCheckpointState | None:
 
 def _save_checkpoint(session: Session, checkpoint: FirehoseCheckpointState) -> None:
     save_firehose_progress(session, checkpoint, commit=False)
+
+
+def _emit_firehose_rate_limit(
+    *,
+    session: Session,
+    mode: FirehoseMode,
+    requested_page: int,
+    anchored_date: date,
+    exc: GitHubRateLimitError,
+    backoff_seconds: int,
+    consecutive_failures: int,
+    agent_run_id: int | None,
+) -> None:
+    try:
+        classification = classify_github_error(exc)
+        failure_sev = determine_severity(classification, consecutive_failures)
+        event_id = emit_failure_event(
+            session,
+            event_type="rate_limit_hit",
+            agent_name="firehose",
+            message="firehose hit the GitHub rate limit and backed off.",
+            classification=classification,
+            failure_severity=failure_sev,
+            http_status_code=exc.status_code,
+            retry_after_seconds=exc.retry_after_seconds,
+            upstream_provider="github",
+            context_json=json.dumps(
+                {
+                    "mode": mode.value,
+                    "page": requested_page,
+                    "anchor_date": anchored_date.isoformat(),
+                    "retry_after_seconds": exc.retry_after_seconds,
+                    "backoff_seconds": backoff_seconds,
+                },
+                sort_keys=True,
+            ),
+            agent_run_id=agent_run_id,
+            commit=False,
+        )
+        decision = evaluate_pause_policy("firehose", classification, failure_sev, consecutive_failures)
+        if decision.should_pause:
+            execute_pause(session, decision, event_id)
+            from app.models import SystemEvent
+
+            failure_event = session.get(SystemEvent, event_id)
+            if failure_event and failure_event.context_json:
+                ctx = json.loads(failure_event.context_json)
+                ctx["pause_reason"] = decision.reason
+                ctx["resume_condition"] = decision.resume_condition
+                ctx["is_paused"] = True
+                failure_event.context_json = json.dumps(ctx, sort_keys=True)
+            for affected_agent in decision.affected_agents:
+                pause_context = json.dumps(
+                    {
+                        "pause_reason": decision.reason,
+                        "resume_condition": decision.resume_condition,
+                        "is_paused": True,
+                    }
+                )
+                emit_failure_event(
+                    session,
+                    event_type="agent_paused",
+                    agent_name=affected_agent,
+                    message=f"{affected_agent} paused: {decision.reason}",
+                    classification=classification,
+                    failure_severity="critical",
+                    upstream_provider="github",
+                    context_json=pause_context,
+                    agent_run_id=pause_event_run_id(
+                        triggering_agent_name="firehose",
+                        affected_agent_name=affected_agent,
+                        triggering_run_id=agent_run_id,
+                    ),
+                    commit=False,
+                )
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.warning("Failed to emit rate_limit_hit event for firehose", exc_info=True)
+
+
+def _emit_firehose_provider_failure(
+    *,
+    session: Session,
+    mode: FirehoseMode,
+    requested_page: int,
+    anchored_date: date,
+    exc: GitHubProviderError,
+    consecutive_failures: int,
+    agent_run_id: int | None,
+) -> None:
+    try:
+        classification = classify_github_error(exc)
+        failure_sev = determine_severity(classification, consecutive_failures)
+        event_id = emit_failure_event(
+            session,
+            event_type="repository_discovery_failed",
+            agent_name="firehose",
+            message="firehose failed while discovering repositories from GitHub.",
+            classification=classification,
+            failure_severity=failure_sev,
+            upstream_provider="github",
+            context_json=json.dumps(
+                {
+                    "mode": mode.value,
+                    "page": requested_page,
+                    "anchor_date": anchored_date.isoformat(),
+                    "error": str(exc),
+                },
+                sort_keys=True,
+            ),
+            agent_run_id=agent_run_id,
+            commit=False,
+        )
+        decision = evaluate_pause_policy("firehose", classification, failure_sev, consecutive_failures)
+        if decision.should_pause:
+            execute_pause(session, decision, event_id)
+            for affected_agent in decision.affected_agents:
+                pause_context = json.dumps(
+                    {
+                        "pause_reason": decision.reason,
+                        "resume_condition": decision.resume_condition,
+                        "is_paused": True,
+                    }
+                )
+                emit_failure_event(
+                    session,
+                    event_type="agent_paused",
+                    agent_name=affected_agent,
+                    message=f"{affected_agent} paused: {decision.reason}",
+                    classification=classification,
+                    failure_severity="critical",
+                    upstream_provider="github",
+                    context_json=pause_context,
+                    agent_run_id=pause_event_run_id(
+                        triggering_agent_name="firehose",
+                        affected_agent_name=affected_agent,
+                        triggering_run_id=agent_run_id,
+                    ),
+                    commit=False,
+                )
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.warning(
+            "Failed to emit repository_discovery_failed event for firehose",
+            exc_info=True,
+        )
+
+
+def _emit_firehose_unexpected_failure(
+    *,
+    session: Session,
+    mode: FirehoseMode,
+    requested_page: int,
+    anchored_date: date,
+    exc: Exception,
+    consecutive_failures: int,
+    agent_run_id: int | None,
+) -> None:
+    try:
+        classification = classify_github_runtime_error(exc)
+        failure_sev = determine_severity(classification, consecutive_failures)
+        event_id = emit_failure_event(
+            session,
+            event_type="repository_discovery_failed",
+            agent_name="firehose",
+            message=(
+                "firehose failed while discovering repositories from GitHub."
+                if classification is not FailureClassification.BLOCKING
+                else "firehose encountered an unexpected runtime failure."
+            ),
+            classification=classification,
+            failure_severity=failure_sev,
+            context_json=json.dumps(
+                {
+                    "mode": mode.value,
+                    "page": requested_page,
+                    "anchor_date": anchored_date.isoformat(),
+                    "error": str(exc),
+                },
+                sort_keys=True,
+            ),
+            agent_run_id=agent_run_id,
+            commit=False,
+        )
+        decision = evaluate_pause_policy("firehose", classification, failure_sev, consecutive_failures)
+        if decision.should_pause:
+            execute_pause(session, decision, event_id)
+            for affected_agent in decision.affected_agents:
+                emit_failure_event(
+                    session,
+                    event_type="agent_paused",
+                    agent_name=affected_agent,
+                    message=f"{affected_agent} paused: {decision.reason}",
+                    classification=classification,
+                    failure_severity="critical",
+                    agent_run_id=pause_event_run_id(
+                        triggering_agent_name="firehose",
+                        affected_agent_name=affected_agent,
+                        triggering_run_id=agent_run_id,
+                    ),
+                    commit=False,
+                )
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.warning(
+            "Failed to emit unexpected runtime failure event for firehose",
+            exc_info=True,
+        )
 
 
 def _determine_status(

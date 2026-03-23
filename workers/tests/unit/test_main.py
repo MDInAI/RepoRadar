@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
+import threading
+import time
 
 import pytest
 
@@ -38,8 +41,15 @@ from agentic_workers import main
 
 
 class DummyProvider:
-    def __init__(self, *, github_token: str | None, runtime_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        github_token: str | None,
+        github_tokens: tuple[str, ...] | list[str] | None = None,
+        runtime_dir: Path | None = None,
+    ) -> None:
         self.github_token = github_token
+        self.github_tokens = tuple(github_tokens or ())
         self.runtime_dir = runtime_dir
 
 
@@ -61,6 +71,7 @@ def test_configured_firehose_job_uses_settings_and_runtime_paths(monkeypatch, tm
     captured: dict[str, object] = {}
 
     class StubSettings:
+        github_provider_token_values = ("worker-token",)
         github_provider_token_value = "worker-token"
 
         class runtime:
@@ -71,6 +82,7 @@ def test_configured_firehose_job_uses_settings_and_runtime_paths(monkeypatch, tm
             intake_pacing_seconds = 3
             firehose_per_page = 100
             firehose_pages = 1
+            firehose_search_lanes = 1
             backfill_per_page = 50
             backfill_pages = 2
             backfill_window_days = 30
@@ -111,6 +123,7 @@ def test_configured_firehose_job_uses_settings_and_runtime_paths(monkeypatch, tm
     assert captured["runtime_dir"] == tmp_path
     assert captured["pacing_seconds"] == 3
     assert captured["modes"] == (FirehoseMode.NEW, FirehoseMode.TRENDING)
+    assert captured["search_lanes"] == 1
     assert captured["agent_run_id"] == 11
 
 
@@ -118,6 +131,7 @@ def test_configured_backfill_job_uses_settings_and_runtime_paths(monkeypatch, tm
     captured: dict[str, object] = {}
 
     class StubSettings:
+        github_provider_token_values = ("worker-token",)
         github_provider_token_value = "worker-token"
 
         class runtime:
@@ -128,6 +142,7 @@ def test_configured_backfill_job_uses_settings_and_runtime_paths(monkeypatch, tm
             intake_pacing_seconds = 3
             firehose_per_page = 100
             firehose_pages = 1
+            firehose_search_lanes = 1
             backfill_per_page = 25
             backfill_pages = 2
             backfill_window_days = 14
@@ -492,10 +507,12 @@ def test_interrupted_runs_with_progress_are_marked_skipped() -> None:
 
 def test_firehose_pacing_respects_request_budget_floor(monkeypatch) -> None:
     class StubSettings:
+        github_provider_token_values = ("token-1",)
         class provider:
             github_requests_per_minute = 20
             intake_pacing_seconds = 1
             firehose_pages = 2
+            firehose_search_lanes = 1
             backfill_pages = 2
 
     monkeypatch.setattr(main, "settings", StubSettings())
@@ -507,11 +524,13 @@ def test_calculate_firehose_interval_clamps_to_request_budget(monkeypatch) -> No
     """Firehose interval is clamped against the combined Firehose + Backfill request budget."""
 
     class StubSettings:
+        github_provider_token_values = ("token-1",)
         class provider:
             github_requests_per_minute = 20  # pacing = ceil(60/20) = 3s
             intake_pacing_seconds = 1  # lower than budget floor — floor wins
             firehose_interval_seconds = 1  # too small for (2 firehose modes × 2 pages + 1 backfill page) × 3s
             firehose_pages = 2
+            firehose_search_lanes = 1
             backfill_pages = 1
             backfill_interval_seconds = 1
 
@@ -522,11 +541,13 @@ def test_calculate_firehose_interval_clamps_to_request_budget(monkeypatch) -> No
 
 def test_calculate_backfill_interval_clamps_to_shared_request_budget(monkeypatch) -> None:
     class StubSettings:
+        github_provider_token_values = ("token-1",)
         class provider:
             github_requests_per_minute = 20
             intake_pacing_seconds = 1
             firehose_interval_seconds = 3600
             firehose_pages = 2
+            firehose_search_lanes = 1
             backfill_interval_seconds = 1
             backfill_pages = 2
 
@@ -538,11 +559,13 @@ def test_calculate_backfill_interval_clamps_to_shared_request_budget(monkeypatch
 
 def test_calculate_backfill_interval_rejects_non_positive_config(monkeypatch) -> None:
     class StubSettings:
+        github_provider_token_values = ("token-1",)
         class provider:
             github_requests_per_minute = 20
             intake_pacing_seconds = 1
             firehose_interval_seconds = 3600
             firehose_pages = 2
+            firehose_search_lanes = 1
             backfill_interval_seconds = 0
             backfill_pages = 2
 
@@ -550,6 +573,225 @@ def test_calculate_backfill_interval_rejects_non_positive_config(monkeypatch) ->
 
     with pytest.raises(ValueError, match="backfill_interval_seconds must be greater than zero"):
         main.calculate_backfill_interval_seconds()
+
+
+def test_acquire_worker_process_lock_raises_when_another_process_holds_it(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    real_flock = main.fcntl.flock
+    state = {"acquired": False}
+
+    def fake_flock(fd: int, operation: int) -> None:
+        if operation == (main.fcntl.LOCK_EX | main.fcntl.LOCK_NB):
+            if state["acquired"]:
+                raise BlockingIOError("already locked")
+            state["acquired"] = True
+            return
+        if operation == main.fcntl.LOCK_UN:
+            state["acquired"] = False
+            return
+        real_flock(fd, operation)
+
+    monkeypatch.setattr(main.fcntl, "flock", fake_flock)
+
+    with main._acquire_worker_process_lock(tmp_path):
+        with pytest.raises(main.WorkerAlreadyRunningError):
+            with main._acquire_worker_process_lock(tmp_path):
+                pass
+
+
+@pytest.mark.asyncio
+async def test_main_skips_duplicate_worker_launch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    startup_called = {"value": False}
+
+    @contextmanager
+    def duplicate_lock(_runtime_dir: Path | None):
+        raise main.WorkerAlreadyRunningError(tmp_path / "locks" / "agentic-workers-main.lock", 1234)
+        yield
+
+    async def fake_run_worker_loop() -> None:
+        startup_called["value"] = True
+
+    monkeypatch.setattr(main, "_acquire_worker_process_lock", duplicate_lock)
+    monkeypatch.setattr(main, "_run_worker_loop", fake_run_worker_loop)
+
+    await main.main()
+
+    assert startup_called["value"] is False
+
+
+@pytest.mark.asyncio
+async def test_run_due_intake_jobs_runs_firehose_and_backfill_concurrently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    barrier = threading.Barrier(2, timeout=1.0)
+    calls: list[str] = []
+
+    def fake_firehose(**_: object) -> FirehoseRunResult:
+        calls.append("firehose")
+        barrier.wait()
+        return FirehoseRunResult(
+            status=FirehoseRunStatus.SUCCESS,
+            outcomes=[],
+            artifact_path=None,
+            artifact_error=None,
+        )
+
+    def fake_backfill(**_: object) -> BackfillRunResult:
+        calls.append("backfill")
+        barrier.wait()
+        return BackfillRunResult(
+            status=BackfillRunStatus.SUCCESS,
+            outcomes=[],
+            checkpoint=type("Checkpoint", (), {"exhausted": False})(),
+            artifact_path=None,
+            artifact_error=None,
+        )
+
+    monkeypatch.setattr(main, "run_configured_firehose_job", fake_firehose)
+    monkeypatch.setattr(main, "run_configured_backfill_job", fake_backfill)
+    monkeypatch.setattr(main, "_supports_parallel_intake_lanes", lambda: True)
+
+    results = await main._run_due_intake_jobs(
+        due_jobs=["firehose", "backfill"],
+        thread_stop=threading.Event(),
+    )
+
+    assert set(calls) == {"firehose", "backfill"}
+    assert isinstance(results["firehose"], FirehoseRunResult)
+    assert isinstance(results["backfill"], BackfillRunResult)
+
+
+@pytest.mark.asyncio
+async def test_run_due_intake_jobs_serializes_for_sqlite(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    call_order: list[str] = []
+
+    def fake_firehose(**_: object) -> FirehoseRunResult:
+        call_order.append("firehose")
+        return FirehoseRunResult(
+            status=FirehoseRunStatus.SUCCESS,
+            outcomes=[],
+            artifact_path=None,
+            artifact_error=None,
+        )
+
+    def fake_backfill(**_: object) -> BackfillRunResult:
+        call_order.append("backfill")
+        return BackfillRunResult(
+            status=BackfillRunStatus.SUCCESS,
+            outcomes=[],
+            checkpoint=type("Checkpoint", (), {"exhausted": False})(),
+            artifact_path=None,
+            artifact_error=None,
+        )
+
+    monkeypatch.setattr(main, "run_configured_firehose_job", fake_firehose)
+    monkeypatch.setattr(main, "run_configured_backfill_job", fake_backfill)
+    monkeypatch.setattr(main, "_supports_parallel_intake_lanes", lambda: False)
+
+    results = await main._run_due_intake_jobs(
+        due_jobs=["firehose", "backfill"],
+        thread_stop=threading.Event(),
+    )
+
+    assert call_order == ["firehose", "backfill"]
+    assert isinstance(results["firehose"], FirehoseRunResult)
+    assert isinstance(results["backfill"], BackfillRunResult)
+
+
+@pytest.mark.asyncio
+async def test_run_due_intake_jobs_serial_sqlite_returns_duplicate_run_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_firehose(**_: object) -> FirehoseRunResult:
+        raise main.DuplicateActiveAgentRunError("firehose")
+
+    def fake_backfill(**_: object) -> BackfillRunResult:
+        return BackfillRunResult(
+            status=BackfillRunStatus.SUCCESS,
+            outcomes=[],
+            checkpoint=type("Checkpoint", (), {"exhausted": False})(),
+            artifact_path=None,
+            artifact_error=None,
+        )
+
+    monkeypatch.setattr(main, "run_configured_firehose_job", fake_firehose)
+    monkeypatch.setattr(main, "run_configured_backfill_job", fake_backfill)
+    monkeypatch.setattr(main, "_supports_parallel_intake_lanes", lambda: False)
+
+    results = await main._run_due_intake_jobs(
+        due_jobs=["firehose", "backfill"],
+        thread_stop=threading.Event(),
+    )
+
+    assert isinstance(results["firehose"], main.DuplicateActiveAgentRunError)
+    assert isinstance(results["backfill"], BackfillRunResult)
+
+
+@pytest.mark.asyncio
+async def test_run_due_intake_jobs_serial_sqlite_continues_after_firehose_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    call_order: list[str] = []
+
+    def fake_firehose(**_: object) -> FirehoseRunResult:
+        call_order.append("firehose")
+        time.sleep(0.05)
+        return FirehoseRunResult(
+            status=FirehoseRunStatus.SUCCESS,
+            outcomes=[],
+            artifact_path=None,
+            artifact_error=None,
+        )
+
+    def fake_backfill(**_: object) -> BackfillRunResult:
+        call_order.append("backfill")
+        return BackfillRunResult(
+            status=BackfillRunStatus.SUCCESS,
+            outcomes=[],
+            checkpoint=type("Checkpoint", (), {"exhausted": False})(),
+            artifact_path=None,
+            artifact_error=None,
+        )
+
+    monkeypatch.setattr(main, "run_configured_firehose_job", fake_firehose)
+    monkeypatch.setattr(main, "run_configured_backfill_job", fake_backfill)
+    monkeypatch.setattr(main, "_supports_parallel_intake_lanes", lambda: False)
+    monkeypatch.setattr(main, "calculate_firehose_run_timeout_seconds", lambda: 0.01)
+    monkeypatch.setattr(main, "calculate_backfill_run_timeout_seconds", lambda: 60)
+
+    results = await main._run_due_intake_jobs(
+        due_jobs=["firehose", "backfill"],
+        thread_stop=threading.Event(),
+    )
+
+    assert call_order == ["firehose", "backfill"]
+    assert isinstance(results["firehose"], main.IntakeJobTimeoutError)
+    assert isinstance(results["backfill"], BackfillRunResult)
+
+
+def test_calculate_firehose_interval_uses_parallel_search_lanes(monkeypatch) -> None:
+    class StubSettings:
+        github_provider_token_values = ("token-1", "token-2", "token-3", "token-4")
+
+        class provider:
+            github_requests_per_minute = 20
+            intake_pacing_seconds = 1
+            firehose_interval_seconds = 1
+            firehose_pages = 2
+            firehose_search_lanes = 3
+            backfill_pages = 1
+            backfill_interval_seconds = 1
+
+    monkeypatch.setattr(main, "settings", StubSettings())
+
+    assert main.calculate_firehose_interval_seconds() == 6
 
 
 def test_has_pending_analyst_work_queries_for_accepted_repositories(monkeypatch) -> None:
@@ -847,6 +1089,7 @@ def test_main_skips_startup_backfill_until_interval_due(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(main, "settings", StubSettings())
+    monkeypatch.setattr(main, "validate_startup_recovery", lambda session: None)
     monkeypatch.setattr(main, "should_run_firehose_startup", lambda **kwargs: True)
     monkeypatch.setattr(main, "should_run_backfill_startup", lambda **kwargs: False)
     monkeypatch.setattr(main, "has_pending_bouncer_work", lambda: False)
@@ -920,6 +1163,7 @@ def test_main_logs_firehose_interval_gate_when_no_resume_is_pending(
         return None
 
     monkeypatch.setattr(main, "settings", StubSettings())
+    monkeypatch.setattr(main, "validate_startup_recovery", lambda session: None)
     monkeypatch.setattr(main, "should_run_firehose_startup", lambda **kwargs: True)
     monkeypatch.setattr(main, "should_run_backfill_startup", lambda **kwargs: False)
     monkeypatch.setattr(main, "has_pending_bouncer_work", lambda: False)
@@ -998,6 +1242,7 @@ def test_main_runs_startup_backfill_without_extra_sleep_when_firehose_is_skipped
         return None
 
     monkeypatch.setattr(main, "settings", StubSettings())
+    monkeypatch.setattr(main, "validate_startup_recovery", lambda session: None)
     monkeypatch.setattr(main, "should_run_firehose_startup", lambda **kwargs: False)
     monkeypatch.setattr(main, "should_run_backfill_startup", lambda **kwargs: True)
     monkeypatch.setattr(main, "has_pending_bouncer_work", lambda: False)
@@ -1036,6 +1281,7 @@ def test_main_exits_on_startup_firehose_failure(monkeypatch) -> None:
         raise RuntimeError("database unavailable")
 
     monkeypatch.setattr(main, "settings", StubSettings())
+    monkeypatch.setattr(main, "validate_startup_recovery", lambda session: None)
     monkeypatch.setattr(main, "should_run_firehose_startup", lambda **kwargs: True)
     monkeypatch.setattr(main, "has_pending_bouncer_work", lambda: False)
     monkeypatch.setattr(main, "run_configured_firehose_job", failing_job)
@@ -1118,6 +1364,7 @@ def test_main_runs_firehose_on_interval_then_stops_on_signal(monkeypatch) -> Non
         return None
 
     monkeypatch.setattr(main, "settings", StubSettings())
+    monkeypatch.setattr(main, "validate_startup_recovery", lambda session: None)
     monkeypatch.setattr(main, "should_run_firehose_startup", lambda **kwargs: True)
     monkeypatch.setattr(main, "should_run_backfill_startup", lambda **kwargs: True)
     monkeypatch.setattr(main, "has_pending_bouncer_work", lambda: False)

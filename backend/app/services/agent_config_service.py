@@ -75,6 +75,14 @@ AGENT_CONFIG_DEFINITIONS: dict[AgentName, AgentConfigDefinition] = {
                 min_value=1,
             ),
             ConfigFieldDefinition(
+                key="FIREHOSE_SEARCH_LANES",
+                label="Parallel search lanes",
+                description="How many GitHub search pages Firehose can fetch concurrently inside one run. Effective parallelism is still capped by the available GitHub token pool.",
+                input_kind="integer",
+                unit="lanes",
+                min_value=1,
+            ),
+            ConfigFieldDefinition(
                 key="GITHUB_REQUESTS_PER_MINUTE",
                 label="GitHub request budget",
                 description="Shared GitHub pacing cap used by Firehose and Backfill.",
@@ -228,6 +236,16 @@ AGENT_CONFIG_DEFINITIONS: dict[AgentName, AgentConfigDefinition] = {
                 description="Model name used when Provider mode is set to gemini.",
                 input_kind="text",
                 placeholder="google/gemini-2.0-flash-001",
+            ),
+            ConfigFieldDefinition(
+                key="ANALYST_SELECTION_KEYWORDS",
+                label="Analyst shortlist keywords",
+                description=(
+                    "Comma-separated keywords or phrases that promote accepted repositories into"
+                    " deep README and evidence analysis. Starred repos always bypass this gate."
+                ),
+                input_kind="csv",
+                placeholder="medical, fintech, ai agent, workflow",
             ),
             ConfigFieldDefinition(
                 key="GITHUB_REQUESTS_PER_MINUTE",

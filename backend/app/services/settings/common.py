@@ -52,7 +52,9 @@ def _calculate_effective_backfill_interval(
     configured_interval: int,
     github_requests_per_minute: int,
     intake_pacing_seconds: int,
+    github_token_count: int,
     firehose_pages: int,
+    firehose_search_lanes: int,
     backfill_pages: int,
 ) -> int:
     if configured_interval <= 0:
@@ -63,7 +65,11 @@ def _calculate_effective_backfill_interval(
         intake_pacing_seconds,
     )
     firehose_requests = _FIREHOSE_MODE_COUNT * firehose_pages
-    min_cycle = (firehose_requests + backfill_pages) * effective_pacing
+    parallelism = _calculate_effective_search_parallelism(
+        github_token_count=github_token_count,
+        firehose_search_lanes=firehose_search_lanes,
+    )
+    min_cycle = math.ceil((firehose_requests + backfill_pages) / parallelism) * effective_pacing
     return max(configured_interval, min_cycle)
 
 
@@ -71,7 +77,9 @@ def _calculate_effective_firehose_interval(
     configured_interval: int,
     github_requests_per_minute: int,
     intake_pacing_seconds: int,
+    github_token_count: int,
     firehose_pages: int,
+    firehose_search_lanes: int,
     backfill_pages: int,
 ) -> int:
     if configured_interval <= 0:
@@ -82,8 +90,20 @@ def _calculate_effective_firehose_interval(
         intake_pacing_seconds,
     )
     firehose_requests = _FIREHOSE_MODE_COUNT * firehose_pages
-    min_cycle = (firehose_requests + backfill_pages) * effective_pacing
+    parallelism = _calculate_effective_search_parallelism(
+        github_token_count=github_token_count,
+        firehose_search_lanes=firehose_search_lanes,
+    )
+    min_cycle = math.ceil((firehose_requests + backfill_pages) / parallelism) * effective_pacing
     return max(configured_interval, min_cycle)
+
+
+def _calculate_effective_search_parallelism(
+    *,
+    github_token_count: int,
+    firehose_search_lanes: int,
+) -> int:
+    return max(1, min(max(github_token_count, 1), max(firehose_search_lanes, 1) + 1))
 
 
 def _raise_validation_error(

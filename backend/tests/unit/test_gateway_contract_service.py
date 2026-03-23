@@ -21,6 +21,7 @@ from app.models import (
     RepositoryQueueStatus,
 )
 from app.repositories.intake_runtime_repository import IntakeRuntimeRepository
+from app.services.openclaw import contract_service as contract_service_module
 from app.services.openclaw.contract_service import GatewayContractService
 from app.services.intake_runtime_service import GatewayIntakeRuntimeService
 from app.services.openclaw.transport import (
@@ -575,6 +576,60 @@ def test_gateway_contract_service_returns_runtime_surface_for_invalid_gateway_ur
         agent for agent in response.runtime.agent_states if agent.agent_key == "firehose"
     )
     assert firehose.queue.status == "live"
+
+
+def test_gateway_contract_service_deduplicates_invalid_gateway_url_warnings(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config_path = tmp_path / "openclaw.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "gateway": {
+                    "remote": {
+                        "url": "http://bad-host",
+                        "allowInsecureTls": False,
+                    },
+                    "auth": {"token": "gateway-token"},
+                },
+                "agents": {"defaults": {"model": {"primary": "test-model"}}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class SettingsBackedAdapter:
+        def resolve_transport_target(self):
+            return resolve_gateway_target(
+                Settings(
+                    OPENCLAW_CONFIG_PATH=config_path,
+                )
+            )
+
+    contract_service_module._reset_gateway_resolution_warning_state()
+    caplog.set_level("WARNING")
+
+    with _runtime_session() as session:
+        service = GatewayContractService(
+            adapter=SettingsBackedAdapter(),
+            intake_runtime_service=GatewayIntakeRuntimeService(
+                IntakeRuntimeRepository(session, runtime_dir=tmp_path)
+            ),
+        )
+
+        service.get_runtime_surface()
+        service.get_runtime_surface()
+
+    warnings = [
+        record.message
+        for record in caplog.records
+        if "Gateway target resolution failed (422)" in record.message
+    ]
+    assert warnings == [
+        "Gateway target resolution failed (422); runtime surface proceeding without URL"
+    ]
+    contract_service_module._reset_gateway_resolution_warning_state()
 
 
 def test_gateway_contract_service_handles_partial_firehose_progress_without_queue_rows(

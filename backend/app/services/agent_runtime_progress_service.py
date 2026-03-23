@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from pathlib import Path
 
@@ -112,30 +112,56 @@ class AgentRuntimeProgressService:
         total_pages = max(settings.BACKFILL_PAGES, 1)
         completed_pages = min(runtime.pages_processed_in_run, total_pages)
         progress_percent = min(int(round((completed_pages / total_pages) * 100)), 100)
-        current_window = (
-            f"{runtime.window_start_date.isoformat()} to {runtime.created_before_boundary.isoformat()}"
-            if runtime.window_start_date is not None and runtime.created_before_boundary is not None
-            else "Unknown window"
+        newest_included_date = (
+            runtime.created_before_boundary - timedelta(days=1)
+            if runtime.created_before_boundary is not None
+            else None
         )
+        current_window = (
+            f"{runtime.window_start_date.isoformat()} through {newest_included_date.isoformat()}"
+            if runtime.window_start_date is not None and newest_included_date is not None
+            else "Unknown historical window"
+        )
+        current_cursor = (
+            runtime.created_before_cursor.isoformat(timespec="seconds")
+            if runtime.created_before_cursor is not None
+            else "Not narrowed inside the current day yet"
+        )
+        downstream_remaining = runtime.counts.pending + runtime.counts.in_progress + runtime.counts.failed
         details = [
-            f"Pending backfill repos: {runtime.counts.pending}",
-            f"Completed discoveries: {runtime.counts.completed}",
+            f"Current historical window: {current_window}",
+            f"Resume page: {runtime.next_page} of {total_pages}",
+            f"Cursor inside current window: {current_cursor}",
+            f"Backfill repos discovered so far: {runtime.counts.total_items}",
+            f"Backfill repos still waiting downstream: {downstream_remaining}",
         ]
         if latest_event is not None:
             details.append(latest_event.message)
         return AgentRuntimeProgress(
             status_label="Running window" if latest_run and latest_run.status is AgentRunStatus.RUNNING else "Idle",
             current_activity=(
-                "Discovering older repositories in the active backfill window."
+                f"Scanning historical repositories created in {current_window}."
                 if latest_run and latest_run.status is AgentRunStatus.RUNNING
-                else "Waiting for the next Backfill cycle."
+                else f"Waiting to continue the historical window {current_window}."
             ),
-            current_target=f"{current_window} · next page {runtime.next_page}",
+            current_target=(
+                f"Window {current_window} · page {runtime.next_page} of {total_pages}"
+                + (
+                    f" · cursor {current_cursor}"
+                    if runtime.created_before_cursor is not None
+                    else ""
+                )
+            ),
             progress_percent=progress_percent,
+            primary_counts_label="Pages completed in this historical window",
             completed_count=completed_pages,
             total_count=total_pages,
             remaining_count=max(total_pages - completed_pages, 0),
             unit_label="pages",
+            secondary_counts_label="Backfill repos already discovered",
+            secondary_completed_count=runtime.counts.total_items,
+            secondary_total_count=runtime.counts.total_items,
+            secondary_unit_label="repos",
             updated_at=runtime.last_checkpointed_at,
             source="backfill checkpoint + intake queue",
             details=details,

@@ -54,14 +54,18 @@ class SettingsService:
         configured_interval: int,
         github_requests_per_minute: int,
         intake_pacing_seconds: int,
+        github_token_count: int,
         firehose_pages: int,
+        firehose_search_lanes: int,
         backfill_pages: int,
     ) -> int:
         return _calculate_effective_backfill_interval(
             configured_interval,
             github_requests_per_minute,
             intake_pacing_seconds,
+            github_token_count,
             firehose_pages,
+            firehose_search_lanes,
             backfill_pages,
         )
 

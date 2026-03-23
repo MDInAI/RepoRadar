@@ -88,9 +88,11 @@ def test_get_agent_config_exposes_analyst_select_and_text_fields(tmp_path: Path)
 
     provider_field = next(field for field in response.fields if field.key == "ANALYST_PROVIDER")
     model_field = next(field for field in response.fields if field.key == "ANALYST_MODEL_NAME")
+    shortlist_field = next(field for field in response.fields if field.key == "ANALYST_SELECTION_KEYWORDS")
     assert provider_field.input_kind == "select"
     assert provider_field.options == ["heuristic", "llm", "gemini"]
     assert model_field.input_kind == "text"
+    assert shortlist_field.input_kind == "csv"
 
 
 def test_update_agent_config_persists_analyst_values(tmp_path: Path) -> None:
@@ -108,6 +110,7 @@ def test_update_agent_config_persists_analyst_values(tmp_path: Path) -> None:
                 "ANALYST_MODEL_NAME": "claude-unused-when-gemini",
                 "GEMINI_BASE_URL": "https://example.invalid/v1",
                 "GEMINI_MODEL_NAME": "google/gemini-2.5-flash",
+                "ANALYST_SELECTION_KEYWORDS": "medical, workflow, fintech",
                 "GITHUB_REQUESTS_PER_MINUTE": "75",
                 "INTAKE_PACING_SECONDS": "12",
             }
@@ -121,6 +124,7 @@ def test_update_agent_config_persists_analyst_values(tmp_path: Path) -> None:
     assert "ANALYST_PROVIDER=gemini" in backend_text
     assert "GEMINI_BASE_URL=https://example.invalid/v1" in worker_text
     assert "GEMINI_MODEL_NAME=google/gemini-2.5-flash" in worker_text
+    assert "ANALYST_SELECTION_KEYWORDS=medical, workflow, fintech" in worker_text
 
 
 def test_update_agent_config_rejects_invalid_analyst_provider(tmp_path: Path) -> None:

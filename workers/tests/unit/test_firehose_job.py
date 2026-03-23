@@ -64,6 +64,9 @@ class StubSession:
     def exec(self, _statement: object) -> None:
         return None
 
+    def get(self, _model: object, _identifier: object) -> None:
+        return None
+
 
 def _repository(mode: FirehoseMode, repository_id: int) -> DiscoveredRepository:
     return DiscoveredRepository(
@@ -142,6 +145,42 @@ def test_firehose_job_paces_between_requests_and_records_page_outcomes(tmp_path:
     assert progress_snapshot["resume_required"] is False
     assert progress_snapshot["active_mode"] is None
     assert progress_snapshot["anchors"]["new"] is None
+
+
+def test_firehose_job_fetches_multiple_pages_in_parallel_batches(tmp_path: Path) -> None:
+    provider = StubProvider(
+        {
+            (FirehoseMode.NEW, 1): [_repository(FirehoseMode.NEW, repository_id) for repository_id in range(1, 6)],
+            (FirehoseMode.NEW, 2): [_repository(FirehoseMode.NEW, repository_id) for repository_id in range(6, 11)],
+        }
+    )
+
+    result = run_firehose_job(
+        session=StubSession(),  # type: ignore[arg-type]
+        provider=provider,
+        runtime_dir=tmp_path,
+        pacing_seconds=7,
+        modes=(FirehoseMode.NEW,),
+        sleep_fn=lambda _seconds: None,
+        per_page=5,
+        pages=2,
+        search_lanes=2,
+        load_progress=lambda _session: None,
+        persist_batch=_persist_batch,
+        save_progress=_save_progress,
+        today=date(2026, 3, 10),
+    )
+
+    assert result.status is FirehoseRunStatus.SUCCESS
+    assert [(outcome.mode, outcome.page) for outcome in result.outcomes] == [
+        (FirehoseMode.NEW, 1),
+        (FirehoseMode.NEW, 2),
+    ]
+    assert [outcome.inserted_count for outcome in result.outcomes] == [5, 5]
+    assert provider.calls == [
+        (FirehoseMode.NEW, date(2026, 3, 9), 5, 1),
+        (FirehoseMode.NEW, date(2026, 3, 9), 5, 2),
+    ]
 
 
 def test_firehose_job_clears_checkpoint_after_full_cycle_and_starts_fresh(tmp_path: Path) -> None:
@@ -278,6 +317,49 @@ def test_firehose_job_unexpected_runtime_failures_pause_the_agent(
     assert pause_calls
     assert pause_calls[0][0].affected_agents == ["firehose"]
     assert pause_calls[0][1] == 1
+    assert session.rollbacks == 1
+    assert session.commits == 1
+
+
+def test_firehose_job_timeout_failures_are_retryable_and_do_not_pause(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    provider = StubProvider(
+        {
+            (FirehoseMode.NEW, 1): TimeoutError("The read operation timed out"),
+        }
+    )
+    session = StubSession()
+    emitted_events: list[dict[str, object]] = []
+    pause_calls: list[tuple[PauseDecision, int | None]] = []
+
+    def fake_emit_failure_event(_session: object, **kwargs: object) -> int:
+        emitted_events.append(kwargs)
+        return len(emitted_events)
+
+    monkeypatch.setattr(firehose_job_module, "emit_failure_event", fake_emit_failure_event)
+    monkeypatch.setattr(
+        firehose_job_module,
+        "execute_pause",
+        lambda _session, decision, event_id: pause_calls.append((decision, event_id)),
+    )
+
+    result = run_firehose_job(
+        session=session,  # type: ignore[arg-type]
+        provider=provider,
+        runtime_dir=tmp_path,
+        pacing_seconds=1,
+        modes=(FirehoseMode.NEW,),
+        sleep_fn=lambda _seconds: None,
+        per_page=5,
+        load_progress=lambda _session: _fresh_checkpoint(),
+    )
+
+    assert result.status is FirehoseRunStatus.FAILED
+    assert [event["event_type"] for event in emitted_events] == ["repository_discovery_failed"]
+    assert emitted_events[0]["classification"] is FailureClassification.RETRYABLE
+    assert not pause_calls
     assert session.rollbacks == 1
     assert session.commits == 1
 

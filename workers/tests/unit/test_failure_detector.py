@@ -4,6 +4,7 @@ import pytest
 
 from agentic_workers.core.failure_detector import (
     classify_github_error,
+    classify_github_runtime_error,
     classify_llm_error,
     determine_severity,
 )
@@ -43,6 +44,24 @@ class TestClassifyGitHubError:
         result = classify_github_error(exc)
         assert result is FailureClassification.RATE_LIMITED
         assert result is not FailureClassification.RETRYABLE
+
+
+class TestClassifyGitHubRuntimeError:
+    def test_timeout_error_maps_to_retryable(self) -> None:
+        exc = TimeoutError("The read operation timed out")
+        assert classify_github_runtime_error(exc) is FailureClassification.RETRYABLE
+
+    def test_connection_error_maps_to_retryable(self) -> None:
+        exc = ConnectionError("connection reset by peer")
+        assert classify_github_runtime_error(exc) is FailureClassification.RETRYABLE
+
+    def test_rate_limit_message_maps_to_rate_limited(self) -> None:
+        exc = RuntimeError("HTTP 429: Too Many Requests")
+        assert classify_github_runtime_error(exc) is FailureClassification.RATE_LIMITED
+
+    def test_generic_runtime_error_defaults_to_blocking(self) -> None:
+        exc = RuntimeError("unexpected backfill crash")
+        assert classify_github_runtime_error(exc) is FailureClassification.BLOCKING
 
 
 class TestClassifyLlmError:

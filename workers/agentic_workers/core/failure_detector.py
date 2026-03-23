@@ -31,6 +31,42 @@ def classify_github_error(error: GitHubProviderError) -> FailureClassification:
     return FailureClassification.RETRYABLE
 
 
+def classify_github_runtime_error(error: Exception) -> FailureClassification:
+    """Classify GitHub-facing runtime exceptions that may escape provider wrappers."""
+    if isinstance(error, GitHubProviderError):
+        return classify_github_error(error)
+
+    error_type = type(error).__name__.lower()
+    error_message = str(error).lower()
+
+    if any(kw in error_message for kw in ("429", "rate limit", "rate_limit", "too many requests")):
+        return FailureClassification.RATE_LIMITED
+
+    if any(kw in error_message for kw in ("401", "403", "unauthorized", "forbidden", "authentication")):
+        return FailureClassification.BLOCKING
+
+    if (
+        isinstance(error, (TimeoutError, ConnectionError))
+        or any(
+            kw in error_type or kw in error_message
+            for kw in (
+                "timeout",
+                "timed out",
+                "connection reset",
+                "connection aborted",
+                "connection refused",
+                "broken pipe",
+                "network is unreachable",
+                "temporarily unavailable",
+                "temporary failure",
+            )
+        )
+    ):
+        return FailureClassification.RETRYABLE
+
+    return FailureClassification.BLOCKING
+
+
 def classify_llm_error(error: Exception) -> FailureClassification:
     """Map an LLM provider exception to a FailureClassification.
 

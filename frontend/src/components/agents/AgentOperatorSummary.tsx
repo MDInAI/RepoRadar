@@ -16,7 +16,7 @@ import {
   formatRuntimeProgressHeadline,
   formatRuntimeSecondaryCounts,
 } from "./agentPresentation";
-import { isAgentEffectivelyRunning } from "./alertState";
+import { isAgentEffectivelyRunning, isAgentPausedEffectively } from "./alertState";
 
 function formatRetryWindow(seconds: number | null | undefined): string {
   if (seconds == null || seconds <= 0) {
@@ -45,12 +45,27 @@ function formatEstimatedRetryTimestamp(event: FailureEventPayload): string | nul
   return formatAppDateTime(retryAt);
 }
 
+function isAutoResumedState(pauseState: AgentPauseState | undefined): boolean {
+  return Boolean(
+    pauseState?.resumed_by === "auto" &&
+      pauseState.resumed_at &&
+      !isAgentPausedEffectively(pauseState),
+  );
+}
+
 function buildCurrentState(
   entry: AgentStatusEntry,
   pauseState: AgentPauseState | undefined,
   failureEvent: FailureEventPayload | undefined,
 ): string {
-  if (pauseState?.is_paused) {
+  if (
+    isAutoResumedState(pauseState) &&
+    (failureEvent?.failure_classification === "retryable" || failureEvent?.failure_classification === "rate_limited")
+  ) {
+    return "Not paused now. Automation already cleared the last protective pause, and the worker should keep retrying on its own.";
+  }
+
+  if (isAgentPausedEffectively(pauseState)) {
     if (failureEvent?.failure_classification === "rate_limited" && failureEvent.upstream_provider === "github") {
       return "Paused now because GitHub temporarily blocked requests. No work is being processed.";
     }
@@ -99,15 +114,15 @@ function buildWhyThisLooksThisWay(
 ): string {
   const progressCounts = formatRuntimeProgressCounts(entry.runtime_progress);
 
-  if (pauseState?.is_paused && entry.latest_run?.status === "completed") {
+  if (isAgentPausedEffectively(pauseState) && entry.latest_run?.status === "completed") {
     return `${progressCounts} describes the next blocked checkpoint, not the earlier successful run. The last run finished, and the agent paused afterward before starting the next one.`;
   }
 
-  if (pauseState?.is_paused && entry.latest_run?.status === "skipped_paused") {
+  if (isAgentPausedEffectively(pauseState) && entry.latest_run?.status === "skipped_paused") {
     return `${progressCounts} describes where the agent would resume after unpausing it. The latest run did not process work because pause blocked it.`;
   }
 
-  if (!pauseState?.is_paused && entry.latest_run?.status === "completed") {
+  if (!isAgentPausedEffectively(pauseState) && entry.latest_run?.status === "completed") {
     return `${progressCounts} describes the next waiting checkpoint, not active processing.`;
   }
 
@@ -119,7 +134,7 @@ function buildRecommendedAction(
   pauseState: AgentPauseState | undefined,
   failureEvent: FailureEventPayload | undefined,
 ): string {
-  if (pauseState?.is_paused) {
+  if (isAgentPausedEffectively(pauseState)) {
     if (failureEvent?.failure_classification === "rate_limited" && failureEvent.upstream_provider === "github") {
       const exactRetry = formatEstimatedRetryTimestamp(failureEvent);
       if (exactRetry) {
@@ -138,6 +153,12 @@ function buildRecommendedAction(
   }
 
   if (entry.latest_run?.status === "failed") {
+    if (
+      failureEvent?.failure_classification === "retryable" ||
+      failureEvent?.failure_classification === "rate_limited"
+    ) {
+      return "No manual resume is needed. Watch for repeated retryable failures only if automation stops recovering by itself.";
+    }
     if (entry.agent_name === "analyst") {
       return "Review the latest Analyst alert, then rerun Analyst after the validation or provider issue is resolved.";
     }
@@ -163,6 +184,30 @@ function buildRetryGuidance(failureEvent: FailureEventPayload | undefined): stri
     return "Retry window: GitHub did not send an exact reset time. Safe operator approach is to wait around 15 minutes from the alert before one manual retry.";
   }
   return `Retry window: wait ${formatRetryWindow(failureEvent.retry_after_seconds)} before retrying.`;
+}
+
+function buildBackfillDetailRows(entry: AgentStatusEntry): string[] {
+  if (entry.agent_name !== "backfill" || !entry.runtime_progress?.details?.length) {
+    return [];
+  }
+  return entry.runtime_progress.details.filter(
+    (detail) =>
+      detail.startsWith("Current historical window:") ||
+      detail.startsWith("Resume page:") ||
+      detail.startsWith("Cursor inside current window:") ||
+      detail.startsWith("Backfill repos discovered so far:") ||
+      detail.startsWith("Backfill repos still waiting downstream:"),
+  );
+}
+
+function buildSecondaryCountsLine(entry: AgentStatusEntry): string | null {
+  if (entry.agent_name === "backfill") {
+    const discovered = entry.runtime_progress?.details.find((detail) =>
+      detail.startsWith("Backfill repos discovered so far:"),
+    );
+    return discovered ?? null;
+  }
+  return formatRuntimeSecondaryCounts(entry.runtime_progress);
 }
 
 export function AgentOperatorSummary({
@@ -192,7 +237,9 @@ export function AgentOperatorSummary({
   const whyThisLooksThisWay = buildWhyThisLooksThisWay(entry, pauseState);
   const recommendedAction = buildRecommendedAction(entry, pauseState, failureEvent);
   const retryGuidance = buildRetryGuidance(failureEvent);
-  const secondaryCounts = formatRuntimeSecondaryCounts(entry.runtime_progress);
+  const secondaryCounts = buildSecondaryCountsLine(entry);
+  const backfillDetails = buildBackfillDetailRows(entry);
+  const autoResumed = isAutoResumedState(pauseState);
 
   return (
     <section className="card">
@@ -238,6 +285,17 @@ export function AgentOperatorSummary({
           </div>
         </div>
 
+        {backfillDetails.length > 0 ? (
+          <div style={{ background: "var(--bg-3)", border: "1px solid var(--border)", borderRadius: "8px", padding: "12px" }}>
+            <div className="card-label">Backfill Snapshot</div>
+            <div style={{ display: "grid", gap: "6px", marginTop: "6px", color: "var(--text-0)", lineHeight: 1.6 }}>
+              {backfillDetails.map((detail) => (
+                <div key={detail}>{detail}</div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         {failureEvent ? (
           <div style={{ background: "var(--yellow-dim)", border: "1px solid rgba(217, 166, 58, 0.3)", borderRadius: "8px", padding: "12px" }}>
             <div className="card-label" style={{ color: "var(--yellow)" }}>Latest Alert</div>
@@ -252,14 +310,26 @@ export function AgentOperatorSummary({
           </div>
         ) : null}
 
-        {pauseState?.is_paused ? (
+        {autoResumed ? (
+          <div style={{ background: "var(--blue-dim)", border: "1px solid rgba(79, 143, 217, 0.3)", borderRadius: "8px", padding: "12px" }}>
+            <div className="card-label" style={{ color: "var(--blue)" }}>Recovery</div>
+            <div style={{ color: "var(--text-0)", marginTop: "6px", lineHeight: 1.6 }}>
+              Automation already cleared the last protective pause.
+            </div>
+            <div style={{ color: "var(--text-2)", marginTop: "6px", fontSize: "12px" }}>
+              Recovered {pauseState?.resumed_at ? formatRelativeTimestamp(pauseState.resumed_at) : "recently"}
+            </div>
+          </div>
+        ) : null}
+
+        {isAgentPausedEffectively(pauseState) ? (
           <div style={{ background: "var(--red-dim)", border: "1px solid rgba(217, 79, 79, 0.3)", borderRadius: "8px", padding: "12px" }}>
             <div className="card-label" style={{ color: "var(--red)" }}>Pause Reason</div>
             <div style={{ color: "var(--text-0)", marginTop: "6px", lineHeight: 1.6 }}>
-              {pauseState.pause_reason ?? "Pause active, but no reason was recorded."}
+              {pauseState?.pause_reason ?? "Pause active, but no reason was recorded."}
             </div>
             <div style={{ color: "var(--text-2)", marginTop: "6px", fontSize: "12px" }}>
-              Paused {pauseState.paused_at ? formatRelativeTimestamp(pauseState.paused_at) : "recently"}
+              Paused {pauseState?.paused_at ? formatRelativeTimestamp(pauseState.paused_at) : "recently"}
             </div>
           </div>
         ) : null}

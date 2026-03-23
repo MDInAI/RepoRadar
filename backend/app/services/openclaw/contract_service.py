@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+import threading
+import time
 from typing import Protocol
 
 from app.core.config import settings
@@ -57,6 +59,13 @@ _INITIAL_AGENT_NOTE = (
 _RESERVED_AGENT_NOTE = (
     "This role is reserved for later specialization and is not required to be active in Story 1.3."
 )
+_GATEWAY_RESOLUTION_WARNING_INTERVAL_SECONDS = 300.0
+_gateway_resolution_warning_lock = threading.Lock()
+_gateway_resolution_warning_state = {
+    "signature": None,
+    "last_logged_at": 0.0,
+    "suppressed": 0,
+}
 _AGENT_ROSTER = (
     (
         "overlord",
@@ -313,9 +322,7 @@ class GatewayContractService:
             # target resolution fails (e.g. invalid/missing configuration) so that
             # backend-owned intake queues are still rendered.
             if exc.status_code == 422:
-                logger.warning(
-                    "Gateway target resolution failed (422); runtime surface proceeding without URL"
-                )
+                _log_gateway_resolution_warning(exc)
                 gateway_url = None
             else:
                 raise
@@ -516,6 +523,8 @@ class GatewayContractService:
             return payload
 
         normalized = dict(payload)
+        if not isinstance(normalized.get("scheduler"), dict):
+            normalized["scheduler"] = None
         captured_at = payload.get("captured_at")
         existing_tokens = payload.get("tokens")
         token_entries = existing_tokens if isinstance(existing_tokens, list) else []
@@ -540,6 +549,10 @@ class GatewayContractService:
                 "reset_at": payload.get("reset_at"),
                 "retry_after_seconds": payload.get("retry_after_seconds"),
                 "exhausted": payload.get("exhausted"),
+                "last_used_at": None,
+                "cooldown_until": None,
+                "next_available_at": None,
+                "in_flight": 0,
                 "resource_budgets": [],
             }
 
@@ -558,6 +571,10 @@ class GatewayContractService:
                     "reset_at": None,
                     "retry_after_seconds": None,
                     "exhausted": None,
+                    "last_used_at": None,
+                    "cooldown_until": None,
+                    "next_available_at": None,
+                    "in_flight": 0,
                     "resource_budgets": [],
                 },
             )
@@ -708,3 +725,42 @@ class GatewayContractService:
                 "Story 1.2 defines the envelope now; live bridging lands in later stories.",
             ],
         )
+
+
+def _reset_gateway_resolution_warning_state() -> None:
+    with _gateway_resolution_warning_lock:
+        _gateway_resolution_warning_state["signature"] = None
+        _gateway_resolution_warning_state["last_logged_at"] = 0.0
+        _gateway_resolution_warning_state["suppressed"] = 0
+
+
+def _log_gateway_resolution_warning(exc: AppError) -> None:
+    signature = f"{exc.status_code}:{exc.code}:{exc.message}"
+    now = time.monotonic()
+    suppressed_count = 0
+
+    with _gateway_resolution_warning_lock:
+        last_signature = _gateway_resolution_warning_state["signature"]
+        last_logged_at = float(_gateway_resolution_warning_state["last_logged_at"])
+        if (
+            signature == last_signature
+            and (now - last_logged_at) < _GATEWAY_RESOLUTION_WARNING_INTERVAL_SECONDS
+        ):
+            _gateway_resolution_warning_state["suppressed"] = int(
+                _gateway_resolution_warning_state["suppressed"]
+            ) + 1
+            return
+
+        if signature == last_signature:
+            suppressed_count = int(_gateway_resolution_warning_state["suppressed"])
+
+        _gateway_resolution_warning_state["signature"] = signature
+        _gateway_resolution_warning_state["last_logged_at"] = now
+        _gateway_resolution_warning_state["suppressed"] = 0
+
+    message = "Gateway target resolution failed (422); runtime surface proceeding without URL"
+    if suppressed_count:
+        message = (
+            f"{message} ({suppressed_count} duplicate warnings suppressed while configuration remained invalid)"
+        )
+    logger.warning(message)

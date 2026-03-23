@@ -26,11 +26,13 @@ import {
   type BackfillTimelineResponse,
   type AgentName,
   type AgentStatusEntry,
+  type FailureEventPayload,
 } from "@/api/agents";
 import { AgentOperatorSummary } from "@/components/agents/AgentOperatorSummary";
 import { GeminiKeyPoolPanel } from "@/components/agents/GeminiKeyPoolPanel";
 import { GitHubBudgetPanel } from "@/components/agents/GitHubBudgetPanel";
 import { OperationalAlertsPanel } from "@/components/agents/OperationalAlertsPanel";
+import { isAgentPausedEffectively } from "@/components/agents/alertState";
 import { formatAppDateTime } from "@/lib/time";
 import { fetchGatewayRuntime, fetchSettingsSummary } from "@/api/readiness";
 import { fetchOverlordSummary, getOverlordSummaryQueryKey } from "@/api/overlord";
@@ -158,6 +160,62 @@ function formatEvidenceTimestamp(value: string | null | undefined): string {
   return `${formatRelative(value)} (${formatTimestamp(value)})`;
 }
 
+function isAutoResumedState(pauseState: {
+  resumed_at: string | null;
+  resumed_by: string | null;
+  is_paused: boolean;
+} | null | undefined): boolean {
+  return Boolean(
+    pauseState?.resumed_by === "auto" &&
+      pauseState.resumed_at &&
+      !pauseState.is_paused,
+  );
+}
+
+function buildAutoResumeCopy(
+  pauseState: {
+    resumed_at: string | null;
+    pause_reason: string | null;
+  } | null | undefined,
+  failureEvent: FailureEventPayload | undefined,
+): {
+  headline: string;
+  detail: string;
+  note: string;
+} {
+  const resumedAt = pauseState?.resumed_at
+    ? `${formatRelative(pauseState.resumed_at)} (${formatTimestamp(pauseState.resumed_at)})`
+    : "recently";
+
+  if (failureEvent?.failure_classification === "retryable") {
+    return {
+      headline: "Auto-resumed after transient failure",
+      detail: `Automation cleared the old protective pause ${resumedAt}. The current failure is retryable, so this agent should keep retrying without a manual resume.`,
+      note: pauseState?.pause_reason
+        ? `Previous pause reason: ${pauseState.pause_reason}`
+        : "No manual resume is needed unless a new blocking pause appears.",
+    };
+  }
+
+  if (failureEvent?.failure_classification === "rate_limited") {
+    return {
+      headline: "Auto-resumed after cooldown recovery",
+      detail: `Automation cleared the old protective pause ${resumedAt}. Cooldown handling is automatic, so this agent does not currently need a manual resume.`,
+      note: pauseState?.pause_reason
+        ? `Previous pause reason: ${pauseState.pause_reason}`
+        : "No manual resume is needed unless a new blocking pause appears.",
+    };
+  }
+
+  return {
+    headline: "Auto-resumed after transient failure",
+    detail: `Automation cleared the previous protective pause ${resumedAt}. This agent is back on its normal automatic scheduling.`,
+    note: pauseState?.pause_reason
+      ? `Previous pause reason: ${pauseState.pause_reason}`
+      : "No manual resume is needed unless a new blocking pause appears.",
+  };
+}
+
 function subtractOneDay(dateValue: string | null | undefined): string | null {
   if (!dateValue) {
     return null;
@@ -200,6 +258,26 @@ function findNumericSetting(
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function findNumericConfigField(
+  config: AgentConfigResponse | undefined,
+  keys: readonly string[],
+): number | null {
+  if (!config) {
+    return null;
+  }
+  for (const key of keys) {
+    const field = config.fields.find((entry) => entry.key === key);
+    if (!field?.value) {
+      continue;
+    }
+    const parsed = Number(field.value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
 }
 
 function findSettingEntry(
@@ -247,6 +325,7 @@ function deriveCadenceForAgent({
   runtimeQueue,
   latestRun,
   settingsSummary,
+  agentConfig,
 }: {
   agentId: AgentName;
   isPaused: boolean;
@@ -254,6 +333,7 @@ function deriveCadenceForAgent({
   runtimeQueue: GatewayAgentIntakeQueueSummary | null;
   latestRun: AgentStatusEntry["latest_run"] | null | undefined;
   settingsSummary: SettingsSummaryResponse | undefined;
+  agentConfig: AgentConfigResponse | undefined;
 }): AgentCadence {
   const nowMs = Date.now();
   const lastCheckpointAt =
@@ -273,6 +353,8 @@ function deriveCadenceForAgent({
   if (agentId === "firehose" || agentId === "backfill") {
     const intervalSeconds = findNumericSetting(settingsSummary, [
       agentId === "firehose" ? "workers.FIREHOSE_INTERVAL_SECONDS" : "workers.BACKFILL_INTERVAL_SECONDS",
+      agentId === "firehose" ? "FIREHOSE_INTERVAL_SECONDS" : "BACKFILL_INTERVAL_SECONDS",
+    ]) ?? findNumericConfigField(agentConfig, [
       agentId === "firehose" ? "FIREHOSE_INTERVAL_SECONDS" : "BACKFILL_INTERVAL_SECONDS",
     ]);
 
@@ -1890,8 +1972,10 @@ export default function ControlPanel() {
         newest_boundary_exclusive: data.newest_boundary_exclusive,
       });
       void queryClient.invalidateQueries({ queryKey: getBackfillTimelineQueryKey() });
+      void queryClient.invalidateQueries({ queryKey: getAgentPauseStatesQueryKey() });
       void queryClient.invalidateQueries({ queryKey: ["gateway", "runtime"] });
       void queryClient.invalidateQueries({ queryKey: getLatestAgentRunsQueryKey() });
+      void queryClient.invalidateQueries({ queryKey: ["agents", "failure-events"] });
     },
   });
 
@@ -1905,9 +1989,11 @@ export default function ControlPanel() {
   const runtimeQueue = runtimeAgent && isLiveIntakeQueue(runtimeAgent.queue) ? runtimeAgent.queue : null;
   const runtimeBackfillCheckpoint =
     runtimeQueue?.checkpoint.kind === "backfill" ? runtimeQueue.checkpoint : null;
-  const isPaused = agentPauseState?.is_paused ?? false;
+  const isPaused = isAgentPausedEffectively(agentPauseState);
   const effectiveIsPaused =
     selectedAgent === resumeMutation.variables && resumeMutation.isSuccess ? false : isPaused;
+  const autoResumed = isAutoResumedState(agentPauseState);
+  const autoResumeCopy = buildAutoResumeCopy(agentPauseState, selectedFailureEvent);
   const usesModel = agentStatus?.uses_model ?? false;
   const cadence = deriveCadenceForAgent({
     agentId: selectedAgent,
@@ -1916,6 +2002,7 @@ export default function ControlPanel() {
     runtimeQueue,
     latestRun: agentStatus?.latest_run,
     settingsSummary: settingsSummaryQuery.data,
+    agentConfig: agentConfigQuery.data,
   });
 
   const loadingMessage = useMemo(() => {
@@ -1929,7 +2016,7 @@ export default function ControlPanel() {
     <>
       <div className="topbar">
         <span className="topbar-title">Control Panel</span>
-        <span className="topbar-breadcrumb">agent control</span>
+        <span style={{ color: "var(--text-2)", fontSize: "12px" }}>agent commands & configuration</span>
       </div>
 
       <div style={{ display: "flex", height: "calc(100vh - 44px)", minHeight: 0 }}>
@@ -1952,7 +2039,7 @@ export default function ControlPanel() {
                 key={agent.id}
                 agent={agent}
                 active={selectedAgent === agent.id}
-                paused={state?.is_paused ?? false}
+                paused={isAgentPausedEffectively(state)}
                 onClick={() => {
                   setSelectedAgent(agent.id);
                   setIsEditingConfig(false);
@@ -1979,15 +2066,6 @@ export default function ControlPanel() {
 
         <div style={{ flex: 1, padding: "24px", overflow: "auto", minHeight: 0 }}>
           <div style={{ maxWidth: "960px" }}>
-            <OperationalAlertsPanel
-              pauseStates={pauseStatesQuery.data ?? []}
-              failureEvents={failureEventsQuery.data ?? []}
-              agents={latestRunsQuery.data?.agents ?? []}
-              agentStatuses={latestRunsQuery.data?.agents ?? []}
-              title="Runtime Alerts"
-            />
-            <GitHubBudgetPanel snapshot={gatewayRuntimeQuery.data?.runtime.github_api_budget} />
-            <GeminiKeyPoolPanel snapshot={gatewayRuntimeQuery.data?.runtime.gemini_api_key_pool} />
 
             <div className="card" style={{ marginBottom: "20px" }}>
               <div
@@ -2016,6 +2094,9 @@ export default function ControlPanel() {
                     {usesModel ? <span className="badge badge-blue">LLM-backed</span> : null}
                     {agentStatus?.configured_provider ? (
                       <span className="badge badge-yellow">{titleCase(agentStatus.configured_provider)}</span>
+                    ) : null}
+                    {autoResumed && !effectiveIsPaused ? (
+                      <span className="badge badge-blue">Auto-resumed</span>
                     ) : null}
                   </h2>
                   <div style={{ fontSize: "12px", color: "var(--text-2)", marginTop: "4px" }}>
@@ -2137,6 +2218,29 @@ export default function ControlPanel() {
                 </div>
               ) : null}
 
+              {autoResumed && !effectiveIsPaused ? (
+                <div
+                  style={{
+                    marginTop: "12px",
+                    padding: "12px",
+                    borderRadius: "8px",
+                    border: "1px solid rgba(79, 143, 217, 0.35)",
+                    background: "rgba(79, 143, 217, 0.12)",
+                    color: "var(--text-0)",
+                  }}
+                >
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--blue)" }}>
+                    {autoResumeCopy.headline}
+                  </div>
+                  <div style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "8px" }}>
+                    {autoResumeCopy.detail}
+                  </div>
+                  <div style={{ fontSize: "11px", color: "var(--text-1)", lineHeight: 1.6, marginTop: "8px" }}>
+                    {autoResumeCopy.note}
+                  </div>
+                </div>
+              ) : null}
+
               <div style={{ display: "grid", gap: "10px", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", marginTop: "16px" }}>
                 <div style={{ background: "var(--bg-3)", border: "1px solid var(--border)", borderRadius: "8px", padding: "12px" }}>
                   <div className="card-label">Latest Run</div>
@@ -2165,7 +2269,7 @@ export default function ControlPanel() {
                   </div>
                 </div>
                 <div style={{ background: "var(--bg-3)", border: "1px solid var(--border)", borderRadius: "8px", padding: "12px" }}>
-                  <div className="card-label">Scheduled Run</div>
+                  <div className="card-label">Next Automatic Run</div>
                   <div style={{ color: "var(--text-0)", marginTop: "6px", fontWeight: 600 }}>
                     {cadence.nextDueAt
                       ? formatTimestamp(cadence.nextDueAt)
@@ -2175,7 +2279,7 @@ export default function ControlPanel() {
                   </div>
                 </div>
                 <div style={{ background: "var(--bg-3)", border: "1px solid var(--border)", borderRadius: "8px", padding: "12px" }}>
-                  <div className="card-label">Time Until Run</div>
+                  <div className="card-label">Time Until Automatic Run</div>
                   <div style={{ color: "var(--text-0)", marginTop: "6px", fontWeight: 600 }}>
                     {cadence.mode === "interval"
                       ? formatTimeUntilScheduledRun(cadence.nextDueAt)
@@ -2194,7 +2298,7 @@ export default function ControlPanel() {
                 }}
               >
                 <div className="card-label" style={{ marginBottom: "10px" }}>
-                  Scheduler state
+                  Why This Agent Is Waiting
                 </div>
                 <div style={{ color: "var(--text-1)", fontSize: "12px", lineHeight: 1.6 }}>
                   {cadence.explanation}
@@ -2269,7 +2373,7 @@ export default function ControlPanel() {
                 ) : null}
               </div>
 
-              {agentPauseState?.paused_at ? (
+              {effectiveIsPaused && agentPauseState?.paused_at ? (
                 <div
                   style={{
                     marginTop: "16px",
@@ -2336,7 +2440,7 @@ export default function ControlPanel() {
                 value={cadence.lastCheckpointAt ? `${formatRelative(cadence.lastCheckpointAt)} (${formatTimestamp(cadence.lastCheckpointAt)})` : "Never"}
               />
               <DetailRow
-                label="Scheduled run"
+                label="Next automatic run"
                 value={
                   cadence.nextDueAt
                     ? `${formatTimeUntilScheduledRun(cadence.nextDueAt)} (${formatTimestamp(cadence.nextDueAt)})`
@@ -2346,7 +2450,7 @@ export default function ControlPanel() {
                 }
               />
               <DetailRow
-                label="Time until run"
+                label="Time until automatic run"
                 value={cadence.mode === "interval" ? formatTimeUntilScheduledRun(cadence.nextDueAt) : "N/A"}
                 tone={cadence.mode === "interval" && (cadence.remainingSeconds ?? 0) <= 0 ? "good" : "default"}
               />

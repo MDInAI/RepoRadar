@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from io import BytesIO
 import json
+from socket import timeout as SocketTimeout
 from urllib.error import HTTPError
 
 import pytest
@@ -10,8 +11,10 @@ import pytest
 import agentic_workers.providers.github_provider as github_provider_module
 from agentic_workers.providers.github_provider import (
     FirehoseMode,
+    GitHubAuthenticationError,
     GitHubFirehoseProvider,
     GitHubPayloadError,
+    GitHubProviderError,
     GitHubRateLimitError,
     GitHubReadmeNotFoundError,
     RepositoryCommit,
@@ -62,8 +65,12 @@ class RecordingTransport:
         )
         call_index = len(self.calls) - 1
         if call_index < len(self.responses):
-            return self.responses[call_index]
-        return self.responses[-1]
+            response = self.responses[call_index]
+        else:
+            response = self.responses[-1]
+        if isinstance(response, Exception):
+            raise response
+        return response
 
     def get_text(
         self,
@@ -84,8 +91,12 @@ class RecordingTransport:
         )
         call_index = sum(1 for call in self.calls if call.get("text")) - 1
         if call_index < len(self.text_responses):
-            return self.text_responses[call_index]
-        return self.text_responses[-1]
+            response = self.text_responses[call_index]
+        else:
+            response = self.text_responses[-1]
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 def _repository_payload(
@@ -481,6 +492,63 @@ def test_transport_writes_shared_github_quota_snapshot(
     assert snapshot["tokens"][0]["resource_budgets"][0]["resource"] == "core"
 
 
+def test_transport_retries_timeout_before_succeeding(monkeypatch: pytest.MonkeyPatch) -> None:
+    attempts = {"count": 0}
+
+    class FakeResponse:
+        status = 200
+        headers = {}
+
+        def read(self) -> bytes:
+            return b'{"items": []}'
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    def fake_urlopen(*_args: object, **_kwargs: object) -> object:
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise SocketTimeout("The read operation timed out")
+        return FakeResponse()
+
+    monkeypatch.setattr(github_provider_module, "urlopen", fake_urlopen)
+    transport = UrllibGitHubTransport(retry_backoff_seconds=0)
+
+    payload = transport.get_json(
+        url="https://api.github.com/search/repositories",
+        headers={},
+        params={"q": "created:>=2026-03-07"},
+    )
+
+    assert payload == {"items": []}
+    assert attempts["count"] == 3
+
+
+def test_transport_raises_provider_error_after_exhausting_timeout_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = {"count": 0}
+
+    def fake_urlopen(*_args: object, **_kwargs: object) -> object:
+        attempts["count"] += 1
+        raise SocketTimeout("The read operation timed out")
+
+    monkeypatch.setattr(github_provider_module, "urlopen", fake_urlopen)
+    transport = UrllibGitHubTransport(retry_backoff_seconds=0)
+
+    with pytest.raises(GitHubProviderError, match="The read operation timed out"):
+        transport.get_json(
+            url="https://api.github.com/search/repositories",
+            headers={},
+            params={"q": "created:>=2026-03-07"},
+        )
+
+    assert attempts["count"] == 3
+
+
 def test_provider_rotates_across_multiple_github_tokens() -> None:
     transport = RecordingTransport({"items": [_repository_payload(101)]})
     provider = GitHubFirehoseProvider(
@@ -493,6 +561,71 @@ def test_provider_rotates_across_multiple_github_tokens() -> None:
     provider.discover(mode=FirehoseMode.NEW, per_page=1, page=1)
     provider.discover(mode=FirehoseMode.NEW, per_page=1, page=2)
 
+    assert transport.calls[0]["headers"]["Authorization"] == "Bearer token-a"
+    assert transport.calls[0]["token_label"] == "token-1"
+    assert transport.calls[1]["headers"]["Authorization"] == "Bearer token-b"
+    assert transport.calls[1]["token_label"] == "token-2"
+
+
+def test_providers_share_token_pool_across_instances(tmp_path) -> None:
+    transport_one = RecordingTransport({"items": [_repository_payload(101)]})
+    transport_two = RecordingTransport({"items": [_repository_payload(102)]})
+    provider_one = GitHubFirehoseProvider(
+        transport=transport_one,
+        github_token=None,
+        github_tokens=("token-a", "token-b"),
+        runtime_dir=tmp_path,
+        today=date(2026, 3, 7),
+    )
+    provider_two = GitHubFirehoseProvider(
+        transport=transport_two,
+        github_token=None,
+        github_tokens=("token-a", "token-b"),
+        runtime_dir=tmp_path,
+        today=date(2026, 3, 7),
+    )
+
+    provider_one.discover(mode=FirehoseMode.NEW, per_page=1, page=1)
+    provider_two.discover(mode=FirehoseMode.NEW, per_page=1, page=1)
+
+    assert provider_one._token_pool is provider_two._token_pool
+    assert transport_one.calls[0]["token_label"] == "token-1"
+    assert transport_two.calls[0]["token_label"] == "token-2"
+
+
+def test_provider_initializes_scheduler_snapshot(tmp_path) -> None:
+    GitHubFirehoseProvider(
+        transport=RecordingTransport({"items": []}),
+        github_token=None,
+        github_tokens=("token-a", "token-b"),
+        runtime_dir=tmp_path,
+        today=date(2026, 3, 7),
+    )
+
+    snapshot = json.loads((tmp_path / "github" / "quota.json").read_text(encoding="utf-8"))
+    assert snapshot["scheduler"]["configured_tokens"] == 2
+    assert snapshot["scheduler"]["search_min_interval_seconds"] == 2.0
+    assert snapshot["tokens"][0]["in_flight"] == 0
+    assert snapshot["tokens"][0]["next_available_at"] is None
+
+
+def test_provider_quarantines_unauthorized_token_and_rotates_to_next_search_token() -> None:
+    transport = RecordingTransport(
+        [
+            GitHubAuthenticationError("GitHub request failed with status 401: Unauthorized"),
+            {"items": [_repository_payload(201)]},
+        ]
+    )
+    provider = GitHubFirehoseProvider(
+        transport=transport,
+        github_token=None,
+        github_tokens=("token-a", "token-b"),
+        today=date(2026, 3, 7),
+    )
+
+    repositories = provider.discover(mode=FirehoseMode.NEW, per_page=1, page=1)
+
+    assert len(repositories) == 1
     assert transport.calls[0]["headers"]["Authorization"] == "Bearer token-a"
     assert transport.calls[0]["token_label"] == "token-1"
     assert transport.calls[1]["headers"]["Authorization"] == "Bearer token-b"

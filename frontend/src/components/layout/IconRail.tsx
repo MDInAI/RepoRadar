@@ -7,12 +7,9 @@ export function IconRail() {
   const pathname = usePathname();
 
   const links = [
-    { href: "/overview", icon: "📊", label: "Overview" },
-    { href: "/live", icon: "🛰️", label: "Live Ops" },
+    { href: "/overview", icon: "📊", label: "Dashboard" },
     { href: "/control", icon: "🎛️", label: "Control" },
-    { href: "/agents", icon: "🤖", label: "Agents" },
     { href: "/repositories", icon: "📦", label: "Repos" },
-    { href: "/taxonomy", icon: "🏷️", label: "Taxonomy" },
     { href: "/ideas", icon: "💡", label: "Ideas" },
     { href: "/incidents", icon: "⚠️", label: "Incidents" },
     { href: "/settings", icon: "⚙️", label: "Settings" },
@@ -49,7 +46,7 @@ export function IconRail() {
       </Link>
 
       {links.map((link) => {
-        const isActive = pathname === link.href;
+        const isActive = pathname === link.href || (link.href === "/overview" && pathname === "/");
         return (
           <Link
             key={link.href}

@@ -26,11 +26,13 @@ class WorkerSettingsProjection:
     runtime_dir: Path
     workspace_dir: Path | None
     github_provider_token_configured: bool
+    github_provider_token_count: int
     github_requests_per_minute: int
     intake_pacing_seconds: int
     firehose_interval_seconds: int
     firehose_per_page: int
     firehose_pages: int
+    firehose_search_lanes: int
     backfill_interval_seconds: int
     backfill_per_page: int
     backfill_pages: int
@@ -38,6 +40,7 @@ class WorkerSettingsProjection:
     backfill_min_created_date: date
     bouncer_include_rules: tuple[str, ...]
     bouncer_exclude_rules: tuple[str, ...]
+    analyst_selection_keywords: tuple[str, ...]
     analyst_provider: str
     anthropic_api_key_configured: bool
     analyst_model_name: str
@@ -400,6 +403,14 @@ def _detect_worker_drift(
             "Worker GitHub provider token configured-state differs from the backend process view.",
         ),
         (
+            "workers.GITHUB_PROVIDER_TOKENS",
+            "agentic-workflow",
+            str(worker.github_provider_token_count),
+            str(app_settings.backend_provider.github_provider_token_count),
+            "worker_github_provider_token_count_differs",
+            "Worker GitHub token-pool size differs from the backend process view.",
+        ),
+        (
             "workers.GITHUB_REQUESTS_PER_MINUTE",
             "agentic-workflow",
             str(worker.github_requests_per_minute),
@@ -438,6 +449,22 @@ def _detect_worker_drift(
             str(app_settings.FIREHOSE_PAGES),
             "worker_firehose_pages_differs",
             "Worker firehose pages-per-mode differs from the backend process view.",
+        ),
+        (
+            "workers.FIREHOSE_SEARCH_LANES",
+            "agentic-workflow",
+            str(worker.firehose_search_lanes),
+            str(app_settings.FIREHOSE_SEARCH_LANES),
+            "worker_firehose_search_lanes_differs",
+            "Worker firehose parallel search lanes differ from the backend process view.",
+        ),
+        (
+            "workers.FIREHOSE_SEARCH_LANES",
+            "agentic-workflow",
+            str(worker.firehose_search_lanes),
+            str(app_settings.FIREHOSE_SEARCH_LANES),
+            "worker_firehose_search_lanes_differs",
+            "Worker firehose parallel search lanes differ from the backend process view.",
         ),
         (
             "workers.BACKFILL_INTERVAL_SECONDS",
@@ -587,6 +614,26 @@ def build_worker_projection(
         app_settings.github_provider_token_value,
         applied_override_keys=applied_override_keys,
     )
+    github_pool_tokens = _parse_secret_list(
+        _optional_string_override(
+            overrides,
+            "GITHUB_PROVIDER_TOKENS",
+            ",".join(app_settings.github_provider_token_values[1:])
+            if len(app_settings.github_provider_token_values) > 1
+            else None,
+            applied_override_keys=applied_override_keys,
+        )
+    )
+    all_github_tokens: list[str] = []
+    seen_github_tokens: set[str] = set()
+    for candidate in [github_token, *github_pool_tokens]:
+        if not candidate:
+            continue
+        value = str(candidate).strip()
+        if not value or value in seen_github_tokens:
+            continue
+        all_github_tokens.append(value)
+        seen_github_tokens.add(value)
     requests_per_minute = _int_override(
         overrides,
         "GITHUB_REQUESTS_PER_MINUTE",
@@ -619,6 +666,13 @@ def build_worker_projection(
         overrides,
         "FIREHOSE_PAGES",
         _process_env_int("FIREHOSE_PAGES", default=3),
+        issues=issues,
+        applied_override_keys=applied_override_keys,
+    )
+    firehose_search_lanes = _int_override(
+        overrides,
+        "FIREHOSE_SEARCH_LANES",
+        app_settings.FIREHOSE_SEARCH_LANES,
         issues=issues,
         applied_override_keys=applied_override_keys,
     )
@@ -667,6 +721,12 @@ def build_worker_projection(
         overrides,
         "BOUNCER_EXCLUDE_RULES",
         app_settings.BOUNCER_EXCLUDE_RULES,
+        applied_override_keys=applied_override_keys,
+    )
+    analyst_selection_keywords = _tuple_override(
+        overrides,
+        "ANALYST_SELECTION_KEYWORDS",
+        app_settings.ANALYST_SELECTION_KEYWORDS,
         applied_override_keys=applied_override_keys,
     )
     analyst_provider = _analyst_provider_override(
@@ -732,12 +792,14 @@ def build_worker_projection(
         database_url=database_url,
         runtime_dir=runtime_dir,  # type: ignore[arg-type]
         workspace_dir=workspace_dir,
-        github_provider_token_configured=bool(github_token),
+        github_provider_token_configured=bool(all_github_tokens),
+        github_provider_token_count=len(all_github_tokens),
         github_requests_per_minute=requests_per_minute,
         intake_pacing_seconds=intake_pacing_seconds,
         firehose_interval_seconds=firehose_interval_seconds,
         firehose_per_page=firehose_per_page,
         firehose_pages=firehose_pages,
+        firehose_search_lanes=firehose_search_lanes,
         backfill_interval_seconds=backfill_interval_seconds,
         backfill_per_page=backfill_per_page,
         backfill_pages=backfill_pages,
@@ -745,6 +807,7 @@ def build_worker_projection(
         backfill_min_created_date=backfill_min_created_date,
         bouncer_include_rules=bouncer_include_rules,
         bouncer_exclude_rules=bouncer_exclude_rules,
+        analyst_selection_keywords=analyst_selection_keywords,
         analyst_provider=analyst_provider,
         anthropic_api_key_configured=bool(anthropic_api_key),
         analyst_model_name=analyst_model_name,
@@ -782,14 +845,18 @@ def worker_setting_summaries(
         worker.firehose_interval_seconds,
         worker.github_requests_per_minute,
         worker.intake_pacing_seconds,
+        worker.github_provider_token_count,
         worker.firehose_pages,
+        worker.firehose_search_lanes,
         worker.backfill_pages,
     )
     worker_effective_backfill_interval = _calculate_effective_backfill_interval(
         worker.backfill_interval_seconds,
         worker.github_requests_per_minute,
         worker.intake_pacing_seconds,
+        worker.github_provider_token_count,
         worker.firehose_pages,
+        worker.firehose_search_lanes,
         worker.backfill_pages,
     )
 
@@ -855,6 +922,19 @@ def worker_setting_summaries(
             notes=[source_notes],
         ),
         MaskedSettingSummary(
+            key="workers.GITHUB_PROVIDER_TOKENS",
+            label="Worker GitHub token pool size",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=worker.github_provider_token_configured,
+            required=False,
+            value=str(worker.github_provider_token_count),
+            notes=[
+                source_notes,
+                "Includes the primary GitHub token plus any additional pooled tokens configured for rotation.",
+            ],
+        ),
+        MaskedSettingSummary(
             key="workers.GITHUB_REQUESTS_PER_MINUTE",
             label="Worker GitHub intake request budget",
             owner="agentic-workflow",
@@ -906,6 +986,32 @@ def worker_setting_summaries(
             required=True,
             value=str(worker.firehose_pages),
             notes=[source_notes],
+        ),
+        MaskedSettingSummary(
+            key="workers.FIREHOSE_SEARCH_LANES",
+            label="Worker firehose search lanes",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=True,
+            required=True,
+            value=str(worker.firehose_search_lanes),
+            notes=[
+                source_notes,
+                "Parallel Firehose lanes decide how many GitHub search pages can be fetched concurrently inside one run.",
+            ],
+        ),
+        MaskedSettingSummary(
+            key="workers.FIREHOSE_SEARCH_LANES",
+            label="Worker firehose search lanes",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=True,
+            required=True,
+            value=str(worker.firehose_search_lanes),
+            notes=[
+                source_notes,
+                "Parallel Firehose lanes decide how many GitHub search pages can be fetched concurrently inside one run.",
+            ],
         ),
         MaskedSettingSummary(
             key="workers.BACKFILL_INTERVAL_SECONDS",
@@ -989,6 +1095,23 @@ def worker_setting_summaries(
             required=True,
             value=worker.analyst_provider,
             notes=[source_notes],
+        ),
+        MaskedSettingSummary(
+            key="workers.ANALYST_SELECTION_KEYWORDS",
+            label="Worker analyst shortlist keywords",
+            owner="agentic-workflow",
+            source=worker.source,
+            configured=True,
+            required=False,
+            value=(
+                ", ".join(worker.analyst_selection_keywords)
+                if worker.analyst_selection_keywords
+                else "all accepted repos"
+            ),
+            notes=[
+                source_notes,
+                "When set, only accepted repos matching these keywords or manually watchlisted repos are promoted into Analyst.",
+            ],
         ),
         MaskedSettingSummary(
             key="workers.ANTHROPIC_API_KEY",

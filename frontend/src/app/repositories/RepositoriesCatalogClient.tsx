@@ -273,7 +273,12 @@ export function RepositoriesCatalogClient() {
     <>
       <div className="topbar">
         <span className="topbar-title">Repositories</span>
-        <span className="topbar-breadcrumb">corpus browser</span>
+        {data && (
+          <div style={{ display: "flex", gap: "10px", marginLeft: "auto" }}>
+            <span className="badge badge-muted">{data.total.toLocaleString()} total</span>
+            {viewState.starredOnly ? <span className="badge badge-yellow">Starred only</span> : null}
+          </div>
+        )}
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "20px" }}>

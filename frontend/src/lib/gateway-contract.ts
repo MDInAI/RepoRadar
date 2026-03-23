@@ -184,7 +184,16 @@ export interface GitHubApiBudgetSnapshot {
   reset_at: string | null;
   retry_after_seconds: number | null;
   exhausted: boolean | null;
+  scheduler: GitHubRequestSchedulerSnapshot | null;
   tokens: GitHubTokenBudgetSnapshot[];
+}
+
+export interface GitHubRequestSchedulerSnapshot {
+  configured_tokens: number;
+  active_requests: number;
+  core_min_interval_seconds: number | null;
+  search_min_interval_seconds: number | null;
+  captured_at: string | null;
 }
 
 export interface GitHubTokenResourceBudgetSnapshot {
@@ -210,6 +219,10 @@ export interface GitHubTokenBudgetSnapshot {
   reset_at: string | null;
   retry_after_seconds: number | null;
   exhausted: boolean | null;
+  last_used_at: string | null;
+  cooldown_until: string | null;
+  next_available_at: string | null;
+  in_flight: number;
   resource_budgets: GitHubTokenResourceBudgetSnapshot[];
 }
 

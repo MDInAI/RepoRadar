@@ -15,6 +15,19 @@ function formatBudgetValue(value: number | null): string {
   return value.toLocaleString();
 }
 
+function formatSecondsLabel(value: number | null | undefined): string {
+  if (value == null) {
+    return "Unavailable";
+  }
+  if (value === 0) {
+    return "0s";
+  }
+  if (value < 1) {
+    return `${value.toFixed(2)}s`;
+  }
+  return `${Math.round(value)}s`;
+}
+
 function computeCombinedTokenCapacity(tokens: GitHubTokenBudgetSnapshot[] | undefined): {
   totalLimit: number | null;
   totalRemaining: number | null;
@@ -185,6 +198,7 @@ export function GitHubBudgetPanel({
   const remaining = snapshot?.remaining ?? null;
   const used = snapshot?.used ?? null;
   const combinedCapacity = computeCombinedTokenCapacity(snapshot?.tokens);
+  const scheduler = snapshot?.scheduler ?? null;
   const percentRemaining =
     limit != null && remaining != null && limit > 0
       ? Math.max(0, Math.min(100, Math.round((remaining / limit) * 100)))
@@ -234,6 +248,17 @@ export function GitHubBudgetPanel({
                   ? `${combinedCapacity.observedTokens} of ${combinedCapacity.configuredTokens} tokens observed / ${formatBudgetValue(combinedCapacity.totalLimit)} observed budget`
                   : `Across ${combinedCapacity.configuredTokens} tokens / ${formatBudgetValue(combinedCapacity.totalLimit)} total`
                 : `${combinedCapacity.configuredTokens} tokens configured, waiting for observed limits`}
+          </div>
+        </div>
+        <div style={{ background: "var(--bg-3)", border: "1px solid var(--border)", borderRadius: "8px", padding: "12px" }}>
+          <div className="card-label">Scheduler</div>
+          <div style={{ color: "var(--text-0)", fontSize: "22px", marginTop: "6px" }}>
+            {scheduler ? `${scheduler.active_requests} active` : "Unavailable"}
+          </div>
+          <div style={{ color: "var(--text-2)", fontSize: "12px", marginTop: "4px" }}>
+            {scheduler
+              ? `${scheduler.configured_tokens} tokens · search pace ${formatSecondsLabel(scheduler.search_min_interval_seconds)} · core pace ${formatSecondsLabel(scheduler.core_min_interval_seconds)}`
+              : "No scheduler snapshot yet"}
           </div>
         </div>
         <div style={{ background: "var(--bg-3)", border: "1px solid var(--border)", borderRadius: "8px", padding: "12px" }}>
@@ -340,9 +365,21 @@ export function GitHubBudgetPanel({
                       </div>
                     </div>
                     <div>
+                      <div className="card-label">Lane state</div>
+                      <div style={{ color: "var(--text-0)", marginTop: "4px" }}>
+                        {token.in_flight > 0 ? `Active (${token.in_flight})` : "Idle"}
+                      </div>
+                    </div>
+                    <div>
                       <div className="card-label">Reset</div>
                       <div style={{ color: "var(--text-0)", marginTop: "4px" }}>
                         {token.reset_at ? formatTimestampLabel(token.reset_at) : "Unavailable"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="card-label">Next slot</div>
+                      <div style={{ color: "var(--text-0)", marginTop: "4px" }}>
+                        {token.next_available_at ? formatRelativeTimestamp(token.next_available_at) : "Ready now"}
                       </div>
                     </div>
                   </div>
@@ -359,6 +396,16 @@ export function GitHubBudgetPanel({
                   <div style={{ color: "var(--text-2)", marginTop: "10px", fontSize: "12px", lineHeight: 1.5 }}>
                     {tokenStatus.guidance}
                   </div>
+                  {token.cooldown_until ? (
+                    <div style={{ color: "var(--text-2)", marginTop: "6px", fontSize: "12px" }}>
+                      Cooling until {formatTimestampLabel(token.cooldown_until)}
+                    </div>
+                  ) : null}
+                  {token.last_used_at ? (
+                    <div style={{ color: "var(--text-2)", marginTop: "6px", fontSize: "12px" }}>
+                      Last used {formatRelativeTimestamp(token.last_used_at)}
+                    </div>
+                  ) : null}
                   {token.limit == null && token.remaining == null ? (
                     <div style={{ color: "var(--text-2)", marginTop: "6px", fontSize: "12px" }}>
                       This token is configured, but GitHub has not returned a quota observation for it yet in this runtime.

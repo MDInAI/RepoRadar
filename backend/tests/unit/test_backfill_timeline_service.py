@@ -5,10 +5,10 @@ from pathlib import Path
 import json
 
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.core.errors import AppError
-from app.models import BackfillProgress
+from app.models import AgentPauseState, AgentRun, AgentRunStatus, BackfillProgress
 from app.schemas.agent_timeline import BackfillTimelineUpdateRequest
 from app.services.backfill_timeline_service import BackfillTimelineService
 
@@ -65,11 +65,62 @@ def test_update_timeline_resets_cursor_and_marks_resume_required(session: Sessio
     assert progress.created_before_cursor is None
     assert progress.next_page == 1
     assert progress.resume_required is True
-    assert response.message.startswith("Saved Backfill timeline")
+    assert response.message.startswith("Saved Backfill timeline and paused Backfill intentionally")
+
+    pause_state = session.exec(
+        select(AgentPauseState).where(AgentPauseState.agent_name == "backfill")
+    ).first()
+    assert pause_state is not None
+    assert pause_state.is_paused is True
+    assert pause_state.pause_reason is not None
+    assert "timeline change" in pause_state.pause_reason
 
     snapshot = json.loads((tmp_path / "backfill" / "progress.json").read_text(encoding="utf-8"))
     assert snapshot["window_start_date"] == "2025-08-01"
     assert snapshot["created_before_boundary"] == "2025-09-01"
+
+
+def test_update_timeline_stops_running_backfill_and_requires_manual_resume(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    session.add(
+        BackfillProgress(
+            source_provider="github",
+            window_start_date=date(2025, 9, 15),
+            created_before_boundary=date(2025, 10, 15),
+            next_page=4,
+            exhausted=False,
+            resume_required=False,
+            last_checkpointed_at=datetime(2026, 3, 15, 10, 45, tzinfo=timezone.utc),
+        )
+    )
+    session.add(AgentRun(agent_name="backfill", status=AgentRunStatus.RUNNING))
+    session.commit()
+
+    service = BackfillTimelineService(session, runtime_dir=tmp_path)
+    response = service.update_timeline(
+        BackfillTimelineUpdateRequest(
+            oldest_date_in_window=date(2026, 1, 10),
+            newest_boundary_exclusive=date(2026, 1, 11),
+        )
+    )
+
+    run = session.exec(select(AgentRun).where(AgentRun.agent_name == "backfill")).first()
+    assert run is not None
+    assert run.status is AgentRunStatus.SKIPPED
+    assert run.completed_at is not None
+    assert run.error_summary == "Stopped after the Backfill timeline changed."
+
+    pause_state = session.exec(
+        select(AgentPauseState).where(AgentPauseState.agent_name == "backfill")
+    ).first()
+    assert pause_state is not None
+    assert pause_state.is_paused is True
+    assert pause_state.resume_condition == (
+        "Resume Backfill manually to start scanning from the newly saved historical window."
+    )
+    assert "paused Backfill intentionally" in response.message
 
 
 def test_update_timeline_rejects_invalid_date_range(session: Session, tmp_path: Path) -> None:

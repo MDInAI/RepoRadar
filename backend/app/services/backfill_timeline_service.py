@@ -7,12 +7,13 @@ from pathlib import Path
 from sqlmodel import Session
 
 from app.core.errors import AppError
-from app.models import BackfillProgress
+from app.models import AgentPauseState, AgentRun, AgentRunStatus, BackfillProgress
 from app.schemas.agent_timeline import (
     BackfillTimelineResponse,
     BackfillTimelineUpdateRequest,
     BackfillTimelineUpdateResponse,
 )
+from sqlmodel import select
 
 
 class BackfillTimelineService:
@@ -43,17 +44,59 @@ class BackfillTimelineService:
         progress.pages_processed_in_run = 0
         progress.exhausted = False
         progress.resume_required = True
+        progress.last_checkpointed_at = datetime.now(timezone.utc)
         self.session.add(progress)
+
+        pause_state = self.session.exec(
+            select(AgentPauseState).where(AgentPauseState.agent_name == "backfill")
+        ).first()
+        if pause_state is None:
+            pause_state = AgentPauseState(agent_name="backfill", is_paused=False)
+
+        pause_state.is_paused = True
+        pause_state.paused_at = datetime.now(timezone.utc)
+        pause_state.pause_reason = (
+            "Paused after a Backfill timeline change so the new historical window does not get "
+            "overwritten by an older checkpoint."
+        )
+        pause_state.resume_condition = (
+            "Resume Backfill manually to start scanning from the newly saved historical window."
+        )
+        pause_state.triggered_by_event_id = None
+        pause_state.resumed_at = None
+        pause_state.resumed_by = None
+        self.session.add(pause_state)
+
+        now = datetime.now(timezone.utc)
+        running_runs = list(
+            self.session.exec(
+                select(AgentRun)
+                .where(AgentRun.agent_name == "backfill")
+                .where(AgentRun.status == AgentRunStatus.RUNNING)
+            ).all()
+        )
+        for run in running_runs:
+            run.status = AgentRunStatus.SKIPPED
+            run.completed_at = now
+            run.duration_seconds = max((now - run.started_at).total_seconds(), 0.0)
+            run.error_summary = "Stopped after the Backfill timeline changed."
+            run.error_context = (
+                "An operator saved a new Backfill historical window, so the previous running "
+                "checkpoint was stopped to prevent it from continuing to older dates."
+            )
+            self.session.add(run)
+
         self.session.commit()
         self.session.refresh(progress)
+        self.session.refresh(pause_state)
 
         self._write_snapshot(progress)
         response = self._build_response(progress)
         return BackfillTimelineUpdateResponse(
             **response.model_dump(),
             message=(
-                "Saved Backfill timeline. The next Backfill run will restart from this historical "
-                "window, beginning from the newer boundary side and moving backward."
+                "Saved Backfill timeline and paused Backfill intentionally. Resume Backfill "
+                "manually when you want it to restart from this new historical window."
             ),
         )
 
@@ -85,6 +128,7 @@ class BackfillTimelineService:
                 "Oldest date in window: inclusive lower bound for created_at.",
                 "Newest boundary: exclusive upper bound for created_at.",
                 "After saving, paging cursor resets so Backfill restarts this window from the top.",
+                "Saving a new timeline pauses Backfill on purpose so older checkpoints cannot keep moving it backward.",
             ],
         )
 
