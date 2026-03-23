@@ -11,7 +11,11 @@ from typing import Callable, Protocol
 from sqlmodel import Session
 
 from agentic_workers.core.events import emit_event, emit_failure_event, pause_event_run_id
-from agentic_workers.core.failure_detector import classify_github_error, determine_severity
+from agentic_workers.core.failure_detector import (
+    classify_github_error,
+    classify_github_runtime_error,
+    determine_severity,
+)
 from agentic_workers.core.pause_manager import execute_pause, is_agent_paused
 from agentic_workers.core.pause_policy import evaluate_pause_policy
 from agentic_workers.providers.github_provider import (
@@ -144,11 +148,19 @@ def run_backfill_job(
     for page_index in range(remaining_pages):
         if checkpoint.exhausted:
             break
+        if is_agent_paused(session, "backfill"):
+            logger.info("Backfill was paused mid-run; stopping before the next historical page.")
+            interrupted = True
+            break
         if should_stop is not None and should_stop():
             interrupted = True
             break
         if page_index > 0:
             sleep_fn(pacing_seconds)
+            if is_agent_paused(session, "backfill"):
+                logger.info("Backfill was paused during pacing; stopping before the next historical page.")
+                interrupted = True
+                break
             if should_stop is not None and should_stop():
                 interrupted = True
                 break
@@ -401,13 +413,17 @@ def run_backfill_job(
                 )
             )
             try:
-                classification = FailureClassification.BLOCKING
+                classification = classify_github_runtime_error(exc)
                 failure_sev = determine_severity(classification, consecutive_failures)
                 event_id = emit_failure_event(
                     session,
                     event_type="repository_discovery_failed",
                     agent_name="backfill",
-                    message="backfill encountered an unexpected runtime failure.",
+                    message=(
+                        "backfill failed while discovering repositories from GitHub."
+                        if classification is not FailureClassification.BLOCKING
+                        else "backfill encountered an unexpected runtime failure."
+                    ),
                     classification=classification,
                     failure_severity=failure_sev,
                     context_json=json.dumps(

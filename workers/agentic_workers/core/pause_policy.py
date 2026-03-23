@@ -33,7 +33,7 @@ def evaluate_pause_policy(
     - GitHub rate limit: Pause firehose AND backfill (both use GitHub API)
     - LLM rate limit: Pause analyst only (GitHub rate limits do NOT pause analyst per AC2)
     - Blocking failure: Pause affected agent only
-    - 3+ consecutive retryable failures: Pause affected agent
+    - 3+ consecutive retryable failures: Pause affected agent for non-intake agents
     - Single retryable failure: No pause
     """
     # GitHub rate limit affects all GitHub API consumers
@@ -67,6 +67,15 @@ def evaluate_pause_policy(
             reason=f"Blocking failure in {agent_name}",
             affected_agents=[agent_name],
             resume_condition="Operator review required",
+        )
+
+    # Intake retryables are expected to self-heal via automatic retries/checkpoint resume.
+    if classification == FailureClassification.RETRYABLE and agent_name in ("firehose", "backfill"):
+        return PauseDecision(
+            should_pause=False,
+            reason="",
+            affected_agents=[],
+            resume_condition="",
         )
 
     # 3+ consecutive retryable failures trigger pause

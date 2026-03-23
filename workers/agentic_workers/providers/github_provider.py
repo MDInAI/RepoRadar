@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone, timedelta
 from enum import StrEnum
 import json
 import logging
 from pathlib import Path
+from socket import timeout as SocketTimeout
+import threading
+import time
 from typing import Callable, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -14,10 +18,14 @@ from urllib.request import Request, urlopen
 from agentic_workers.storage.github_quota_snapshots import (
     initialize_github_quota_snapshot,
     write_github_quota_snapshot,
+    write_github_scheduler_snapshot,
 )
 
 
 logger = logging.getLogger(__name__)
+_TOKEN_POOL_REGISTRY_LOCK = threading.Lock()
+_TOKEN_POOL_REGISTRY: dict[tuple[tuple[str | None, ...], str | None, float, float], "GitHubTokenPool"] = {}
+_UNAUTHORIZED_TOKEN_COOLDOWN = timedelta(hours=12)
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +55,8 @@ class GitHubTokenBudgetState:
     token: str | None
     last_used_at: datetime | None = None
     cooldown_until: datetime | None = None
+    next_available_at: datetime | None = None
+    in_flight: int = 0
     resource_observations: dict[str, GitHubQuotaObservation] = field(default_factory=dict)
 
     def observation_for(self, resource: str | None) -> GitHubQuotaObservation | None:
@@ -61,7 +71,14 @@ class GitHubTokenBudgetState:
 
 
 class GitHubTokenPool:
-    def __init__(self, tokens: list[str | None]) -> None:
+    def __init__(
+        self,
+        tokens: list[str | None],
+        *,
+        runtime_dir: Path | None = None,
+        core_min_interval_seconds: float = 1.0,
+        search_min_interval_seconds: float = 2.0,
+    ) -> None:
         normalized = list(tokens) if tokens else [None]
         if not normalized:
             normalized = [None]
@@ -69,58 +86,52 @@ class GitHubTokenPool:
             GitHubTokenBudgetState(label=f"token-{index + 1}", token=token)
             for index, token in enumerate(normalized)
         ]
-        self._round_robin_index = 0
+        self._runtime_dir = runtime_dir
+        self._core_min_interval_seconds = max(core_min_interval_seconds, 0.0)
+        self._search_min_interval_seconds = max(search_min_interval_seconds, 0.0)
+        self._condition = threading.Condition()
+        self._write_scheduler_snapshot_locked()
 
-    def select(self, preferred_resource: str | None) -> GitHubTokenSelection:
-        now = datetime.now(timezone.utc)
-        healthy_states = [
-            state
-            for state in self._states
-            if state.cooldown_until is None or state.cooldown_until <= now
-        ]
-        candidate_states = healthy_states or self._states
+    @contextmanager
+    def lease(self, preferred_resource: str | None):
+        selection = self.acquire(preferred_resource)
+        try:
+            yield selection
+        finally:
+            self.release(selection.label)
 
-        unknown_budget_states = [
-            state
-            for state in candidate_states
-            if state.observation_for(preferred_resource) is None
-        ]
-        if unknown_budget_states:
-            selected = min(
-                unknown_budget_states,
-                key=lambda state: _last_used_sort_key(state.last_used_at),
-            )
-        else:
-            known_budget_states = [
-                state
-                for state in candidate_states
-                if state.observation_for(preferred_resource) is not None
-            ]
-            selected = max(
-                known_budget_states,
-                key=lambda state: (
-                    _observation_remaining(state.observation_for(preferred_resource)),
-                    1 if state.cooldown_until is None or state.cooldown_until <= now else 0,
-                    -_last_used_sort_key(state.last_used_at),
-                ),
-            )
+    def acquire(self, preferred_resource: str | None) -> GitHubTokenSelection:
+        resource = preferred_resource or "core"
+        with self._condition:
+            while True:
+                now = datetime.now(timezone.utc)
+                selected = self._select_available_state_locked(resource, now)
+                if selected is not None:
+                    selected.last_used_at = now
+                    selected.in_flight += 1
+                    selected.next_available_at = now + timedelta(
+                        seconds=self._resource_min_interval_seconds(resource)
+                    )
+                    self._write_scheduler_snapshot_locked()
+                    return GitHubTokenSelection(label=selected.label, token=selected.token)
 
-        self._round_robin_index += 1
-        selected.last_used_at = now
-        return GitHubTokenSelection(label=selected.label, token=selected.token)
+                self._condition.wait(timeout=max(self._next_wait_seconds_locked(now), 0.05))
 
     def observe(self, observation: GitHubQuotaObservation) -> None:
         if not observation.token_label:
             return
-        state = self._state_by_label(observation.token_label)
-        if state is None:
-            return
-        if observation.resource:
-            state.resource_observations[observation.resource] = observation
-        if observation.retry_after_seconds is not None and observation.retry_after_seconds > 0:
-            state.cooldown_until = observation.captured_at + timedelta(seconds=observation.retry_after_seconds)
-        elif observation.exhausted is False:
-            state.cooldown_until = None
+        with self._condition:
+            state = self._state_by_label(observation.token_label)
+            if state is None:
+                return
+            if observation.resource:
+                state.resource_observations[observation.resource] = observation
+            if observation.retry_after_seconds is not None and observation.retry_after_seconds > 0:
+                state.cooldown_until = observation.captured_at + timedelta(seconds=observation.retry_after_seconds)
+            elif observation.exhausted is False:
+                state.cooldown_until = None
+            self._write_scheduler_snapshot_locked()
+            self._condition.notify_all()
 
     def mark_rate_limited(
         self,
@@ -131,26 +142,70 @@ class GitHubTokenPool:
     ) -> None:
         if not token_label:
             return
-        state = self._state_by_label(token_label)
-        if state is None:
+        with self._condition:
+            state = self._state_by_label(token_label)
+            if state is None:
+                return
+            if retry_after_seconds is not None and retry_after_seconds > 0:
+                state.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=retry_after_seconds)
+            observation = state.observation_for(resource)
+            if observation is not None:
+                state.resource_observations[resource or "unknown"] = GitHubQuotaObservation(
+                    token_label=observation.token_label,
+                    captured_at=datetime.now(timezone.utc),
+                    status_code=observation.status_code,
+                    request_url=observation.request_url,
+                    resource=resource or observation.resource,
+                    limit=observation.limit,
+                    remaining=0 if observation.remaining is not None else None,
+                    used=observation.used,
+                    reset_at=observation.reset_at,
+                    retry_after_seconds=retry_after_seconds,
+                    exhausted=True,
+                )
+            self._write_scheduler_snapshot_locked()
+            self._condition.notify_all()
+
+    def mark_unauthorized(
+        self,
+        *,
+        token_label: str | None,
+        resource: str | None,
+    ) -> None:
+        if not token_label:
             return
-        if retry_after_seconds is not None and retry_after_seconds > 0:
-            state.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=retry_after_seconds)
-        observation = state.observation_for(resource)
-        if observation is not None:
+        with self._condition:
+            state = self._state_by_label(token_label)
+            if state is None:
+                return
+            now = datetime.now(timezone.utc)
+            cooldown_until = now + _UNAUTHORIZED_TOKEN_COOLDOWN
+            state.cooldown_until = cooldown_until
+            state.next_available_at = cooldown_until
             state.resource_observations[resource or "unknown"] = GitHubQuotaObservation(
-                token_label=observation.token_label,
-                captured_at=datetime.now(timezone.utc),
-                status_code=observation.status_code,
-                request_url=observation.request_url,
-                resource=resource or observation.resource,
-                limit=observation.limit,
-                remaining=0 if observation.remaining is not None else None,
-                used=observation.used,
-                reset_at=observation.reset_at,
-                retry_after_seconds=retry_after_seconds,
+                token_label=token_label,
+                captured_at=now,
+                status_code=401,
+                request_url=None,
+                resource=resource,
+                limit=None,
+                remaining=None,
+                used=None,
+                reset_at=cooldown_until,
+                retry_after_seconds=int(_UNAUTHORIZED_TOKEN_COOLDOWN.total_seconds()),
                 exhausted=True,
             )
+            self._write_scheduler_snapshot_locked()
+            self._condition.notify_all()
+
+    def release(self, token_label: str) -> None:
+        with self._condition:
+            state = self._state_by_label(token_label)
+            if state is None:
+                return
+            state.in_flight = max(0, state.in_flight - 1)
+            self._write_scheduler_snapshot_locked()
+            self._condition.notify_all()
 
     def token_count(self) -> int:
         return len(self._states)
@@ -163,6 +218,106 @@ class GitHubTokenPool:
             if state.label == label:
                 return state
         return None
+
+    def _resource_min_interval_seconds(self, resource: str | None) -> float:
+        if resource == "search":
+            return self._search_min_interval_seconds
+        return self._core_min_interval_seconds
+
+    def _select_available_state_locked(
+        self,
+        resource: str,
+        now: datetime,
+    ) -> GitHubTokenBudgetState | None:
+        candidates = [
+            state
+            for state in self._states
+            if self._state_ready_for_use(state, resource, now)
+        ]
+        if not candidates:
+            return None
+
+        unknown_budget_states = [
+            state for state in candidates if state.observation_for(resource) is None
+        ]
+        if unknown_budget_states:
+            return min(
+                unknown_budget_states,
+                key=lambda state: (_last_used_sort_key(state.last_used_at), state.label),
+            )
+
+        return max(
+            candidates,
+            key=lambda state: (
+                _observation_remaining(state.observation_for(resource)),
+                -state.in_flight,
+                -_last_used_sort_key(state.last_used_at),
+            ),
+        )
+
+    @staticmethod
+    def _state_ready_for_use(
+        state: GitHubTokenBudgetState,
+        resource: str,
+        now: datetime,
+    ) -> bool:
+        if state.cooldown_until is not None and state.cooldown_until > now:
+            return False
+        if state.in_flight > 0:
+            return False
+        if state.next_available_at is not None and state.next_available_at > now:
+            return False
+        observation = state.observation_for(resource)
+        if observation is None:
+            return True
+        if not observation.exhausted:
+            return True
+        if observation.reset_at is None:
+            return False
+        return observation.reset_at <= now
+
+    def _next_wait_seconds_locked(self, now: datetime) -> float:
+        waits: list[float] = []
+        for state in self._states:
+            target = now
+            if state.cooldown_until is not None and state.cooldown_until > target:
+                target = state.cooldown_until
+            if state.next_available_at is not None and state.next_available_at > target:
+                target = state.next_available_at
+            latest_observation = state.observation_for("search") or state.observation_for("core")
+            if (
+                latest_observation is not None
+                and latest_observation.exhausted
+                and latest_observation.reset_at is not None
+                and latest_observation.reset_at > target
+            ):
+                target = latest_observation.reset_at
+            waits.append(max((target - now).total_seconds(), 0.05))
+        return min(waits, default=0.05)
+
+    def _write_scheduler_snapshot_locked(self) -> None:
+        if self._runtime_dir is None:
+            return
+        write_github_scheduler_snapshot(
+            runtime_dir=self._runtime_dir,
+            scheduler={
+                "configured_tokens": len(self._states),
+                "active_requests": sum(state.in_flight for state in self._states),
+                "core_min_interval_seconds": self._core_min_interval_seconds,
+                "search_min_interval_seconds": self._search_min_interval_seconds,
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+            },
+            tokens=[
+                {
+                    "label": state.label,
+                    "last_used_at": state.last_used_at.isoformat() if state.last_used_at else None,
+                    "cooldown_until": state.cooldown_until.isoformat() if state.cooldown_until else None,
+                    "next_available_at": state.next_available_at.isoformat() if state.next_available_at else None,
+                    "in_flight": state.in_flight,
+                }
+                for state in self._states
+            ],
+        )
 
 
 class FirehoseMode(StrEnum):
@@ -270,6 +425,10 @@ class GitHubProviderError(RuntimeError):
     pass
 
 
+class GitHubAuthenticationError(GitHubProviderError):
+    pass
+
+
 class GitHubPayloadError(GitHubProviderError):
     pass
 
@@ -322,14 +481,23 @@ class UrllibGitHubTransport:
         self,
         *,
         timeout_seconds: float = 15.0,
+        max_retry_attempts: int = 3,
+        retry_backoff_seconds: float = 1.0,
         runtime_dir: Path | None = None,
         quota_observer: Callable[[GitHubQuotaObservation], None] | None = None,
         token_labels: tuple[str, ...] | list[str] = (),
     ) -> None:
         self.timeout_seconds = timeout_seconds
+        self.max_retry_attempts = max(1, int(max_retry_attempts))
+        self.retry_backoff_seconds = max(0.0, retry_backoff_seconds)
         self.runtime_dir = runtime_dir
         self.quota_observer = quota_observer
         self.token_labels = tuple(label for label in token_labels if isinstance(label, str) and label.strip())
+
+    def _sleep_before_retry(self, attempt: int) -> None:
+        if attempt >= self.max_retry_attempts or self.retry_backoff_seconds <= 0:
+            return
+        time.sleep(self.retry_backoff_seconds * attempt)
 
     def get_json(
         self,
@@ -340,34 +508,44 @@ class UrllibGitHubTransport:
         token_label: str | None = None,
     ) -> dict[str, object]:
         request = Request(f"{url}?{urlencode(params)}", headers=headers)
-        try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
+        for attempt in range(1, self.max_retry_attempts + 1):
+            try:
+                with urlopen(request, timeout=self.timeout_seconds) as response:
+                    self._record_quota_snapshot(
+                        status_code=getattr(response, "status", None),
+                        headers=response.headers,
+                        token_label=token_label,
+                        request_url=request.full_url,
+                    )
+                    payload = json.loads(response.read().decode("utf-8"))
+                break
+            except HTTPError as exc:
                 self._record_quota_snapshot(
-                    status_code=getattr(response, "status", None),
-                    headers=response.headers,
+                    status_code=exc.code,
+                    headers=exc.headers,
                     token_label=token_label,
                     request_url=request.full_url,
                 )
-                payload = json.loads(response.read().decode("utf-8"))
-        except HTTPError as exc:
-            self._record_quota_snapshot(
-                status_code=exc.code,
-                headers=exc.headers,
-                token_label=token_label,
-                request_url=request.full_url,
-            )
-            if _is_rate_limited_response(exc):
-                raise GitHubRateLimitError(
-                    status_code=exc.code,
-                    retry_after_seconds=_parse_retry_after_seconds(exc.headers),
-                    token_label=token_label,
-                    resource=_parse_rate_limit_resource(exc.headers),
+                if _is_rate_limited_response(exc):
+                    raise GitHubRateLimitError(
+                        status_code=exc.code,
+                        retry_after_seconds=_parse_retry_after_seconds(exc.headers),
+                        token_label=token_label,
+                        resource=_parse_rate_limit_resource(exc.headers),
+                    ) from exc
+                if exc.code == 401:
+                    raise GitHubAuthenticationError(
+                        f"GitHub request failed with status {exc.code}: {exc.reason}"
+                    ) from exc
+                raise GitHubProviderError(
+                    f"GitHub request failed with status {exc.code}: {exc.reason}"
                 ) from exc
-            raise GitHubProviderError(
-                f"GitHub request failed with status {exc.code}: {exc.reason}"
-            ) from exc
-        except URLError as exc:
-            raise GitHubProviderError(f"GitHub request failed: {exc.reason}") from exc
+            except (URLError, TimeoutError, SocketTimeout, ConnectionError) as exc:
+                if attempt < self.max_retry_attempts:
+                    self._sleep_before_retry(attempt)
+                    continue
+                reason = exc.reason if isinstance(exc, URLError) else str(exc)
+                raise GitHubProviderError(f"GitHub request failed: {reason}") from exc
 
         if not isinstance(payload, dict):
             raise GitHubPayloadError("GitHub search response must be a JSON object")
@@ -382,38 +560,48 @@ class UrllibGitHubTransport:
         token_label: str | None = None,
     ) -> str:
         request = Request(_build_url(url=url, params=params), headers=headers)
-        try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
+        for attempt in range(1, self.max_retry_attempts + 1):
+            try:
+                with urlopen(request, timeout=self.timeout_seconds) as response:
+                    self._record_quota_snapshot(
+                        status_code=getattr(response, "status", None),
+                        headers=response.headers,
+                        token_label=token_label,
+                        request_url=request.full_url,
+                    )
+                    payload = response.read().decode("utf-8")
+                break
+            except HTTPError as exc:
                 self._record_quota_snapshot(
-                    status_code=getattr(response, "status", None),
-                    headers=response.headers,
+                    status_code=exc.code,
+                    headers=exc.headers,
                     token_label=token_label,
                     request_url=request.full_url,
                 )
-                payload = response.read().decode("utf-8")
-        except HTTPError as exc:
-            self._record_quota_snapshot(
-                status_code=exc.code,
-                headers=exc.headers,
-                token_label=token_label,
-                request_url=request.full_url,
-            )
-            if _is_rate_limited_response(exc):
-                raise GitHubRateLimitError(
-                    status_code=exc.code,
-                    retry_after_seconds=_parse_retry_after_seconds(exc.headers),
-                    token_label=token_label,
-                    resource=_parse_rate_limit_resource(exc.headers),
+                if _is_rate_limited_response(exc):
+                    raise GitHubRateLimitError(
+                        status_code=exc.code,
+                        retry_after_seconds=_parse_retry_after_seconds(exc.headers),
+                        token_label=token_label,
+                        resource=_parse_rate_limit_resource(exc.headers),
+                    ) from exc
+                if exc.code == 401:
+                    raise GitHubAuthenticationError(
+                        f"GitHub request failed with status {exc.code}: {exc.reason}"
+                    ) from exc
+                if exc.code == 404:
+                    raise GitHubReadmeNotFoundError(
+                        f"Repository README not found for {url}"
+                    ) from exc
+                raise GitHubProviderError(
+                    f"GitHub request failed with status {exc.code}: {exc.reason}"
                 ) from exc
-            if exc.code == 404:
-                raise GitHubReadmeNotFoundError(
-                    f"Repository README not found for {url}"
-                ) from exc
-            raise GitHubProviderError(
-                f"GitHub request failed with status {exc.code}: {exc.reason}"
-            ) from exc
-        except URLError as exc:
-            raise GitHubProviderError(f"GitHub request failed: {exc.reason}") from exc
+            except (URLError, TimeoutError, SocketTimeout, ConnectionError) as exc:
+                if attempt < self.max_retry_attempts:
+                    self._sleep_before_retry(attempt)
+                    continue
+                reason = exc.reason if isinstance(exc, URLError) else str(exc)
+                raise GitHubProviderError(f"GitHub request failed: {reason}") from exc
 
         candidate = payload.strip()
         if not candidate:
@@ -484,7 +672,10 @@ class GitHubFirehoseProvider:
                 continue
             seen_tokens.add(token)
             deduped_tokens.append(token)
-        self._token_pool = GitHubTokenPool(deduped_tokens or [None])
+        self._token_pool = _shared_token_pool(
+            tokens=deduped_tokens or [None],
+            runtime_dir=runtime_dir,
+        )
         token_labels = self._token_pool.labels()
         self.transport = transport or UrllibGitHubTransport(
             runtime_dir=runtime_dir,
@@ -512,20 +703,16 @@ class GitHubFirehoseProvider:
                 page=page,
             )
 
-        token_selection = self._select_token("search")
-        payload = self.transport.get_json(
+        payload = self._request_json_object(
             url=self.SEARCH_REPOSITORIES_URL,
-            headers=self._build_headers(
-                user_agent="agentic-workflow-firehose",
-                token=token_selection.token,
-            ),
+            user_agent="agentic-workflow-firehose",
             params=self._build_params(
                 mode=mode,
                 anchor_date=anchor_date,
                 per_page=per_page,
                 page=page,
             ),
-            token_label=token_selection.label,
+            resource="search",
         )
         items = self._extract_items(payload)
         return [self._normalize_repository(item, mode=mode) for item in items]
@@ -539,13 +726,9 @@ class GitHubFirehoseProvider:
         per_page: int = 25,
         page: int = 1,
     ) -> list[DiscoveredRepository]:
-        token_selection = self._select_token("search")
-        payload = self.transport.get_json(
+        payload = self._request_json_object(
             url=self.SEARCH_REPOSITORIES_URL,
-            headers=self._build_headers(
-                user_agent="agentic-workflow-backfill",
-                token=token_selection.token,
-            ),
+            user_agent="agentic-workflow-backfill",
             params=self._build_backfill_params(
                 window_start_date=window_start_date,
                 created_before_boundary=created_before_boundary,
@@ -553,7 +736,7 @@ class GitHubFirehoseProvider:
                 per_page=per_page,
                 page=page,
             ),
-            token_label=token_selection.label,
+            resource="search",
         )
         items = self._extract_items(payload)
         return [self._normalize_repository(item, mode=None) for item in items]
@@ -564,19 +747,15 @@ class GitHubFirehoseProvider:
         owner_login: str,
         repository_name: str,
     ) -> RepositoryReadme:
-        token_selection = self._select_token("core")
-        content = self.transport.get_text(
+        content = self._request_text(
             url=self.README_URL_TEMPLATE.format(
                 owner=owner_login,
                 repository=repository_name,
             ),
-            headers=self._build_headers(
-                user_agent="agentic-workflow-analyst",
-                accept="application/vnd.github.raw+json",
-                token=token_selection.token,
-            ),
+            user_agent="agentic-workflow-analyst",
             params={},
-            token_label=token_selection.label,
+            resource="core",
+            accept="application/vnd.github.raw+json",
         )
         if not content.strip():
             raise GitHubPayloadError("GitHub README response was empty")
@@ -601,15 +780,11 @@ class GitHubFirehoseProvider:
             owner=owner_login,
             repository=repository_name,
         )
-        token_selection = self._select_token("core")
-        payload = self.transport.get_json(
+        payload = self._request_json_object(
             url=source_url,
-            headers=self._build_headers(
-                user_agent="agentic-workflow-analyst",
-                token=token_selection.token,
-            ),
+            user_agent="agentic-workflow-analyst",
             params={},
-            token_label=token_selection.label,
+            resource="core",
         )
         return RepositoryMetadata(
             owner_login=owner_login,
@@ -783,15 +958,11 @@ class GitHubFirehoseProvider:
         ref: str = "HEAD",
         depth_limit: int = 2,
     ) -> list[RepositoryTreeEntry]:
-        token_selection = self._select_token("core")
-        payload = self.transport.get_json(
+        payload = self._request_json_object(
             url=self.TREE_URL_TEMPLATE.format(owner=owner_login, repository=repository_name, ref=ref),
-            headers=self._build_headers(
-                user_agent="agentic-workflow-analyst",
-                token=token_selection.token,
-            ),
+            user_agent="agentic-workflow-analyst",
             params={"recursive": "1"},
-            token_label=token_selection.label,
+            resource="core",
         )
         tree = payload.get("tree")
         if not isinstance(tree, list):
@@ -822,16 +993,12 @@ class GitHubFirehoseProvider:
             path=path.lstrip("/"),
         )
         try:
-            token_selection = self._select_token("core")
-            content = self.transport.get_text(
+            content = self._request_text(
                 url=source_url,
-                headers=self._build_headers(
-                    user_agent="agentic-workflow-analyst",
-                    accept="application/vnd.github.raw+json",
-                    token=token_selection.token,
-                ),
+                user_agent="agentic-workflow-analyst",
                 params={},
-                token_label=token_selection.label,
+                resource="core",
+                accept="application/vnd.github.raw+json",
             )
         except GitHubReadmeNotFoundError:
             return None
@@ -948,20 +1115,16 @@ class GitHubFirehoseProvider:
         # GitHub returns results sorted by creation date (newest first) via
         # sort=created&order=desc in _build_params, so a single page request
         # guarantees deterministic freshness without client-side sampling or re-sorting.
-        token_selection = self._select_token("search")
-        payload = self.transport.get_json(
+        payload = self._request_json_object(
             url=self.SEARCH_REPOSITORIES_URL,
-            headers=self._build_headers(
-                user_agent="agentic-workflow-firehose",
-                token=token_selection.token,
-            ),
+            user_agent="agentic-workflow-firehose",
             params=self._build_params(
                 mode=FirehoseMode.NEW,
                 anchor_date=anchor_date,
                 per_page=per_page,
                 page=page,
             ),
-            token_label=token_selection.label,
+            resource="search",
         )
         items = self._extract_items(payload)
         return [self._normalize_repository(item, mode=FirehoseMode.NEW) for item in items]
@@ -1072,15 +1235,11 @@ class GitHubFirehoseProvider:
         user_agent: str,
         params: dict[str, str],
     ) -> list[object]:
-        token_selection = self._select_token("core")
-        payload = self.transport.get_text(
+        payload = self._request_text(
             url=url,
-            headers=self._build_headers(
-                user_agent=user_agent,
-                token=token_selection.token,
-            ),
+            user_agent=user_agent,
             params=params,
-            token_label=token_selection.label,
+            resource="core",
         )
         try:
             decoded = json.loads(payload)
@@ -1090,8 +1249,79 @@ class GitHubFirehoseProvider:
             raise GitHubPayloadError(f"GitHub response from {url} must be a JSON list")
         return decoded
 
-    def _select_token(self, preferred_resource: str | None) -> GitHubTokenSelection:
-        return self._token_pool.select(preferred_resource)
+    def _request_json_object(
+        self,
+        *,
+        url: str,
+        user_agent: str,
+        params: dict[str, str],
+        resource: str,
+        accept: str = "application/vnd.github+json",
+    ) -> dict[str, object]:
+        last_error: GitHubAuthenticationError | None = None
+        for _ in range(self._token_pool.token_count()):
+            with self._token_pool.lease(resource) as token_selection:
+                try:
+                    return self.transport.get_json(
+                        url=url,
+                        headers=self._build_headers(
+                            user_agent=user_agent,
+                            accept=accept,
+                            token=token_selection.token,
+                        ),
+                        params=params,
+                        token_label=token_selection.label,
+                    )
+                except GitHubAuthenticationError as exc:
+                    self._token_pool.mark_unauthorized(
+                        token_label=token_selection.label,
+                        resource=resource,
+                    )
+                    last_error = exc
+                    logger.warning(
+                        "GitHub token %s returned 401 and was quarantined from the pool.",
+                        token_selection.label,
+                    )
+        if last_error is not None:
+            raise last_error
+        raise GitHubProviderError("GitHub token pool could not satisfy the request")
+
+    def _request_text(
+        self,
+        *,
+        url: str,
+        user_agent: str,
+        params: dict[str, str],
+        resource: str,
+        accept: str = "application/vnd.github+json",
+    ) -> str:
+        last_error: GitHubAuthenticationError | None = None
+        for _ in range(self._token_pool.token_count()):
+            with self._token_pool.lease(resource) as token_selection:
+                try:
+                    return self.transport.get_text(
+                        url=url,
+                        headers=self._build_headers(
+                            user_agent=user_agent,
+                            accept=accept,
+                            token=token_selection.token,
+                        ),
+                        params=params,
+                        token_label=token_selection.label,
+                    )
+                except GitHubAuthenticationError as exc:
+                    self._token_pool.mark_unauthorized(
+                        token_label=token_selection.label,
+                        resource=resource,
+                    )
+                    last_error = exc
+                    logger.warning(
+                        "GitHub token %s returned 401 and was quarantined from the pool.",
+                        token_selection.label,
+                    )
+        if last_error is not None:
+            raise last_error
+        raise GitHubProviderError("GitHub token pool could not satisfy the request")
 
     def _observe_quota_snapshot(self, observation: GitHubQuotaObservation) -> None:
         self._token_pool.observe(observation)
@@ -1132,6 +1362,27 @@ class GitHubFirehoseProvider:
         if not isinstance(value, dict):
             raise GitHubPayloadError("Repository payload field license must be an object or null")
         return GitHubFirehoseProvider._optional_string(value, "spdx_id") or GitHubFirehoseProvider._optional_string(value, "name")
+
+
+def _shared_token_pool(
+    *,
+    tokens: list[str | None],
+    runtime_dir: Path | None,
+) -> GitHubTokenPool:
+    normalized_tokens = tuple(tokens or [None])
+    runtime_key = str(runtime_dir.resolve()) if runtime_dir is not None else None
+    key = (normalized_tokens, runtime_key, 1.0, 2.0)
+    with _TOKEN_POOL_REGISTRY_LOCK:
+        pool = _TOKEN_POOL_REGISTRY.get(key)
+        if pool is None:
+            pool = GitHubTokenPool(
+                list(normalized_tokens),
+                runtime_dir=runtime_dir,
+                core_min_interval_seconds=1.0,
+                search_min_interval_seconds=2.0,
+            )
+            _TOKEN_POOL_REGISTRY[key] = pool
+        return pool
 
 
 def _format_github_timestamp(value: datetime) -> str:

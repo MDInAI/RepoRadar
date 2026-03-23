@@ -7,6 +7,8 @@ from typing import Annotated
 from pydantic import BaseModel, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+
 
 class BackendRuntimeSettings(BaseModel):
     api_v1_str: str
@@ -24,6 +26,7 @@ class BackendProviderSettings(BaseModel):
     firehose_interval_seconds: int
     firehose_per_page: int
     firehose_pages: int
+    firehose_search_lanes: int
     backfill_interval_seconds: int
     backfill_per_page: int
     backfill_pages: int
@@ -31,6 +34,7 @@ class BackendProviderSettings(BaseModel):
     backfill_min_created_date: date
     bouncer_include_rules: tuple[str, ...]
     bouncer_exclude_rules: tuple[str, ...]
+    analyst_selection_keywords: tuple[str, ...]
     analyst_provider: str
     anthropic_api_key_configured: bool
     analyst_model_name: str
@@ -65,6 +69,7 @@ class Settings(BaseSettings):
     FIREHOSE_INTERVAL_SECONDS: int = 3600
     FIREHOSE_PER_PAGE: int = 100
     FIREHOSE_PAGES: int = 3
+    FIREHOSE_SEARCH_LANES: int = 1
     BACKFILL_INTERVAL_SECONDS: int = 21600
     EVENT_BRIDGE_POLL_INTERVAL_SECONDS: float = 2.0
     EVENT_STREAM_PING_INTERVAL_SECONDS: float = 15.0
@@ -74,8 +79,11 @@ class Settings(BaseSettings):
     BACKFILL_PAGES: int = 2
     BACKFILL_WINDOW_DAYS: int = 30
     BACKFILL_MIN_CREATED_DATE: date = date(2008, 1, 1)
+    OPERATIONAL_EVENT_RETENTION_DAYS: int = 30
+    OPERATIONAL_RUN_RETENTION_DAYS: int = 30
     BOUNCER_INCLUDE_RULES: Annotated[tuple[str, ...], NoDecode] = ()
     BOUNCER_EXCLUDE_RULES: Annotated[tuple[str, ...], NoDecode] = ()
+    ANALYST_SELECTION_KEYWORDS: Annotated[tuple[str, ...], NoDecode] = ()
     ANALYST_PROVIDER: str = "heuristic"
     ANTHROPIC_API_KEY: SecretStr | None = None
     ANALYST_MODEL_NAME: str = "claude-3-5-haiku-20241022"
@@ -95,7 +103,7 @@ class Settings(BaseSettings):
     OVERLORD_TELEGRAM_DAILY_DIGEST_ENABLED: bool = False
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
@@ -209,6 +217,7 @@ class Settings(BaseSettings):
         "FIREHOSE_INTERVAL_SECONDS",
         "FIREHOSE_PER_PAGE",
         "FIREHOSE_PAGES",
+        "FIREHOSE_SEARCH_LANES",
         "BACKFILL_INTERVAL_SECONDS",
         "EVENT_BRIDGE_POLL_INTERVAL_SECONDS",
         "EVENT_STREAM_PING_INTERVAL_SECONDS",
@@ -225,7 +234,12 @@ class Settings(BaseSettings):
             raise ValueError("must be greater than zero")
         return value
 
-    @field_validator("BOUNCER_INCLUDE_RULES", "BOUNCER_EXCLUDE_RULES", mode="before")
+    @field_validator(
+        "BOUNCER_INCLUDE_RULES",
+        "BOUNCER_EXCLUDE_RULES",
+        "ANALYST_SELECTION_KEYWORDS",
+        mode="before",
+    )
     @classmethod
     def _normalize_rule_lists(cls, value: object) -> tuple[str, ...] | object:
         if value is None:
@@ -323,6 +337,7 @@ class Settings(BaseSettings):
             firehose_interval_seconds=self.FIREHOSE_INTERVAL_SECONDS,
             firehose_per_page=self.FIREHOSE_PER_PAGE,
             firehose_pages=self.FIREHOSE_PAGES,
+            firehose_search_lanes=self.FIREHOSE_SEARCH_LANES,
             backfill_interval_seconds=self.BACKFILL_INTERVAL_SECONDS,
             backfill_per_page=self.BACKFILL_PER_PAGE,
             backfill_pages=self.BACKFILL_PAGES,
@@ -330,6 +345,7 @@ class Settings(BaseSettings):
             backfill_min_created_date=self.BACKFILL_MIN_CREATED_DATE,
             bouncer_include_rules=self.BOUNCER_INCLUDE_RULES,
             bouncer_exclude_rules=self.BOUNCER_EXCLUDE_RULES,
+            analyst_selection_keywords=self.ANALYST_SELECTION_KEYWORDS,
             analyst_provider=self.ANALYST_PROVIDER,
             anthropic_api_key_configured=bool(self.ANTHROPIC_API_KEY),
             analyst_model_name=self.ANALYST_MODEL_NAME,

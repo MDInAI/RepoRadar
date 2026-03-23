@@ -115,11 +115,14 @@ def load_openclaw_payload(
     if not gateway.url:
         issues.append(
             ConfigurationValidationIssue(
-                severity="error",
+                severity="warning",
                 field="gateway.url",
                 owner="gateway",
                 code="gateway_url_missing",
-                message="OpenClaw config must define gateway.url for backend mediation.",
+                message=(
+                    "OpenClaw config does not currently define gateway.url. Gateway-backed "
+                    "transport is unavailable, but local settings summaries should still remain visible."
+                ),
                 source="openclaw-config",
             )
         )

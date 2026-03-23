@@ -1,7 +1,8 @@
-# Runtime artifacts
-runtime/data/
-runtime/logs/
-runtime/tmp/
+# Runtime state and generated artifacts
+# This tree is live local machine output: checkpoints, run artifacts, quotas,
+# logs, locks, temp files, and operator state. It should never be versioned.
+runtime/
+workers/locks/
 
 # Environment files
 .env

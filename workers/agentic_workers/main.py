@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import fcntl
 import json
 import logging
 import math
+import os
 import signal
 import sys
 import threading
 import time
 import traceback
 from dataclasses import asdict, dataclass, is_dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Callable
@@ -76,7 +79,29 @@ logger = logging.getLogger(__name__)
 
 
 _FIREHOSE_MODES = (FirehoseMode.NEW, FirehoseMode.TRENDING)
+_MIN_FIREHOSE_RUN_TIMEOUT_SECONDS = 15 * 60
+_MIN_BACKFILL_RUN_TIMEOUT_SECONDS = 10 * 60
+_ESTIMATED_GITHUB_REQUEST_BUDGET_SECONDS = 60
+_TIMEOUT_BUFFER_SECONDS = 120
+_WORKER_PROCESS_LOCK_FILENAME = "agentic-workers-main.lock"
 ResultT = TypeVar("ResultT")
+
+
+class IntakeJobTimeoutError(TimeoutError):
+    def __init__(self, agent_name: str, timeout_seconds: float) -> None:
+        self.agent_name = agent_name
+        self.timeout_seconds = timeout_seconds
+        super().__init__(
+            f"{agent_name} run exceeded the watchdog timeout of {int(timeout_seconds)}s."
+        )
+
+
+class WorkerAlreadyRunningError(RuntimeError):
+    def __init__(self, path: Path, holder_pid: int | None = None) -> None:
+        self.path = path
+        self.holder_pid = holder_pid
+        pid_suffix = f" (pid {holder_pid})" if holder_pid is not None else ""
+        super().__init__(f"Another worker instance already holds {path}{pid_suffix}.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,12 +137,23 @@ def calculate_paused_poll_seconds() -> int:
 
 def _calculate_shared_minimum_cycle_seconds(
     intake_pacing_seconds: int,
+    github_token_count: int,
     firehose_pages: int,
+    firehose_search_lanes: int,
     backfill_pages: int,
 ) -> int:
     firehose_requests = len(_FIREHOSE_MODES) * firehose_pages
     backfill_requests = backfill_pages
-    return (firehose_requests + backfill_requests) * intake_pacing_seconds
+    parallelism = max(1, min(max(github_token_count, 1), max(firehose_search_lanes, 1) + 1))
+    return math.ceil((firehose_requests + backfill_requests) / parallelism) * intake_pacing_seconds
+
+
+def _configured_github_token_count() -> int:
+    token_values = getattr(settings, "github_provider_token_values", None)
+    if token_values is not None:
+        return max(1, len(token_values))
+    primary_token = getattr(settings, "github_provider_token_value", None)
+    return 1 if primary_token is not None else 1
 
 
 def calculate_firehose_interval_seconds() -> int:
@@ -128,7 +164,9 @@ def calculate_firehose_interval_seconds() -> int:
     """
     min_cycle = _calculate_shared_minimum_cycle_seconds(
         calculate_intake_pacing_seconds(),
+        _configured_github_token_count(),
         settings.provider.firehose_pages,
+        getattr(settings.provider, "firehose_search_lanes", 1),
         settings.provider.backfill_pages,
     )
     return max(settings.provider.firehose_interval_seconds, min_cycle)
@@ -141,10 +179,28 @@ def calculate_backfill_interval_seconds() -> int:
 
     min_cycle = _calculate_shared_minimum_cycle_seconds(
         calculate_intake_pacing_seconds(),
+        _configured_github_token_count(),
         settings.provider.firehose_pages,
+        getattr(settings.provider, "firehose_search_lanes", 1),
         settings.provider.backfill_pages,
     )
     return max(settings.provider.backfill_interval_seconds, min_cycle)
+
+
+def calculate_firehose_run_timeout_seconds() -> int:
+    request_count = len(_FIREHOSE_MODES) * settings.provider.firehose_pages
+    parallelism = max(
+        1,
+        min(_configured_github_token_count(), max(getattr(settings.provider, "firehose_search_lanes", 1), 1) + 1),
+    )
+    estimated = math.ceil(request_count / parallelism) * _ESTIMATED_GITHUB_REQUEST_BUDGET_SECONDS
+    return max(_MIN_FIREHOSE_RUN_TIMEOUT_SECONDS, estimated + _TIMEOUT_BUFFER_SECONDS)
+
+
+def calculate_backfill_run_timeout_seconds() -> int:
+    request_count = max(settings.provider.backfill_pages, 1)
+    estimated = request_count * _ESTIMATED_GITHUB_REQUEST_BUDGET_SECONDS
+    return max(_MIN_BACKFILL_RUN_TIMEOUT_SECONDS, estimated + _TIMEOUT_BUFFER_SECONDS)
 
 
 def run_configured_firehose_job(
@@ -173,6 +229,7 @@ def run_configured_firehose_job(
                 modes=_FIREHOSE_MODES,
                 per_page=settings.provider.firehose_per_page,
                 pages=settings.provider.firehose_pages,
+                search_lanes=getattr(settings.provider, "firehose_search_lanes", 1),
                 sleep_fn=sleep_fn,
                 should_stop=should_stop,
                 agent_run_id=run_id,
@@ -390,6 +447,14 @@ def _log_firehose_result(result: FirehoseRunResult) -> None:
         logger.info("Firehose remains paused; next automatic pause check will back off.")
     elif result.status is not FirehoseRunStatus.SUCCESS:
         logger.warning("Firehose run completed with non-success status: %s", result.status)
+
+
+def _log_intake_timeout(error: IntakeJobTimeoutError) -> None:
+    logger.error(
+        "%s did not finish within %ss. The scheduler will stop waiting on it and continue other work.",
+        error.agent_name.title(),
+        int(error.timeout_seconds),
+    )
 
 
 def _log_backfill_result(result: BackfillRunResult) -> None:
@@ -917,7 +982,127 @@ async def _run_combiner_if_pending(
     return True
 
 
-async def main():
+async def _run_due_intake_jobs(
+    *,
+    due_jobs: list[str],
+    thread_stop: threading.Event,
+) -> dict[str, object]:
+    async def _run_due_job_with_watchdog(job_name: str) -> object:
+        job_stop = threading.Event()
+        should_stop = lambda: thread_stop.is_set() or job_stop.is_set()
+        timeout_seconds = (
+            calculate_firehose_run_timeout_seconds()
+            if job_name == "firehose"
+            else calculate_backfill_run_timeout_seconds()
+        )
+        job_fn = run_configured_firehose_job if job_name == "firehose" else run_configured_backfill_job
+
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    job_fn,
+                    sleep_fn=_interruptible_sleep_factory(job_stop),
+                    should_stop=should_stop,
+                ),
+                timeout=timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            job_stop.set()
+            logger.error(
+                "%s exceeded the watchdog timeout of %ss; continuing other intake work.",
+                job_name.title(),
+                int(timeout_seconds),
+            )
+            return IntakeJobTimeoutError(job_name, timeout_seconds)
+
+    if not _supports_parallel_intake_lanes():
+        results: dict[str, object] = {}
+        for job_name in due_jobs:
+            try:
+                if job_name in ("firehose", "backfill"):
+                    results[job_name] = await _run_due_job_with_watchdog(job_name)
+            except Exception as exc:
+                results[job_name] = exc
+        return results
+
+    tasks: dict[str, asyncio.Task[object]] = {}
+    for job_name in due_jobs:
+        if job_name in ("firehose", "backfill"):
+            tasks[job_name] = asyncio.create_task(_run_due_job_with_watchdog(job_name))
+
+    results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+    return {
+        job_name: result
+        for job_name, result in zip(tasks.keys(), results, strict=False)
+    }
+
+
+def _supports_parallel_intake_lanes() -> bool:
+    try:
+        return engine.url.get_backend_name() != "sqlite"
+    except Exception:
+        return False
+
+
+def _interruptible_sleep_factory(thread_stop: threading.Event) -> Callable[[int], None]:
+    def _interruptible_sleep(seconds: int) -> None:
+        """Pacing sleep that returns early when a shutdown signal is received."""
+        thread_stop.wait(timeout=seconds)
+
+    return _interruptible_sleep
+
+
+def _worker_process_lock_path(runtime_dir: Path | None) -> Path:
+    base_dir = runtime_dir if runtime_dir is not None else Path.cwd()
+    return base_dir / "locks" / _WORKER_PROCESS_LOCK_FILENAME
+
+
+def _read_worker_lock_holder_pid(lock_file) -> int | None:
+    try:
+        lock_file.seek(0)
+        payload = json.loads(lock_file.read() or "{}")
+    except (OSError, json.JSONDecodeError, TypeError):
+        return None
+
+    pid = payload.get("pid")
+    return pid if isinstance(pid, int) else None
+
+
+@contextlib.contextmanager
+def _acquire_worker_process_lock(runtime_dir: Path | None):
+    lock_path = _worker_process_lock_path(runtime_dir)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = lock_path.open("a+", encoding="utf-8")
+    try:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise WorkerAlreadyRunningError(
+                lock_path,
+                holder_pid=_read_worker_lock_holder_pid(lock_file),
+            ) from exc
+
+        lock_file.seek(0)
+        lock_file.truncate()
+        lock_file.write(
+            _serialize_json(
+                {
+                    "pid": os.getpid(),
+                    "started_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                }
+            )
+        )
+        lock_file.flush()
+        yield
+    finally:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            logger.debug("Worker process lock could not be released cleanly.", exc_info=True)
+        lock_file.close()
+
+
+async def _run_worker_loop() -> None:
     logger.info("Starting Agentic-Workflow worker processes...")
 
     # Validate recovery state before starting work
@@ -938,42 +1123,49 @@ async def main():
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, handle_sigint)
 
-    def _interruptible_sleep(seconds: int) -> None:
-        """Pacing sleep that returns early when a shutdown signal is received."""
-        _thread_stop.wait(timeout=seconds)
-
     # Startup passes — gated by the same interval/resume logic used after boot so a
     # restart does not unconditionally rerun jobs that just completed.  Any fatal
     # failure stops the worker so the process supervisor can detect and restart it.
     try:
-        firehose_ran_at_startup = False
+        startup_due_jobs: list[str] = []
         if should_run_firehose_startup():
-            firehose_result = await asyncio.to_thread(
-                run_configured_firehose_job,
-                sleep_fn=_interruptible_sleep,
-                should_stop=_thread_stop.is_set,
-            )
-            _log_firehose_result(firehose_result)
-            firehose_ran_at_startup = True
+            startup_due_jobs.append("firehose")
         else:
             logger.info(
                 "Skipping startup Firehose pass; next run gated by the configured %ds interval.",
                 calculate_firehose_interval_seconds(),
             )
         if not stop_event.is_set() and should_run_backfill_startup():
-            if firehose_ran_at_startup:
-                await asyncio.to_thread(_interruptible_sleep, calculate_intake_pacing_seconds())
-            backfill_result = await asyncio.to_thread(
-                run_configured_backfill_job,
-                sleep_fn=_interruptible_sleep,
-                should_stop=_thread_stop.is_set,
-            )
-            _log_backfill_result(backfill_result)
+            startup_due_jobs.append("backfill")
         elif not stop_event.is_set():
             logger.info(
                 "Skipping startup Backfill pass; next run gated by the configured %ds interval.",
                 calculate_backfill_interval_seconds(),
             )
+        if startup_due_jobs and not stop_event.is_set():
+            startup_results = await _run_due_intake_jobs(
+                due_jobs=startup_due_jobs,
+                thread_stop=_thread_stop,
+            )
+            firehose_result = startup_results.get("firehose")
+            if isinstance(firehose_result, FirehoseRunResult):
+                _log_firehose_result(firehose_result)
+            elif isinstance(firehose_result, IntakeJobTimeoutError):
+                _log_intake_timeout(firehose_result)
+            elif isinstance(firehose_result, DuplicateActiveAgentRunError):
+                logger.info("Skipping startup Firehose pass because another Firehose run is already active.")
+            elif isinstance(firehose_result, Exception):
+                raise firehose_result
+
+            backfill_result = startup_results.get("backfill")
+            if isinstance(backfill_result, BackfillRunResult):
+                _log_backfill_result(backfill_result)
+            elif isinstance(backfill_result, IntakeJobTimeoutError):
+                _log_intake_timeout(backfill_result)
+            elif isinstance(backfill_result, DuplicateActiveAgentRunError):
+                logger.info("Skipping startup Backfill pass because another Backfill run is already active.")
+            elif isinstance(backfill_result, Exception):
+                raise backfill_result
         if not stop_event.is_set():
             await _run_bouncer_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
         if not stop_event.is_set():
@@ -1020,43 +1212,49 @@ async def main():
         if now >= next_backfill_run_at:
             due_jobs.append("backfill")
 
-        for index, job_name in enumerate(due_jobs):
-            if stop_event.is_set():
-                break
+        if due_jobs:
+            intake_results = await _run_due_intake_jobs(
+                due_jobs=due_jobs,
+                thread_stop=_thread_stop,
+            )
 
-            try:
-                if job_name == "firehose":
-                    firehose_result = await asyncio.to_thread(
-                        run_configured_firehose_job,
-                        sleep_fn=_interruptible_sleep,
-                        should_stop=_thread_stop.is_set,
-                    )
-                    _log_firehose_result(firehose_result)
-                    if firehose_result.status is FirehoseRunStatus.SKIPPED_PAUSED:
-                        next_firehose_run_at = time.monotonic() + calculate_paused_poll_seconds()
-                    else:
-                        next_firehose_run_at = time.monotonic() + seconds_until_next_firehose_run()
+            firehose_result = intake_results.get("firehose")
+            if isinstance(firehose_result, FirehoseRunResult):
+                _log_firehose_result(firehose_result)
+                if firehose_result.status is FirehoseRunStatus.SKIPPED_PAUSED:
+                    next_firehose_run_at = time.monotonic() + calculate_paused_poll_seconds()
+                elif firehose_result.status is FirehoseRunStatus.SUCCESS:
+                    next_firehose_run_at = time.monotonic() + seconds_until_next_firehose_run()
                 else:
-                    backfill_result = await asyncio.to_thread(
-                        run_configured_backfill_job,
-                        sleep_fn=_interruptible_sleep,
-                        should_stop=_thread_stop.is_set,
-                    )
-                    _log_backfill_result(backfill_result)
-                    if backfill_result.status is BackfillRunStatus.SKIPPED_PAUSED:
-                        next_backfill_run_at = time.monotonic() + calculate_paused_poll_seconds()
-                    else:
-                        next_backfill_run_at = time.monotonic() + seconds_until_next_backfill_run()
-            except Exception:
-                logger.exception("%s run failed. Continuing to next interval.", job_name.title())
-                if job_name == "firehose":
                     next_firehose_run_at = time.monotonic() + calculate_firehose_interval_seconds()
-                else:
-                    # In case of failure, keep the interval logic to retry later rather than immediately
-                    next_backfill_run_at = time.monotonic() + calculate_backfill_interval_seconds()
+            elif isinstance(firehose_result, IntakeJobTimeoutError):
+                _log_intake_timeout(firehose_result)
+                next_firehose_run_at = time.monotonic() + calculate_firehose_interval_seconds()
+            elif isinstance(firehose_result, DuplicateActiveAgentRunError):
+                logger.info("Skipping Firehose pass because another Firehose run is already active.")
+                next_firehose_run_at = time.monotonic() + calculate_intake_pacing_seconds()
+            elif isinstance(firehose_result, Exception):
+                logger.exception("Firehose run failed. Continuing to next interval.", exc_info=firehose_result)
+                next_firehose_run_at = time.monotonic() + calculate_firehose_interval_seconds()
 
-            if index < len(due_jobs) - 1 and not stop_event.is_set():
-                await asyncio.to_thread(_interruptible_sleep, calculate_intake_pacing_seconds())
+            backfill_result = intake_results.get("backfill")
+            if isinstance(backfill_result, BackfillRunResult):
+                _log_backfill_result(backfill_result)
+                if backfill_result.status is BackfillRunStatus.SKIPPED_PAUSED:
+                    next_backfill_run_at = time.monotonic() + calculate_paused_poll_seconds()
+                elif backfill_result.status is BackfillRunStatus.SUCCESS:
+                    next_backfill_run_at = time.monotonic() + seconds_until_next_backfill_run()
+                else:
+                    next_backfill_run_at = time.monotonic() + calculate_backfill_interval_seconds()
+            elif isinstance(backfill_result, IntakeJobTimeoutError):
+                _log_intake_timeout(backfill_result)
+                next_backfill_run_at = time.monotonic() + calculate_backfill_interval_seconds()
+            elif isinstance(backfill_result, DuplicateActiveAgentRunError):
+                logger.info("Skipping Backfill pass because another Backfill run is already active.")
+                next_backfill_run_at = time.monotonic() + calculate_intake_pacing_seconds()
+            elif isinstance(backfill_result, Exception):
+                logger.exception("Backfill run failed. Continuing to next interval.", exc_info=backfill_result)
+                next_backfill_run_at = time.monotonic() + calculate_backfill_interval_seconds()
 
         if due_jobs and not stop_event.is_set():
             await _run_bouncer_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
@@ -1069,6 +1267,14 @@ async def main():
             next_combiner_check_at = time.monotonic() + combiner_check_interval
 
     logger.info("Worker shutdown complete.")
+
+
+async def main():
+    try:
+        with _acquire_worker_process_lock(settings.runtime.runtime_dir):
+            await _run_worker_loop()
+    except WorkerAlreadyRunningError as exc:
+        logger.warning("%s Duplicate worker launch skipped.", exc)
 
 if __name__ == "__main__":
     try:

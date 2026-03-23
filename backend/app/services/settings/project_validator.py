@@ -112,14 +112,18 @@ def project_setting_summaries(app_settings: Settings) -> list[MaskedSettingSumma
         provider.backfill_interval_seconds,
         provider.github_requests_per_minute,
         provider.intake_pacing_seconds,
+        provider.github_provider_token_count,
         _process_env_int("FIREHOSE_PAGES", default=_DEFAULT_FIREHOSE_PAGES),
+        getattr(provider, "firehose_search_lanes", 1),
         provider.backfill_pages,
     )
     effective_firehose_interval = _calculate_effective_firehose_interval(
         provider.firehose_interval_seconds,
         provider.github_requests_per_minute,
         provider.intake_pacing_seconds,
+        provider.github_provider_token_count,
         _process_env_int("FIREHOSE_PAGES", default=_DEFAULT_FIREHOSE_PAGES),
+        getattr(provider, "firehose_search_lanes", 1),
         provider.backfill_pages,
     )
 
@@ -247,6 +251,19 @@ def project_setting_summaries(app_settings: Settings) -> list[MaskedSettingSumma
             notes=["Firehose pacing stays bounded by an explicit per-mode page cap."],
         ),
         MaskedSettingSummary(
+            key="FIREHOSE_SEARCH_LANES",
+            label="Firehose search lanes",
+            owner="agentic-workflow",
+            source="project-env",
+            configured=True,
+            required=True,
+            value=str(provider.firehose_search_lanes),
+            notes=[
+                "Parallel Firehose lanes decide how many GitHub search pages can be fetched concurrently inside one run.",
+                f"Effective search parallelism is bounded by the observed GitHub token pool and currently resolves to at most {max(1, min(provider.github_provider_token_count, provider.firehose_search_lanes + 1))} concurrent search requests.",
+            ],
+        ),
+        MaskedSettingSummary(
             key="BACKFILL_INTERVAL_SECONDS",
             label="Backfill interval",
             owner="agentic-workflow",
@@ -329,6 +346,22 @@ def project_setting_summaries(app_settings: Settings) -> list[MaskedSettingSumma
             value=provider.analyst_provider,
             notes=[
                 "Analyst can run in heuristic, Anthropic-backed, or Gemini-compatible mode.",
+            ],
+        ),
+        MaskedSettingSummary(
+            key="ANALYST_SELECTION_KEYWORDS",
+            label="Analyst shortlist keywords",
+            owner="agentic-workflow",
+            source="project-env",
+            configured=True,
+            required=False,
+            value=(
+                ", ".join(provider.analyst_selection_keywords)
+                if provider.analyst_selection_keywords
+                else "all accepted repos"
+            ),
+            notes=[
+                "When set, only accepted repos matching these keywords or manually watchlisted repos are promoted into Analyst.",
             ],
         ),
         MaskedSettingSummary(

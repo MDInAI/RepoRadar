@@ -145,6 +145,14 @@ class GatewayAgentSessionAffinity(BaseModel):
     status: Literal["reserved"] = "reserved"
 
 
+class GitHubRequestSchedulerSnapshot(BaseModel):
+    configured_tokens: int = 0
+    active_requests: int = 0
+    core_min_interval_seconds: float | None = None
+    search_min_interval_seconds: float | None = None
+    captured_at: datetime | None = None
+
+
 class GitHubApiBudgetSnapshot(BaseModel):
     provider: Literal["github"] = "github"
     captured_at: datetime
@@ -157,6 +165,7 @@ class GitHubApiBudgetSnapshot(BaseModel):
     reset_at: datetime | None = None
     retry_after_seconds: int | None = None
     exhausted: bool | None = None
+    scheduler: GitHubRequestSchedulerSnapshot | None = None
     tokens: list["GitHubTokenBudgetSnapshot"] = Field(default_factory=list)
 
 
@@ -183,6 +192,10 @@ class GitHubTokenBudgetSnapshot(BaseModel):
     reset_at: datetime | None = None
     retry_after_seconds: int | None = None
     exhausted: bool | None = None
+    last_used_at: datetime | None = None
+    cooldown_until: datetime | None = None
+    next_available_at: datetime | None = None
+    in_flight: int = 0
     resource_budgets: list[GitHubTokenResourceBudgetSnapshot] = Field(default_factory=list)
 
 

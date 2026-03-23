@@ -35,6 +35,9 @@ class StubSession:
     def add(self, _value: object) -> None:
         return None
 
+    def get(self, _model: object, _value: object) -> None:
+        return None
+
     def flush(self) -> None:
         return None
 
@@ -120,6 +123,67 @@ def test_backfill_job_uses_stored_checkpoint_when_resuming(tmp_path: Path) -> No
         0,
         tzinfo=timezone.utc,
     )
+
+
+def test_backfill_job_stops_before_next_page_when_paused_mid_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = StubSession()
+    discover_calls: list[int] = []
+    saved_checkpoints: list[BackfillCheckpointState] = []
+    initial_checkpoint = BackfillCheckpointState(
+        source_provider="github",
+        window_start_date=date(2026, 2, 1),
+        created_before_boundary=date(2026, 3, 1),
+        created_before_cursor=None,
+        next_page=1,
+        exhausted=False,
+        last_checkpointed_at=None,
+    )
+    pause_checks = iter([False, False, True])
+
+    class Provider:
+        def discover_backfill(
+            self,
+            *,
+            window_start_date: date,
+            created_before_boundary: date,
+            created_before_cursor: datetime | None = None,
+            per_page: int = 25,
+            page: int = 1,
+        ) -> list[DiscoveredRepository]:
+            del window_start_date, created_before_boundary, created_before_cursor, per_page
+            discover_calls.append(page)
+            return [_repository(901)]
+
+    monkeypatch.setattr(
+        backfill_job_module,
+        "is_agent_paused",
+        lambda _session, _agent_name: next(pause_checks),
+    )
+
+    result = run_backfill_job(
+        session=session,  # type: ignore[arg-type]
+        provider=Provider(),
+        runtime_dir=tmp_path,
+        pacing_seconds=5,
+        per_page=1,
+        pages=3,
+        window_days=30,
+        min_created_date=date(2008, 1, 1),
+        sleep_fn=lambda _seconds: None,
+        load_progress=lambda _session: initial_checkpoint,
+        save_progress=lambda _session, checkpoint: saved_checkpoints.append(checkpoint),
+        persist_batch=lambda _session, repositories: IntakePersistenceResult(
+            inserted_count=len(repositories),
+            skipped_count=0,
+        ),
+    )
+
+    assert discover_calls == [1]
+    assert result.status is BackfillRunStatus.SKIPPED
+    assert saved_checkpoints
 
 
 def test_backfill_job_moves_to_older_window_after_partial_page(tmp_path: Path) -> None:
@@ -284,6 +348,68 @@ def test_backfill_job_unexpected_runtime_failures_pause_the_agent(
     assert pause_calls
     assert pause_calls[0][0].affected_agents == ["backfill"]
     assert pause_calls[0][1] == 1
+    assert session.rollbacks == 1
+    assert session.commits == 1
+
+
+def test_backfill_job_timeout_failures_are_retryable_and_do_not_pause(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = StubSession()
+    emitted_events: list[dict[str, object]] = []
+    pause_calls: list[tuple[PauseDecision, int | None]] = []
+    initial_checkpoint = BackfillCheckpointState(
+        source_provider="github",
+        window_start_date=date(2026, 2, 1),
+        created_before_boundary=date(2026, 3, 1),
+        created_before_cursor=None,
+        next_page=1,
+        exhausted=False,
+        last_checkpointed_at=None,
+    )
+
+    class Provider:
+        def discover_backfill(
+            self,
+            *,
+            window_start_date: date,
+            created_before_boundary: date,
+            created_before_cursor: datetime | None = None,
+            per_page: int = 25,
+            page: int = 1,
+        ) -> list[DiscoveredRepository]:
+            del window_start_date, created_before_boundary, created_before_cursor, per_page, page
+            raise TimeoutError("The read operation timed out")
+
+    def fake_emit_failure_event(_session: object, **kwargs: object) -> int:
+        emitted_events.append(kwargs)
+        return len(emitted_events)
+
+    monkeypatch.setattr(backfill_job_module, "emit_failure_event", fake_emit_failure_event)
+    monkeypatch.setattr(
+        backfill_job_module,
+        "execute_pause",
+        lambda _session, decision, event_id: pause_calls.append((decision, event_id)),
+    )
+
+    result = run_backfill_job(
+        session=session,  # type: ignore[arg-type]
+        provider=Provider(),
+        runtime_dir=tmp_path,
+        pacing_seconds=5,
+        per_page=2,
+        pages=1,
+        window_days=30,
+        min_created_date=date(2008, 1, 1),
+        sleep_fn=lambda _seconds: None,
+        load_progress=lambda _session: initial_checkpoint,
+    )
+
+    assert result.status is BackfillRunStatus.FAILED
+    assert [event["event_type"] for event in emitted_events] == ["repository_discovery_failed"]
+    assert emitted_events[0]["classification"] is FailureClassification.RETRYABLE
+    assert not pause_calls
     assert session.rollbacks == 1
     assert session.commits == 1
 

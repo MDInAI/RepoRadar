@@ -42,6 +42,7 @@ def test_settings_service_returns_masked_configuration_summary(tmp_path: Path) -
         OPENCLAW_WORKSPACE_DIR=workspace_dir,
         AGENTIC_RUNTIME_DIR=tmp_path / "runtime",
         ANALYST_PROVIDER="heuristic",
+        ANALYST_SELECTION_KEYWORDS=("medical", "workflow"),
         GITHUB_PROVIDER_TOKEN="github-provider-token",
         GITHUB_PROVIDER_TOKENS=(),
         GEMINI_API_KEYS=(),
@@ -82,8 +83,14 @@ def test_settings_service_returns_masked_configuration_summary(tmp_path: Path) -
     analyst_provider = next(
         item for item in response.project_settings if item.key == "ANALYST_PROVIDER"
     )
+    analyst_shortlist = next(
+        item for item in response.project_settings if item.key == "ANALYST_SELECTION_KEYWORDS"
+    )
     worker_analyst_provider = next(
         item for item in response.worker_settings if item.key == "workers.ANALYST_PROVIDER"
+    )
+    worker_analyst_shortlist = next(
+        item for item in response.worker_settings if item.key == "workers.ANALYST_SELECTION_KEYWORDS"
     )
 
     assert gateway_url.value == "wss://gateway.local:18789"
@@ -95,8 +102,41 @@ def test_settings_service_returns_masked_configuration_summary(tmp_path: Path) -
     assert backfill_interval.value == "21600"
     assert worker_backfill_window.value == "30"
     assert analyst_provider.value == "heuristic"
+    assert analyst_shortlist.value == "medical, workflow"
     assert worker_analyst_provider.value == "heuristic"
+    assert worker_analyst_shortlist.value == "medical, workflow"
     assert all(item.source == "shared-project-env" for item in response.worker_settings)
+
+
+def test_settings_service_keeps_summary_available_when_gateway_url_is_missing(tmp_path: Path) -> None:
+    config_path = _write_openclaw_config(
+        tmp_path / "openclaw.json",
+        {
+            "gateway": {
+                "auth": {"token": "gateway-token-value"},
+            },
+            "agents": {"defaults": {"model": "openai/gpt-5-mini"}},
+        },
+    )
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+
+    response = SettingsService(
+        app_settings=Settings(
+            OPENCLAW_CONFIG_PATH=config_path,
+            OPENCLAW_WORKSPACE_DIR=workspace_dir,
+            AGENTIC_RUNTIME_DIR=tmp_path / "runtime",
+        ),
+        project_root=tmp_path,
+    ).get_settings_summary()
+
+    assert response.validation.valid is True
+    assert any(
+        issue.field == "gateway.url" and issue.code == "gateway_url_missing" and issue.severity == "warning"
+        for issue in response.validation.issues
+    )
+    gateway_url = next(item for item in response.openclaw_settings if item.key == "gateway.url")
+    assert gateway_url.configured is False
 
 
 def test_settings_service_surfaces_analyst_runtime_configuration(tmp_path: Path) -> None:
@@ -217,14 +257,14 @@ def test_settings_service_clamps_backfill_interval_with_effective_worker_inputs(
         item for item in response.worker_settings if item.key == "workers.FIREHOSE_INTERVAL_SECONDS"
     )
 
-    assert project_firehose_interval.value == "36"
-    assert project_backfill_interval.value == "36"
-    assert worker_firehose_interval.value == "36"
-    assert worker_backfill_interval.value == "36"
-    assert "Configured: 2s, Effective (clamped by budget): 36s" in project_firehose_interval.notes
-    assert "Configured: 2s, Effective (clamped by budget): 36s" in project_backfill_interval.notes
-    assert "Configured: 2s, Effective (clamped by budget): 36s" in worker_firehose_interval.notes
-    assert "Configured: 2s, Effective (clamped by budget): 36s" in worker_backfill_interval.notes
+    assert project_firehose_interval.value == "9"
+    assert project_backfill_interval.value == "9"
+    assert worker_firehose_interval.value == "9"
+    assert worker_backfill_interval.value == "9"
+    assert "Configured: 2s, Effective (clamped by budget): 9s" in project_firehose_interval.notes
+    assert "Configured: 2s, Effective (clamped by budget): 9s" in project_backfill_interval.notes
+    assert "Configured: 2s, Effective (clamped by budget): 9s" in worker_firehose_interval.notes
+    assert "Configured: 2s, Effective (clamped by budget): 9s" in worker_backfill_interval.notes
 
 
 def test_settings_service_rejects_non_positive_effective_backfill_interval_inputs() -> None:
@@ -233,7 +273,9 @@ def test_settings_service_rejects_non_positive_effective_backfill_interval_input
             configured_interval=0,
             github_requests_per_minute=20,
             intake_pacing_seconds=1,
+            github_token_count=1,
             firehose_pages=5,
+            firehose_search_lanes=1,
             backfill_pages=2,
         )
 

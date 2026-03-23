@@ -58,8 +58,8 @@ def test_blocking_failure_pauses_affected_agent_only():
     assert decision.resume_condition == "Operator review required"
 
 
-def test_three_consecutive_retryable_failures_trigger_pause():
-    """3+ consecutive retryable failures should trigger pause."""
+def test_three_consecutive_retryable_failures_trigger_pause_for_non_intake_agents():
+    """3+ consecutive retryable failures should still pause analyst-style agents."""
     decision = evaluate_pause_policy(
         agent_name="analyst",
         classification=FailureClassification.RETRYABLE,
@@ -91,6 +91,18 @@ def test_two_consecutive_retryable_failures_does_not_pause():
         consecutive_failures=2,
     )
     assert decision.should_pause is False
+
+
+def test_three_consecutive_retryable_failures_do_not_pause_intake_agents():
+    """Firehose/Backfill should keep auto-retrying transient intake failures."""
+    decision = evaluate_pause_policy(
+        agent_name="backfill",
+        classification=FailureClassification.RETRYABLE,
+        severity=FailureSeverity.ERROR,
+        consecutive_failures=3,
+    )
+    assert decision.should_pause is False
+    assert decision.affected_agents == []
 
 
 def test_github_rate_limit_does_not_pause_analyst():

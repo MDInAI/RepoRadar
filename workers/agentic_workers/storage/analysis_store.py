@@ -1,24 +1,33 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 from dataclasses import dataclass
 from datetime import datetime
 import logging
 from pathlib import Path
+import re
+import sys
 
-from sqlalchemy.dialects.postgresql import insert as postgresql_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlmodel import Session, select
+
+BACKEND_ROOT = Path(__file__).resolve().parents[3] / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert  # noqa: E402
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert  # noqa: E402
+from sqlmodel import Session, select  # noqa: E402
 
 from app.repositories.repository_artifact_payload_repository import (
     RepositoryArtifactPayloadRepository,
-)
-from agentic_workers.core.config import settings
-from agentic_workers.providers.readme_analyst import LLMReadmeBusinessAnalysis
+ )  # noqa: E402
+from agentic_workers.core.config import settings  # noqa: E402
+from agentic_workers.providers.readme_analyst import LLMReadmeBusinessAnalysis  # noqa: E402
 from agentic_workers.storage.artifact_store import (
     RepositoryArtifactPayload,
     activate_repository_artifacts,
     build_json_artifact,
-)
+ )  # noqa: E402
 from agentic_workers.storage.backend_models import (
     RepositoryCategory,
     RepositoryAnalysisFailureCode,
@@ -28,8 +37,9 @@ from agentic_workers.storage.backend_models import (
     RepositoryArtifactKind,
     RepositoryIntake,
     RepositoryMonetizationPotential,
-)
-from agentic_workers.storage.readme_store import build_readme_artifact
+    RepositoryUserCuration,
+)  # noqa: E402
+from agentic_workers.storage.readme_store import build_readme_artifact  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +91,14 @@ def list_pending_analysis_targets(session: Session) -> list[RepositoryIntake]:
         return []
 
     repository_ids = [repository.github_repository_id for repository in accepted_repositories]
+    starred_repository_ids = set(
+        session.exec(
+            select(RepositoryUserCuration.github_repository_id).where(
+                RepositoryUserCuration.github_repository_id.in_(repository_ids),
+                RepositoryUserCuration.is_starred.is_(True),
+            )
+        ).all()
+    )
     analysis_rows = session.exec(
         select(RepositoryAnalysisResult).where(
             RepositoryAnalysisResult.github_repository_id.in_(repository_ids)
@@ -92,7 +110,15 @@ def list_pending_analysis_targets(session: Session) -> list[RepositoryIntake]:
 
     pending_targets: list[RepositoryIntake] = []
     stale_completed_count = 0
+    skipped_by_selection_count = 0
     for repository in accepted_repositories:
+        if not _repository_selected_for_analysis(
+            repository,
+            is_starred=repository.github_repository_id in starred_repository_ids,
+        ):
+            skipped_by_selection_count += 1
+            continue
+
         if repository.analysis_status is not RepositoryAnalysisStatus.COMPLETED:
             pending_targets.append(repository)
             continue
@@ -108,8 +134,44 @@ def list_pending_analysis_targets(session: Session) -> list[RepositoryIntake]:
             "Queued %d accepted repositories for Analyst refresh because they use legacy analysis output",
             stale_completed_count,
         )
+    if skipped_by_selection_count > 0:
+        logger.info(
+            "Skipped %d accepted repositories because they did not match the Analyst selection gate",
+            skipped_by_selection_count,
+        )
 
     return pending_targets
+
+
+def _repository_selected_for_analysis(
+    repository: RepositoryIntake,
+    *,
+    is_starred: bool,
+) -> bool:
+    keywords = tuple(keyword for keyword in settings.ANALYST_SELECTION_KEYWORDS if keyword.strip())
+    if not keywords:
+        return True
+    if is_starred:
+        return True
+
+    haystack_parts = [
+        repository.full_name,
+        repository.repository_name,
+        repository.repository_description or "",
+    ]
+    haystack = " ".join(part for part in haystack_parts if part).lower()
+    if not haystack:
+        return False
+
+    return any(_analysis_keyword_matches(keyword.lower(), haystack) for keyword in keywords)
+
+
+def _analysis_keyword_matches(keyword: str, haystack: str) -> bool:
+    normalized = keyword.strip().lower()
+    if not normalized:
+        return False
+    pattern = re.compile(rf"(?<!\w){re.escape(normalized)}(?!\w)")
+    return bool(pattern.search(haystack))
 
 
 def _analysis_requires_reanalysis(analysis: RepositoryAnalysisResult | None) -> bool:
@@ -275,6 +337,12 @@ def persist_analysis_success(
         session,
         runtime_dir=runtime_dir,
     )
+    all_artifacts = [artifact for artifact in (readme_artifact, analysis_artifact) if artifact is not None]
+    changed_artifacts = _filter_changed_artifacts(
+        session,
+        repository_id=repository_id,
+        artifacts=all_artifacts,
+    )
     try:
         repository.analysis_status = RepositoryAnalysisStatus.COMPLETED
         repository.analysis_completed_at = completed_at
@@ -329,12 +397,12 @@ def persist_analysis_success(
         _upsert_repository_artifacts(
             session,
             repository_id=repository_id,
-            artifacts=[artifact for artifact in (readme_artifact, analysis_artifact) if artifact is not None],
+            artifacts=changed_artifacts,
         )
         _upsert_repository_artifact_payloads(
             artifact_payload_repository,
             repository_id=repository_id,
-            artifacts=[artifact for artifact in (readme_artifact, analysis_artifact) if artifact is not None],
+            artifacts=changed_artifacts,
         )
         session.commit()
     except Exception:
@@ -345,7 +413,7 @@ def persist_analysis_success(
         try:
             activate_repository_artifacts(
                 runtime_dir=runtime_dir,
-                artifacts=[artifact for artifact in (readme_artifact, analysis_artifact) if artifact is not None],
+                artifacts=changed_artifacts,
             )
         except Exception as exc:
             logger.warning(
@@ -609,6 +677,25 @@ def _upsert_repository_artifacts(
             record.provenance_metadata = dict(artifact.provenance_metadata)
             record.generated_at = artifact.generated_at
         session.add(record)
+
+
+def _filter_changed_artifacts(
+    session: Session,
+    *,
+    repository_id: int,
+    artifacts: list[RepositoryArtifactPayload],
+) -> list[RepositoryArtifactPayload]:
+    changed: list[RepositoryArtifactPayload] = []
+    for artifact in artifacts:
+        existing = session.get(RepositoryArtifact, (repository_id, artifact.artifact_kind))
+        if (
+            existing is not None
+            and existing.content_sha256 == artifact.content_sha256
+            and existing.byte_size == artifact.byte_size
+        ):
+            continue
+        changed.append(artifact)
+    return changed
 
 
 def _rollback_after_failure(session: Session) -> str | None:

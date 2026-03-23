@@ -57,11 +57,26 @@ function isRuntimeActivityWaiting(progress: AgentRuntimeProgress | null | undefi
   );
 }
 
+export function isAgentPausedEffectively(
+  pauseState: AgentPauseState | undefined,
+): boolean {
+  if (!pauseState) {
+    return false;
+  }
+  if (pauseState.is_paused) {
+    return true;
+  }
+  if (pauseState.paused_at && !pauseState.resumed_at) {
+    return true;
+  }
+  return false;
+}
+
 export function isAgentEffectivelyRunning(
   statusEntry: AgentStatusEntry | undefined,
   pauseState: AgentPauseState | undefined,
 ): boolean {
-  if (!statusEntry || pauseState?.is_paused) {
+  if (!statusEntry || isAgentPausedEffectively(pauseState)) {
     return false;
   }
   if (statusEntry.latest_run?.status === "running") {
@@ -75,8 +90,8 @@ export function isFailureStillActive(
   statusEntry: AgentStatusEntry | undefined,
   pauseState: AgentPauseState | undefined,
 ): boolean {
-  if (pauseState?.is_paused) {
-    return pauseState.triggered_by_event_id === event.id;
+  if (isAgentPausedEffectively(pauseState)) {
+    return pauseState?.triggered_by_event_id === event.id;
   }
 
   const failureAt = toTimestamp(event.created_at);

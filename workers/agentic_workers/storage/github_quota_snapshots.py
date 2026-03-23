@@ -43,6 +43,10 @@ def initialize_github_quota_snapshot(
                 "reset_at": None,
                 "retry_after_seconds": None,
                 "exhausted": None,
+                "last_used_at": None,
+                "cooldown_until": None,
+                "next_available_at": None,
+                "in_flight": 0,
                 "resource_budgets": [],
             },
         )
@@ -50,6 +54,9 @@ def initialize_github_quota_snapshot(
     payload = {
         **existing_payload,
         "provider": "github",
+        "scheduler": existing_payload.get("scheduler")
+        if isinstance(existing_payload.get("scheduler"), dict)
+        else {},
         "tokens": [by_label[label] for label in sorted(by_label)],
     }
     _write_snapshot(snapshot_path, payload)
@@ -216,6 +223,45 @@ def _merge_snapshot_payload(
 
     merged["tokens"] = [by_label[label] for label in sorted(by_label)]
     return merged
+
+
+def write_github_scheduler_snapshot(
+    *,
+    runtime_dir: Path | None,
+    scheduler: dict[str, object],
+    tokens: list[dict[str, object]],
+) -> Path | None:
+    if runtime_dir is None:
+        return None
+
+    snapshot_path = runtime_dir / "github" / "quota.json"
+    existing_payload = _load_existing_payload(snapshot_path)
+    existing_tokens = existing_payload.get("tokens")
+    token_entries = existing_tokens if isinstance(existing_tokens, list) else []
+    by_label = {
+        str(entry.get("label")): dict(entry)
+        for entry in token_entries
+        if isinstance(entry, dict) and isinstance(entry.get("label"), str)
+    }
+
+    for token in tokens:
+        label = token.get("label")
+        if not isinstance(label, str) or not label.strip():
+            continue
+        previous = by_label.get(label, {})
+        by_label[label] = {
+            **previous,
+            **token,
+        }
+
+    payload = {
+        **existing_payload,
+        "provider": "github",
+        "scheduler": scheduler,
+        "tokens": [by_label[label] for label in sorted(by_label)],
+    }
+    _write_snapshot(snapshot_path, payload)
+    return snapshot_path
 
 
 def _load_existing_payload(snapshot_path: Path) -> dict[str, object]:
