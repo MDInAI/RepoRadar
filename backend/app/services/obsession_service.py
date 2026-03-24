@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.core.errors import AppError
+from app.repositories.idea_scout_repository import IdeaScoutRepository
 from app.repositories.obsession_repository import ObsessionRepository, ObsessionContextRecord
 from app.repositories.idea_family_repository import IdeaFamilyRepository
 from app.repositories.synthesis_repository import SynthesisRepository
@@ -12,10 +13,12 @@ class ObsessionService:
         obsession_repo: ObsessionRepository,
         idea_family_repo: IdeaFamilyRepository,
         synthesis_repo: SynthesisRepository,
+        idea_scout_repo: IdeaScoutRepository | None = None,
     ):
         self._obsession_repo = obsession_repo
         self._idea_family_repo = idea_family_repo
         self._synthesis_repo = synthesis_repo
+        self._idea_scout_repo = idea_scout_repo
 
     def _validate_title(self, title: str | None) -> None:
         """Validate title is not blank after stripping whitespace."""
@@ -42,16 +45,22 @@ class ObsessionService:
         refresh_policy: str,
         idea_family_id: int | None = None,
         synthesis_run_id: int | None = None,
+        idea_text: str | None = None,
     ) -> ObsessionContextRecord:
         # Validate exactly one target is provided
-        if (idea_family_id is None and synthesis_run_id is None) or (
-            idea_family_id is not None and synthesis_run_id is not None
-        ):
+        targets_provided = sum([
+            idea_family_id is not None,
+            synthesis_run_id is not None,
+            idea_text is not None and idea_text.strip() != "",
+        ])
+        if targets_provided != 1:
             raise AppError(
-                message="Exactly one of idea_family_id or synthesis_run_id must be provided",
+                message="Exactly one of idea_family_id, synthesis_run_id, or idea_text must be provided",
                 code="invalid_input",
                 status_code=400,
             )
+
+        idea_search_id = None
 
         # Validate the target exists
         if idea_family_id is not None:
@@ -62,8 +71,7 @@ class ObsessionService:
                     code="idea_family_not_found",
                     status_code=404,
                 )
-        else:
-            # Validate synthesis run exists
+        elif synthesis_run_id is not None:
             run = self._synthesis_repo.get_run(synthesis_run_id)
             if not run:
                 raise AppError(
@@ -71,6 +79,21 @@ class ObsessionService:
                     code="synthesis_run_not_found",
                     status_code=404,
                 )
+        elif idea_text is not None:
+            # Create a forward-watching IdeaSearch for this obsession
+            if self._idea_scout_repo is None:
+                raise AppError(
+                    message="IdeaScout repository is not available",
+                    code="internal_error",
+                    status_code=500,
+                )
+            from app.services.idea_scout_service import IdeaScoutService
+            idea_scout_svc = IdeaScoutService(self._idea_scout_repo)
+            search = idea_scout_svc.create_search(
+                idea_text=idea_text.strip(),
+                direction="forward",
+            )
+            idea_search_id = search.id
 
         self._validate_title(title)
         self._validate_refresh_policy(refresh_policy)
@@ -81,6 +104,8 @@ class ObsessionService:
             refresh_policy=refresh_policy,
             idea_family_id=idea_family_id,
             synthesis_run_id=synthesis_run_id,
+            idea_search_id=idea_search_id,
+            idea_text=idea_text.strip() if idea_text else None,
         )
 
     def list_contexts(
