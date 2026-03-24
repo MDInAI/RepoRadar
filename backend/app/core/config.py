@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     BACKFILL_PAGES: int = 2
     BACKFILL_WINDOW_DAYS: int = 30
     BACKFILL_MIN_CREATED_DATE: date = date(2008, 1, 1)
+    IDEA_SCOUT_INTERVAL_SECONDS: int = 30
+    IDEA_SCOUT_PER_PAGE: int = 100
+    IDEA_SCOUT_PAGES_PER_RUN: int = 3
+    IDEA_SCOUT_WINDOW_DAYS: int = 30
+    IDEA_SCOUT_MIN_CREATED_DATE: date = date(2008, 1, 1)
     OPERATIONAL_EVENT_RETENTION_DAYS: int = 30
     OPERATIONAL_RUN_RETENTION_DAYS: int = 30
     BOUNCER_INCLUDE_RULES: Annotated[tuple[str, ...], NoDecode] = ()

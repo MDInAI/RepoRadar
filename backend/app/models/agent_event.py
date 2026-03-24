@@ -18,6 +18,7 @@ AGENT_NAMES = (
     "overlord",
     "combiner",
     "obsession",
+    "idea_scout",
 )
 
 
