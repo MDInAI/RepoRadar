@@ -33,6 +33,11 @@ class WorkerProviderSettings(BaseModel):
     backfill_pages: int
     backfill_window_days: int
     backfill_min_created_date: date
+    idea_scout_interval_seconds: int
+    idea_scout_per_page: int
+    idea_scout_pages_per_run: int
+    idea_scout_window_days: int
+    idea_scout_min_created_date: date
     bouncer_include_rules: tuple[str, ...]
     bouncer_exclude_rules: tuple[str, ...]
     analyst_selection_keywords: tuple[str, ...]
@@ -64,6 +69,11 @@ class Settings(BaseSettings):
     BACKFILL_PAGES: int = 2
     BACKFILL_WINDOW_DAYS: int = 30
     BACKFILL_MIN_CREATED_DATE: date = date(2008, 1, 1)
+    IDEA_SCOUT_INTERVAL_SECONDS: int = 30
+    IDEA_SCOUT_PER_PAGE: int = 100
+    IDEA_SCOUT_PAGES_PER_RUN: int = 3
+    IDEA_SCOUT_WINDOW_DAYS: int = 30
+    IDEA_SCOUT_MIN_CREATED_DATE: date = date(2008, 1, 1)
     BOUNCER_INCLUDE_RULES: Annotated[tuple[str, ...], NoDecode] = ()
     BOUNCER_EXCLUDE_RULES: Annotated[tuple[str, ...], NoDecode] = ()
     ANALYST_SELECTION_KEYWORDS: Annotated[tuple[str, ...], NoDecode] = ()
@@ -198,6 +208,10 @@ class Settings(BaseSettings):
         "BACKFILL_PER_PAGE",
         "BACKFILL_PAGES",
         "BACKFILL_WINDOW_DAYS",
+        "IDEA_SCOUT_INTERVAL_SECONDS",
+        "IDEA_SCOUT_PER_PAGE",
+        "IDEA_SCOUT_PAGES_PER_RUN",
+        "IDEA_SCOUT_WINDOW_DAYS",
     )
     @classmethod
     def _require_positive_numbers(cls, value: int) -> int:
@@ -305,6 +319,11 @@ class Settings(BaseSettings):
             backfill_pages=self.BACKFILL_PAGES,
             backfill_window_days=self.BACKFILL_WINDOW_DAYS,
             backfill_min_created_date=self.BACKFILL_MIN_CREATED_DATE,
+            idea_scout_interval_seconds=self.IDEA_SCOUT_INTERVAL_SECONDS,
+            idea_scout_per_page=self.IDEA_SCOUT_PER_PAGE,
+            idea_scout_pages_per_run=self.IDEA_SCOUT_PAGES_PER_RUN,
+            idea_scout_window_days=self.IDEA_SCOUT_WINDOW_DAYS,
+            idea_scout_min_created_date=self.IDEA_SCOUT_MIN_CREATED_DATE,
             bouncer_include_rules=self.BOUNCER_INCLUDE_RULES,
             bouncer_exclude_rules=self.BOUNCER_EXCLUDE_RULES,
             analyst_selection_keywords=self.ANALYST_SELECTION_KEYWORDS,

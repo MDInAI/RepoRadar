@@ -18,7 +18,8 @@ export type GatewayAgentKey =
   | "bouncer"
   | "analyst"
   | "combiner"
-  | "obsession";
+  | "obsession"
+  | "idea_scout";
 export type GatewayAgentDisplayName =
   | "Overlord"
   | "Firehose"
@@ -26,11 +27,13 @@ export type GatewayAgentDisplayName =
   | "Bouncer"
   | "Analyst"
   | "Combiner"
-  | "Obsession";
+  | "Obsession"
+  | "Idea Scout";
 export type GatewayAgentRole =
   | "control-plane-coordinator"
   | "repository-intake-firehose"
   | "repository-intake-backfill"
+  | "idea-driven-discovery"
   | "repository-triage"
   | "repository-analysis"
   | "idea-synthesis"

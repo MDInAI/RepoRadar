@@ -11,6 +11,7 @@ export function IconRail() {
     { href: "/control", icon: "🎛️", label: "Control" },
     { href: "/repositories", icon: "📦", label: "Repos" },
     { href: "/ideas", icon: "💡", label: "Ideas" },
+    { href: "/scout", icon: "🔍", label: "Scout" },
     { href: "/incidents", icon: "⚠️", label: "Incidents" },
     { href: "/settings", icon: "⚙️", label: "Settings" },
   ];
