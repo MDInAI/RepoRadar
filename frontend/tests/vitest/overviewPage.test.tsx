@@ -286,6 +286,7 @@ vi.mock("@/api/readiness", () => ({
 }));
 
 vi.mock("@/api/agents", () => ({
+  AGENT_DISPLAY_ORDER: ["overlord", "firehose", "backfill", "bouncer", "analyst", "combiner", "obsession"],
   fetchLatestAgentRuns: vi.fn(() => Promise.resolve(mockLatestRuns)),
   fetchAgentPauseStates: vi.fn(() => Promise.resolve(mockPauseStates)),
   fetchFailureEvents: vi.fn(() => Promise.resolve(mockFailureEvents)),
@@ -314,7 +315,15 @@ vi.mock("@/components/agents/GeminiKeyPoolPanel", () => ({
 }));
 
 vi.mock("@/components/dashboard/StatusBar", () => ({
-  StatusBar: () => <div>Status bar</div>,
+  StatusBar: ({
+    runningCount,
+    readyCount,
+    totalAgents,
+  }: {
+    runningCount: number;
+    readyCount: number;
+    totalAgents: number;
+  }) => <div>{`Status bar ${runningCount}/${totalAgents} ${readyCount} idle`}</div>,
 }));
 
 vi.mock("@/components/dashboard/PipelineStrip", () => ({
@@ -415,6 +424,23 @@ describe("OverviewPage", () => {
       ).toBeGreaterThan(0);
     } finally {
       mockPauseStates[0] = originalPauseState;
+    }
+  });
+
+  it("keeps paused agents visible when latest-runs data is temporarily empty", async () => {
+    const originalAgents = mockLatestRuns.agents.splice(0, mockLatestRuns.agents.length);
+
+    try {
+      renderPage();
+
+      expect(await screen.findByText("Attention Required")).toBeInTheDocument();
+      expect(screen.getByText("Status bar 0/7 6 idle")).toBeInTheDocument();
+      expect(screen.queryByText("No idle agents.")).not.toBeInTheDocument();
+      expect(screen.queryByText("No agents need attention right now.")).not.toBeInTheDocument();
+      expect(screen.getAllByText("Firehose").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Repository intake").length).toBeGreaterThan(0);
+    } finally {
+      mockLatestRuns.agents.splice(0, mockLatestRuns.agents.length, ...originalAgents);
     }
   });
 });

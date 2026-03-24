@@ -118,7 +118,7 @@ def run_backfill_job(
 
     # Check if agent is paused
     if is_agent_paused(session, "backfill"):
-        logger.info("Backfill is paused, skipping run")
+        logger.debug("Backfill is paused, skipping run")
         return BackfillRunResult(
             status=BackfillRunStatus.SKIPPED_PAUSED,
             outcomes=[],

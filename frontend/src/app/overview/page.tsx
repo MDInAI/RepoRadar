@@ -5,6 +5,7 @@ import Link from "next/link";
 import { type ReactNode, useMemo, useState } from "react";
 
 import {
+  AGENT_DISPLAY_ORDER,
   fetchLatestAgentRuns,
   fetchAgentPauseStates,
   fetchFailureEvents,
@@ -14,6 +15,7 @@ import {
   getFailureEventsQueryKey,
   getSystemEventsQueryKey,
   sortAgentStatusEntries,
+  type AgentName,
   type AgentPauseState,
   type AgentStatusEntry,
   type FailureEventPayload,
@@ -74,6 +76,106 @@ function formatRetryWindow(seconds: number | null | undefined): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+const AGENT_FALLBACK_META: Record<
+  AgentName,
+  {
+    displayName: string;
+    roleLabel: string;
+    description: string;
+    runtimeKind: string;
+    usesGitHubToken: boolean;
+    usesModel: boolean;
+  }
+> = {
+  overlord: {
+    displayName: "Overlord",
+    roleLabel: "System coordination",
+    description: "Monitors the operator posture and overall workflow health.",
+    runtimeKind: "control-plane",
+    usesGitHubToken: false,
+    usesModel: false,
+  },
+  firehose: {
+    displayName: "Firehose",
+    roleLabel: "Repository intake",
+    description: "Discovers repositories from fresh GitHub search feeds.",
+    runtimeKind: "github-api-worker",
+    usesGitHubToken: true,
+    usesModel: false,
+  },
+  backfill: {
+    displayName: "Backfill",
+    roleLabel: "Historical intake",
+    description: "Sweeps older GitHub windows to catch missed repositories.",
+    runtimeKind: "github-api-worker",
+    usesGitHubToken: true,
+    usesModel: false,
+  },
+  bouncer: {
+    displayName: "Bouncer",
+    roleLabel: "Repository triage",
+    description: "Applies triage rules to accepted and rejected repositories.",
+    runtimeKind: "queue-worker",
+    usesGitHubToken: false,
+    usesModel: false,
+  },
+  analyst: {
+    displayName: "Analyst",
+    roleLabel: "README analysis",
+    description: "Analyzes accepted repositories and stores structured findings.",
+    runtimeKind: "queue-worker",
+    usesGitHubToken: true,
+    usesModel: true,
+  },
+  combiner: {
+    displayName: "Combiner",
+    roleLabel: "Synthesis",
+    description: "Combines analyzed evidence into higher-level opportunities.",
+    runtimeKind: "queue-worker",
+    usesGitHubToken: false,
+    usesModel: true,
+  },
+  obsession: {
+    displayName: "Obsession",
+    roleLabel: "Idea workspace",
+    description: "Tracks persistent context and curated opportunity threads.",
+    runtimeKind: "workspace",
+    usesGitHubToken: false,
+    usesModel: false,
+  },
+};
+
+function buildFallbackAgentStatusEntry(agentName: AgentName): AgentStatusEntry {
+  const meta = AGENT_FALLBACK_META[agentName];
+  return {
+    agent_name: agentName,
+    display_name: meta.displayName,
+    role_label: meta.roleLabel,
+    description: meta.description,
+    implementation_status: "unknown",
+    runtime_kind: meta.runtimeKind,
+    uses_github_token: meta.usesGitHubToken,
+    uses_model: meta.usesModel,
+    configured_provider: null,
+    configured_model: null,
+    notes: [],
+    token_usage_24h: 0,
+    input_tokens_24h: 0,
+    output_tokens_24h: 0,
+    has_run: false,
+    latest_run: null,
+    latest_intake_summary: null,
+    runtime_progress: null,
+  };
+}
+
+function buildOverviewAgentFleet(entries: AgentStatusEntry[]): AgentStatusEntry[] {
+  const entryMap = new Map(entries.map((entry) => [entry.agent_name, entry]));
+  return sortAgentStatusEntries(
+    AGENT_DISPLAY_ORDER.map((agentName) => entryMap.get(agentName) ?? buildFallbackAgentStatusEntry(agentName)),
+  );
 }
 
 function describeRecommendedAction(
@@ -1278,7 +1380,10 @@ export default function DashboardPage() {
 
   /* derived */
   const data = overviewQuery.data;
-  const agents = sortAgentStatusEntries(latestRunsQuery.data?.agents ?? []);
+  const agents = useMemo(
+    () => buildOverviewAgentFleet(latestRunsQuery.data?.agents ?? []),
+    [latestRunsQuery.data?.agents],
+  );
   const pauseStates = pauseStatesQuery.data ?? [];
   const failureEvents = failureEventsQuery.data ?? [];
   const systemEvents = eventsQuery.data ?? [];

@@ -119,7 +119,7 @@ def run_analyst_job(
     # Check if agent is paused
     if is_agent_paused(session, "analyst"):
         clear_agent_progress_snapshot(runtime_dir=runtime_dir, agent_name="analyst")
-        logger.info("Analyst is paused, skipping run")
+        logger.debug("Analyst is paused, skipping run")
         return AnalystRunResult(
             status=AnalystRunStatus.SKIPPED_PAUSED,
             outcomes=[],

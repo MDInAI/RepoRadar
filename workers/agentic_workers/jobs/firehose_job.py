@@ -149,7 +149,7 @@ def run_firehose_job(
 
     # Check if agent is paused
     if is_agent_paused(session, "firehose"):
-        logger.info("Firehose is paused, skipping run")
+        logger.debug("Firehose is paused, skipping run")
         return FirehoseRunResult(
             status=FirehoseRunStatus.SKIPPED_PAUSED,
             outcomes=[],
@@ -522,7 +522,7 @@ def _run_firehose_job_parallel(
     agent_run_id: int | None,
 ) -> FirehoseRunResult:
     if is_agent_paused(session, "firehose"):
-        logger.info("Firehose is paused, skipping run")
+        logger.debug("Firehose is paused, skipping run")
         return FirehoseRunResult(
             status=FirehoseRunStatus.SKIPPED_PAUSED,
             outcomes=[],
