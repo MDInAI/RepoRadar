@@ -12,7 +12,10 @@ export interface SynthesisRunSummary {
 
 export interface ObsessionContextResponse {
   id: number;
-  idea_family_id: number;
+  idea_family_id: number | null;
+  synthesis_run_id: number | null;
+  idea_search_id: number | null;
+  idea_text: string | null;
   title: string;
   description: string | null;
   status: string;
@@ -31,7 +34,10 @@ export interface RepositorySummary {
 
 export interface ObsessionContextDetailResponse {
   id: number;
-  idea_family_id: number;
+  idea_family_id: number | null;
+  synthesis_run_id: number | null;
+  idea_search_id: number | null;
+  idea_text: string | null;
   title: string;
   description: string | null;
   status: string;
@@ -39,14 +45,18 @@ export interface ObsessionContextDetailResponse {
   last_refresh_at: string | null;
   synthesis_runs: SynthesisRunSummary[];
   family_title: string | null;
+  repository_count: number;
   repositories: RepositorySummary[];
   scope_updated_at: string | null;
+  memory_segment_count: number;
   created_at: string;
   updated_at: string;
 }
 
 export interface ObsessionContextCreateRequest {
-  idea_family_id: number;
+  idea_family_id?: number | null;
+  synthesis_run_id?: number | null;
+  idea_text?: string | null;
   title: string;
   description?: string | null;
   refresh_policy?: string;
