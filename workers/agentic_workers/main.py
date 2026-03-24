@@ -54,6 +54,11 @@ from agentic_workers.jobs.combiner_job import (
     CombinerRunStatus,
     run_combiner_job,
 )
+from agentic_workers.jobs.idea_scout_job import (
+    IdeaScoutRunResult,
+    IdeaScoutRunStatus,
+    run_idea_scout_cycle,
+)
 from agentic_workers.jobs.firehose_job import FirehoseRunResult, FirehoseRunStatus, run_firehose_job
 from agentic_workers.providers.github_provider import FirehoseMode, GitHubFirehoseProvider
 from agentic_workers.providers.readme_analyst import create_analysis_provider
@@ -61,6 +66,8 @@ from agentic_workers.storage.backfill_progress import load_backfill_progress
 from agentic_workers.storage.agent_progress_snapshots import clear_agent_progress_snapshot
 from agentic_workers.storage.backend_models import (
     AgentRunStatus,
+    IdeaSearch,
+    IdeaSearchStatus,
     RepositoryAnalysisStatus,
     RepositoryIntake,
     RepositoryQueueStatus,
@@ -944,6 +951,50 @@ def run_configured_combiner_job() -> CombinerRunResult:
         )
 
 
+def has_pending_idea_scout_work() -> bool:
+    with Session(engine) as session:
+        pending_count = session.exec(
+            select(func.count(IdeaSearch.id))
+            .where(IdeaSearch.status == IdeaSearchStatus.ACTIVE.value)
+        ).one()
+    return int(pending_count or 0) > 0
+
+
+def run_configured_idea_scout_cycle(
+    *,
+    sleep_fn: Callable[[int], None] = time.sleep,
+    should_stop: Callable[[], bool] | None = None,
+) -> IdeaScoutRunResult:
+    prov = settings.provider
+    pacing = max(prov.intake_pacing_seconds, 60 // max(1, prov.github_requests_per_minute))
+    provider = GitHubFirehoseProvider(token_values=settings.github_provider_token_values)
+    with Session(engine) as session:
+        return run_idea_scout_cycle(
+            session=session,
+            provider=provider,
+            runtime_dir=settings.runtime.runtime_dir,
+            pacing_seconds=pacing,
+            per_page=prov.idea_scout_per_page,
+            pages_per_search=prov.idea_scout_pages_per_run,
+            window_days=prov.idea_scout_window_days,
+            min_created_date=prov.idea_scout_min_created_date,
+            sleep_fn=sleep_fn,
+            should_stop=should_stop,
+        )
+
+
+def _log_idea_scout_result(result: IdeaScoutRunResult) -> None:
+    total_fetched = sum(o.fetched_count for o in result.outcomes)
+    total_inserted = sum(o.inserted_count for o in result.outcomes)
+    logger.info(
+        "IdeaScout cycle complete: status=%s searches=%d fetched=%d inserted=%d",
+        result.status,
+        result.searches_processed,
+        total_fetched,
+        total_inserted,
+    )
+
+
 def _unexpected_exception_payload(exc: Exception) -> dict[str, object]:
     return {
         "exception_type": type(exc).__name__,
@@ -1060,6 +1111,36 @@ async def _run_combiner_if_pending(
         logger.info("Skipping Combiner pass because another Combiner run is already active.")
         return False
     _log_combiner_result(result)
+    return True
+
+
+async def _run_idea_scout_if_pending(
+    *,
+    stop_event: asyncio.Event,
+    thread_stop: threading.Event,
+) -> bool:
+    if stop_event.is_set():
+        return False
+
+    try:
+        if not has_pending_idea_scout_work():
+            return False
+    except Exception:
+        logger.exception("Unable to inspect pending IdeaScout work. Skipping this pass.")
+        return False
+
+    job_stop = threading.Event()
+    should_stop = lambda: thread_stop.is_set() or job_stop.is_set()
+    try:
+        result = await asyncio.to_thread(
+            run_configured_idea_scout_cycle,
+            sleep_fn=_interruptible_sleep_factory(job_stop),
+            should_stop=should_stop,
+        )
+    except Exception:
+        logger.exception("IdeaScout cycle failed.")
+        return False
+    _log_idea_scout_result(result)
     return True
 
 
@@ -1291,9 +1372,11 @@ async def _run_worker_loop() -> None:
     # stop the worker; only an unhandled startup failure is fatal.
     combiner_check_interval = 10.0  # Check for new Combiner runs every 10 seconds
     next_combiner_check_at = time.monotonic() + combiner_check_interval
+    idea_scout_check_interval = float(settings.provider.idea_scout_interval_seconds)
+    next_idea_scout_check_at = time.monotonic() + idea_scout_check_interval
 
     while not stop_event.is_set():
-        next_due_at = min(next_firehose_run_at, next_backfill_run_at, next_combiner_check_at)
+        next_due_at = min(next_firehose_run_at, next_backfill_run_at, next_combiner_check_at, next_idea_scout_check_at)
         timeout = max(0.0, next_due_at - time.monotonic())
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=timeout)
@@ -1363,6 +1446,11 @@ async def _run_worker_loop() -> None:
         if (now >= next_combiner_check_at or due_jobs) and not stop_event.is_set():
             await _run_combiner_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
             next_combiner_check_at = time.monotonic() + combiner_check_interval
+
+        # Check IdeaScout on its own schedule
+        if now >= next_idea_scout_check_at and not stop_event.is_set():
+            await _run_idea_scout_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
+            next_idea_scout_check_at = time.monotonic() + idea_scout_check_interval
 
     logger.info("Worker shutdown complete.")
 
