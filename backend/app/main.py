@@ -9,7 +9,7 @@ from sqlmodel import Session
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app.api.routes import agents, events_stream, gateway, health, idea_families, idea_scout, incidents, memory, obsession, overlord, overview, repositories, settings as settings_routes, synthesis
+from app.api.routes import agents, events_stream, gateway, health, idea_families, incidents, memory, obsession, overlord, overview, repositories, settings as settings_routes, synthesis
 from app.api.deps import get_overlord_service
 from app.core.config import settings
 from app.core.database import engine
@@ -167,7 +167,6 @@ app.include_router(events_stream.router, prefix=settings.API_V1_STR, tags=["even
 app.include_router(idea_families.router, prefix=f"{settings.API_V1_STR}/idea-families", tags=["idea-families"])
 app.include_router(incidents.router, prefix=settings.API_V1_STR, tags=["incidents"])
 app.include_router(memory.router, prefix=settings.API_V1_STR, tags=["memory"])
-app.include_router(idea_scout.router, prefix=f"{settings.API_V1_STR}/idea-scout", tags=["idea-scout"])
 app.include_router(obsession.router, prefix=f"{settings.API_V1_STR}/obsession", tags=["obsession"])
 app.include_router(overlord.router, prefix=settings.API_V1_STR, tags=["overlord"])
 app.include_router(overview.router, prefix=settings.API_V1_STR, tags=["overview"])

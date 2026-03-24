@@ -19,8 +19,6 @@ class ObsessionContextRecord:
     id: int
     idea_family_id: int | None
     synthesis_run_id: int | None
-    idea_search_id: int | None
-    idea_text: str | None
     title: str
     description: str | None
     status: str
@@ -45,13 +43,27 @@ class ObsessionRepository:
     def __init__(self, session: Session):
         self._session = session
 
-    def _to_record(self, context: ObsessionContext) -> ObsessionContextRecord:
+    def create_context(
+        self,
+        title: str,
+        description: str | None,
+        refresh_policy: str,
+        idea_family_id: int | None = None,
+        synthesis_run_id: int | None = None,
+    ) -> ObsessionContextRecord:
+        context = ObsessionContext(
+            idea_family_id=idea_family_id,
+            synthesis_run_id=synthesis_run_id,
+            title=title,
+            description=description,
+            refresh_policy=refresh_policy,
+        )
+        self._session.add(context)
+        self._session.flush()
         return ObsessionContextRecord(
             id=context.id,
             idea_family_id=context.idea_family_id,
             synthesis_run_id=context.synthesis_run_id,
-            idea_search_id=context.idea_search_id,
-            idea_text=context.idea_text,
             title=context.title,
             description=context.description,
             status=_enum_to_str(context.status),
@@ -61,34 +73,22 @@ class ObsessionRepository:
             updated_at=context.updated_at,
         )
 
-    def create_context(
-        self,
-        title: str,
-        description: str | None,
-        refresh_policy: str,
-        idea_family_id: int | None = None,
-        synthesis_run_id: int | None = None,
-        idea_search_id: int | None = None,
-        idea_text: str | None = None,
-    ) -> ObsessionContextRecord:
-        context = ObsessionContext(
-            idea_family_id=idea_family_id,
-            synthesis_run_id=synthesis_run_id,
-            idea_search_id=idea_search_id,
-            idea_text=idea_text,
-            title=title,
-            description=description,
-            refresh_policy=refresh_policy,
-        )
-        self._session.add(context)
-        self._session.flush()
-        return self._to_record(context)
-
     def get_context(self, context_id: int) -> ObsessionContextRecord | None:
         context = self._session.get(ObsessionContext, context_id)
         if not context:
             return None
-        return self._to_record(context)
+        return ObsessionContextRecord(
+            id=context.id,
+            idea_family_id=context.idea_family_id,
+            synthesis_run_id=context.synthesis_run_id,
+            title=context.title,
+            description=context.description,
+            status=_enum_to_str(context.status),
+            refresh_policy=_enum_to_str(context.refresh_policy),
+            last_refresh_at=context.last_refresh_at,
+            created_at=context.created_at,
+            updated_at=context.updated_at,
+        )
 
     def list_contexts(
         self, idea_family_id: int | None, status: str | None
@@ -100,7 +100,21 @@ class ObsessionRepository:
             stmt = stmt.where(ObsessionContext.status == status)
         stmt = stmt.order_by(ObsessionContext.created_at.desc())
         contexts = self._session.execute(stmt).scalars().all()
-        return [self._to_record(c) for c in contexts]
+        return [
+            ObsessionContextRecord(
+                id=c.id,
+                idea_family_id=c.idea_family_id,
+                synthesis_run_id=c.synthesis_run_id,
+                title=c.title,
+                description=c.description,
+                status=_enum_to_str(c.status),
+                refresh_policy=_enum_to_str(c.refresh_policy),
+                last_refresh_at=c.last_refresh_at,
+                created_at=c.created_at,
+                updated_at=c.updated_at,
+            )
+            for c in contexts
+        ]
 
     def update_context(
         self,
@@ -132,7 +146,18 @@ class ObsessionRepository:
         context.updated_at = datetime.now(timezone.utc)
         self._session.flush()
 
-        return self._to_record(context)
+        return ObsessionContextRecord(
+            id=context.id,
+            idea_family_id=context.idea_family_id,
+            synthesis_run_id=context.synthesis_run_id,
+            title=context.title,
+            description=context.description,
+            status=_enum_to_str(context.status),
+            refresh_policy=_enum_to_str(context.refresh_policy),
+            last_refresh_at=context.last_refresh_at,
+            created_at=context.created_at,
+            updated_at=context.updated_at,
+        )
 
     def update_last_refresh(self, context_id: int) -> ObsessionContextRecord:
         context = self._session.get(ObsessionContext, context_id)
@@ -149,7 +174,18 @@ class ObsessionRepository:
         context.updated_at = datetime.now(timezone.utc)
         self._session.flush()
 
-        return self._to_record(context)
+        return ObsessionContextRecord(
+            id=context.id,
+            idea_family_id=context.idea_family_id,
+            synthesis_run_id=context.synthesis_run_id,
+            title=context.title,
+            description=context.description,
+            status=_enum_to_str(context.status),
+            refresh_policy=_enum_to_str(context.refresh_policy),
+            last_refresh_at=context.last_refresh_at,
+            created_at=context.created_at,
+            updated_at=context.updated_at,
+        )
 
     def get_synthesis_run_count(self, context_id: int) -> int:
         stmt = select(func.count()).select_from(SynthesisRun).where(SynthesisRun.obsession_context_id == context_id)

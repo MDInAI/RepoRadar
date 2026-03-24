@@ -142,7 +142,6 @@ class RepositoryDiscoverySource(StrEnum):
     UNKNOWN = "unknown"
     FIREHOSE = "firehose"
     BACKFILL = "backfill"
-    IDEA_SCOUT = "idea_scout"
 
 
 class RepositoryFirehoseMode(StrEnum):
@@ -573,210 +572,6 @@ class IdeaFamilyMembership(SQLModel, table=True):
     )
 
 
-class IdeaSearchDirection(StrEnum):
-    BACKWARD = "backward"
-    FORWARD = "forward"
-
-
-class IdeaSearchStatus(StrEnum):
-    ACTIVE = "active"
-    PAUSED = "paused"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-
-
-class IdeaSearch(SQLModel, table=True):
-    __tablename__ = "idea_search"
-    __table_args__ = (
-        CheckConstraint("idea_text != ''", name="ck_idea_search_idea_text_not_blank"),
-        CheckConstraint("total_repos_found >= 0", name="ck_idea_search_total_repos_non_negative"),
-        Index("ix_idea_search_status", "status"),
-        Index("ix_idea_search_direction", "direction"),
-        Index("ix_idea_search_obsession_context_id", "obsession_context_id"),
-    )
-
-    id: int | None = Field(
-        default=None,
-        sa_column=Column(Integer, primary_key=True, autoincrement=True, nullable=False),
-    )
-    idea_text: str = Field(
-        sa_column=Column(Text, nullable=False),
-    )
-    search_queries: list[str] = Field(
-        default_factory=list,
-        sa_column=Column(
-            MutableList.as_mutable(JSONStringListType()),
-            nullable=False,
-            server_default=text("'[]'"),
-        ),
-    )
-    direction: IdeaSearchDirection = Field(
-        sa_column=Column(
-            SQLEnum(
-                IdeaSearchDirection,
-                values_callable=_enum_values,
-                name="idea_search_direction",
-                native_enum=False,
-                create_constraint=True,
-            ),
-            nullable=False,
-        ),
-    )
-    status: IdeaSearchStatus = Field(
-        default=IdeaSearchStatus.ACTIVE,
-        sa_column=Column(
-            SQLEnum(
-                IdeaSearchStatus,
-                values_callable=_enum_values,
-                name="idea_search_status",
-                native_enum=False,
-                create_constraint=True,
-            ),
-            nullable=False,
-            server_default=text("'active'"),
-        ),
-    )
-    obsession_context_id: int | None = Field(
-        default=None,
-        sa_column=Column(
-            Integer,
-            ForeignKey("obsession_context.id", ondelete="SET NULL"),
-            nullable=True,
-        ),
-    )
-    total_repos_found: int = Field(
-        default=0,
-        sa_column=Column(Integer, nullable=False, server_default=text("0")),
-    )
-    created_at: datetime = Field(
-        default_factory=_utcnow,
-        sa_column=Column(
-            UTCDateTimeType(),
-            nullable=False,
-            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
-        ),
-    )
-    updated_at: datetime = Field(
-        default_factory=_utcnow,
-        sa_column=Column(
-            UTCDateTimeType(),
-            nullable=False,
-            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
-        ),
-    )
-
-
-class IdeaSearchProgress(SQLModel, table=True):
-    __tablename__ = "idea_search_progress"
-    __table_args__ = (
-        CheckConstraint("next_page > 0", name="ck_idea_search_progress_next_page_positive"),
-        CheckConstraint(
-            "window_start_date < created_before_boundary",
-            name="ck_idea_search_progress_window_before_boundary",
-        ),
-        UniqueConstraint(
-            "idea_search_id",
-            "query_index",
-            name="uq_idea_search_progress_search_query",
-        ),
-        Index("ix_idea_search_progress_idea_search_id", "idea_search_id"),
-    )
-
-    id: int | None = Field(
-        default=None,
-        sa_column=Column(Integer, primary_key=True, autoincrement=True, nullable=False),
-    )
-    idea_search_id: int = Field(
-        sa_column=Column(
-            Integer,
-            ForeignKey("idea_search.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
-    )
-    query_index: int = Field(
-        default=0,
-        sa_column=Column(Integer, nullable=False, server_default=text("0")),
-    )
-    window_start_date: date = Field(
-        sa_column=Column(Date(), nullable=False),
-    )
-    created_before_boundary: date = Field(
-        sa_column=Column(Date(), nullable=False),
-    )
-    created_before_cursor: datetime | None = Field(
-        default=None,
-        sa_column=Column(UTCDateTimeType(), nullable=True),
-    )
-    next_page: int = Field(
-        default=1,
-        sa_column=Column(Integer, nullable=False, server_default=text("1")),
-    )
-    pages_processed_in_run: int = Field(
-        default=0,
-        sa_column=Column(Integer, nullable=False, server_default=text("0")),
-    )
-    exhausted: bool = Field(
-        default=False,
-        sa_column=Column(Boolean, nullable=False, server_default=text("0")),
-    )
-    resume_required: bool = Field(
-        default=False,
-        sa_column=Column(Boolean, nullable=False, server_default=text("0")),
-    )
-    last_checkpointed_at: datetime | None = Field(
-        default=None,
-        sa_column=Column(UTCDateTimeType(), nullable=True),
-    )
-    updated_at: datetime = Field(
-        default_factory=_utcnow,
-        sa_column=Column(
-            UTCDateTimeType(),
-            nullable=False,
-            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
-        ),
-    )
-
-
-class IdeaSearchDiscovery(SQLModel, table=True):
-    __tablename__ = "idea_search_discovery"
-    __table_args__ = (
-        UniqueConstraint(
-            "idea_search_id",
-            "github_repository_id",
-            name="uq_idea_search_discovery_search_repo",
-        ),
-        Index("ix_idea_search_discovery_idea_search_id", "idea_search_id"),
-        Index("ix_idea_search_discovery_github_repository_id", "github_repository_id"),
-    )
-
-    id: int | None = Field(
-        default=None,
-        sa_column=Column(Integer, primary_key=True, autoincrement=True, nullable=False),
-    )
-    idea_search_id: int = Field(
-        sa_column=Column(
-            Integer,
-            ForeignKey("idea_search.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
-    )
-    github_repository_id: int = Field(
-        sa_column=Column(
-            BigInteger,
-            ForeignKey("repository_intake.github_repository_id", ondelete="CASCADE"),
-            nullable=False,
-        ),
-    )
-    discovered_at: datetime = Field(
-        default_factory=_utcnow,
-        sa_column=Column(
-            UTCDateTimeType(),
-            nullable=False,
-            server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
-        ),
-    )
-
-
 class ObsessionRefreshPolicy(StrEnum):
     MANUAL = "manual"
     DAILY = "daily"
@@ -794,16 +589,12 @@ class ObsessionContext(SQLModel, table=True):
     __table_args__ = (
         CheckConstraint("title != ''", name="ck_obsession_context_title_not_blank"),
         CheckConstraint(
-            "("
-            "  (idea_family_id IS NOT NULL AND synthesis_run_id IS NULL AND idea_search_id IS NULL)"
-            "  OR (idea_family_id IS NULL AND synthesis_run_id IS NOT NULL AND idea_search_id IS NULL)"
-            "  OR (idea_family_id IS NULL AND synthesis_run_id IS NULL AND idea_search_id IS NOT NULL)"
-            ")",
+            "(idea_family_id IS NOT NULL AND synthesis_run_id IS NULL) OR "
+            "(idea_family_id IS NULL AND synthesis_run_id IS NOT NULL)",
             name="ck_obsession_context_exactly_one_target",
         ),
         Index("ix_obsession_context_idea_family_id", "idea_family_id"),
         Index("ix_obsession_context_synthesis_run_id", "synthesis_run_id"),
-        Index("ix_obsession_context_idea_search_id", "idea_search_id"),
         Index("ix_obsession_context_status", "status"),
     )
 
@@ -826,18 +617,6 @@ class ObsessionContext(SQLModel, table=True):
             ForeignKey("synthesis_run.id", ondelete="CASCADE"),
             nullable=True,
         ),
-    )
-    idea_search_id: int | None = Field(
-        default=None,
-        sa_column=Column(
-            Integer,
-            ForeignKey("idea_search.id", ondelete="CASCADE"),
-            nullable=True,
-        ),
-    )
-    idea_text: str | None = Field(
-        default=None,
-        sa_column=Column(Text, nullable=True),
     )
     title: str = Field(
         sa_column=Column(String(200), nullable=False),

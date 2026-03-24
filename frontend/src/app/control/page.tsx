@@ -57,7 +57,6 @@ const AGENTS: AgentDefinition[] = [
   { id: "analyst", label: "Analyst", icon: "🔬", fallbackDescription: "Evidence-backed analysis" },
   { id: "combiner", label: "Combiner", icon: "🧠", fallbackDescription: "Opportunity synthesis" },
   { id: "obsession", label: "Obsession", icon: "🗂️", fallbackDescription: "Context tracking" },
-  { id: "idea_scout", label: "Idea Scout", icon: "🔍", fallbackDescription: "Idea-driven discovery" },
 ];
 
 const EDITABLE_AGENT_IDS: AgentName[] = ["firehose", "backfill", "bouncer", "analyst"];

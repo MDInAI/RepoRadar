@@ -10,8 +10,6 @@ import { SynthesisRunTimeline } from './SynthesisRunTimeline';
 import { SynthesisRunDetailDialog } from './SynthesisRunDetailDialog';
 import { ObsessionScopePanel } from './ObsessionScopePanel';
 import { ObsessionStateSummary } from './ObsessionStateSummary';
-import { IdeaSearchProgressBar } from '@/components/scout/IdeaSearchProgressBar';
-import { useIdeaSearch } from '@/hooks/useIdeaScout';
 import type { MemorySegmentResponse } from '@/lib/api/memory';
 
 interface ObsessionContextDetailDialogProps {
@@ -21,7 +19,6 @@ interface ObsessionContextDetailDialogProps {
 
 export function ObsessionContextDetailDialog({ contextId, onClose }: ObsessionContextDetailDialogProps) {
   const { data: context, isLoading } = useObsessionContext(contextId);
-  const { data: linkedSearch } = useIdeaSearch(context?.idea_search_id ?? 0);
   const { data: memorySegments } = useMemorySegments(contextId);
   const updateMutation = useUpdateObsessionContext();
   const refreshMutation = useTriggerRefresh();
@@ -114,21 +111,6 @@ export function ObsessionContextDetailDialog({ contextId, onClose }: ObsessionCo
               <div className="text-sm font-medium text-gray-700 mb-2">Description</div>
               <div className="text-sm text-gray-600">{context.description || 'No description'}</div>
             </div>
-
-            {linkedSearch && (
-              <div>
-                <div className="text-sm font-medium text-gray-700 mb-2">
-                  Linked Idea Search — &ldquo;{linkedSearch.idea_text}&rdquo;
-                </div>
-                <IdeaSearchProgressBar
-                  progress={linkedSearch.progress}
-                  direction={linkedSearch.direction}
-                />
-                <div className="text-xs text-gray-500 mt-1">
-                  {linkedSearch.total_repos_found} repos discovered &middot; Status: {linkedSearch.status}
-                </div>
-              </div>
-            )}
 
             <ObsessionScopePanel
               familyTitle={context.family_title}

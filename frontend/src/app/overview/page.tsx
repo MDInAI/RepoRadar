@@ -145,14 +145,6 @@ const AGENT_FALLBACK_META: Record<
     usesGitHubToken: false,
     usesModel: false,
   },
-  idea_scout: {
-    displayName: "Idea Scout",
-    roleLabel: "Idea-driven discovery",
-    description: "Searches GitHub exhaustively for repositories matching a user-provided idea.",
-    runtimeKind: "github-api-worker",
-    usesGitHubToken: true,
-    usesModel: false,
-  },
 };
 
 function buildFallbackAgentStatusEntry(agentName: AgentName): AgentStatusEntry {

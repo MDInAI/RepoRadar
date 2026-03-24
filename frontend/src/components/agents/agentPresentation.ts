@@ -18,7 +18,6 @@ const AGENT_LABELS: Record<AgentName, string> = {
   analyst: "Analyst",
   combiner: "Combiner",
   obsession: "Obsession",
-  idea_scout: "Idea Scout",
 };
 
 const RUN_STATUS_LABELS: Record<AgentRunStatus, string> = {
