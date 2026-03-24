@@ -20,6 +20,7 @@ from typing import Callable
 from typing import TypeVar
 
 from sqlalchemy import func
+from sqlalchemy.exc import OperationalError
 from sqlmodel import Session, select
 
 from agentic_workers.core.db import engine
@@ -83,8 +84,11 @@ _MIN_FIREHOSE_RUN_TIMEOUT_SECONDS = 15 * 60
 _MIN_BACKFILL_RUN_TIMEOUT_SECONDS = 10 * 60
 _ESTIMATED_GITHUB_REQUEST_BUDGET_SECONDS = 60
 _TIMEOUT_BUFFER_SECONDS = 120
+_EXHAUSTED_BACKFILL_POLL_SECONDS = 60 * 60
 _WORKER_PROCESS_LOCK_FILENAME = "agentic-workers-main.lock"
+_PAUSED_POLL_LOG_INTERVAL_SECONDS = 5 * 60
 ResultT = TypeVar("ResultT")
+_last_paused_poll_log_at: dict[str, float] = {}
 
 
 class IntakeJobTimeoutError(TimeoutError):
@@ -133,6 +137,35 @@ def calculate_backfill_pacing_seconds() -> int:
 
 def calculate_paused_poll_seconds() -> int:
     return max(15, calculate_intake_pacing_seconds())
+
+
+def _should_emit_paused_poll_log(agent_name: str, *, now: float | None = None) -> bool:
+    current_time = time.monotonic() if now is None else now
+    last_logged_at = _last_paused_poll_log_at.get(agent_name)
+    if last_logged_at is not None and current_time - last_logged_at < _PAUSED_POLL_LOG_INTERVAL_SECONDS:
+        return False
+    _last_paused_poll_log_at[agent_name] = current_time
+    return True
+
+
+def _reset_paused_poll_log(agent_name: str) -> None:
+    _last_paused_poll_log_at.pop(agent_name, None)
+
+
+def _log_paused_poll_backoff(agent_name: str) -> None:
+    agent_label = agent_name.title()
+    if _should_emit_paused_poll_log(agent_name):
+        logger.info(
+            "%s is still paused. Automatic checks will retry every %ss until you resume it.",
+            agent_label,
+            calculate_paused_poll_seconds(),
+        )
+        return
+    logger.debug("%s is still paused; suppressing repeated automatic pause-check log.", agent_label)
+
+
+def calculate_exhausted_backfill_poll_seconds() -> int:
+    return max(_EXHAUSTED_BACKFILL_POLL_SECONDS, calculate_backfill_interval_seconds())
 
 
 def _calculate_shared_minimum_cycle_seconds(
@@ -217,6 +250,24 @@ def run_configured_firehose_job(
         provider_kwargs["github_tokens"] = github_tokens
     provider = GitHubFirehoseProvider(**provider_kwargs)
     with Session(engine) as session:
+        if is_agent_paused(session, "firehose"):
+            clear_agent_progress_snapshot(
+                runtime_dir=settings.runtime.runtime_dir,
+                agent_name="firehose",
+            )
+            return run_firehose_job(
+                session=session,
+                provider=provider,
+                runtime_dir=settings.runtime.runtime_dir,
+                pacing_seconds=calculate_firehose_pacing_seconds(),
+                modes=_FIREHOSE_MODES,
+                per_page=settings.provider.firehose_per_page,
+                pages=settings.provider.firehose_pages,
+                search_lanes=getattr(settings.provider, "firehose_search_lanes", 1),
+                sleep_fn=sleep_fn,
+                should_stop=should_stop,
+                agent_run_id=None,
+            )
         return _run_tracked_job(
             session=session,
             agent_name="firehose",
@@ -260,6 +311,24 @@ def run_configured_backfill_job(
         provider_kwargs["github_tokens"] = github_tokens
     provider = GitHubFirehoseProvider(**provider_kwargs)
     with Session(engine) as session:
+        if is_agent_paused(session, "backfill"):
+            clear_agent_progress_snapshot(
+                runtime_dir=settings.runtime.runtime_dir,
+                agent_name="backfill",
+            )
+            return run_backfill_job(
+                session=session,
+                provider=provider,
+                runtime_dir=settings.runtime.runtime_dir,
+                pacing_seconds=calculate_backfill_pacing_seconds(),
+                per_page=settings.provider.backfill_per_page,
+                pages=settings.provider.backfill_pages,
+                window_days=settings.provider.backfill_window_days,
+                min_created_date=settings.provider.backfill_min_created_date,
+                sleep_fn=sleep_fn,
+                should_stop=should_stop,
+                agent_run_id=None,
+            )
         return _run_tracked_job(
             session=session,
             agent_name="backfill",
@@ -425,6 +494,8 @@ def seconds_until_next_backfill_run(*, now: float | None = None) -> float:
         # Fresh database — run Backfill immediately so the intake surface is
         # populated on first install without waiting a full interval.
         return 0.0
+    if checkpoint.exhausted:
+        return float(calculate_exhausted_backfill_poll_seconds())
     if checkpoint.resume_required:
         return 0.0
     if checkpoint.last_checkpointed_at is None:
@@ -436,6 +507,11 @@ def seconds_until_next_backfill_run(*, now: float | None = None) -> float:
 
 
 def _log_firehose_result(result: FirehoseRunResult) -> None:
+    if result.status is FirehoseRunStatus.SKIPPED_PAUSED:
+        _log_paused_poll_backoff("firehose")
+        return
+
+    _reset_paused_poll_log("firehose")
     logger.info(
         "Firehose run complete: status=%s outcomes=%d",
         result.status,
@@ -443,9 +519,7 @@ def _log_firehose_result(result: FirehoseRunResult) -> None:
     )
     if result.artifact_error:
         logger.warning("Firehose runtime artifact write failed: %s", result.artifact_error)
-    if result.status is FirehoseRunStatus.SKIPPED_PAUSED:
-        logger.info("Firehose remains paused; next automatic pause check will back off.")
-    elif result.status is not FirehoseRunStatus.SUCCESS:
+    if result.status is not FirehoseRunStatus.SUCCESS:
         logger.warning("Firehose run completed with non-success status: %s", result.status)
 
 
@@ -458,6 +532,11 @@ def _log_intake_timeout(error: IntakeJobTimeoutError) -> None:
 
 
 def _log_backfill_result(result: BackfillRunResult) -> None:
+    if result.status is BackfillRunStatus.SKIPPED_PAUSED:
+        _log_paused_poll_backoff("backfill")
+        return
+
+    _reset_paused_poll_log("backfill")
     logger.info(
         "Backfill run complete: status=%s outcomes=%d exhausted=%s",
         result.status,
@@ -466,9 +545,11 @@ def _log_backfill_result(result: BackfillRunResult) -> None:
     )
     if result.artifact_error:
         logger.warning("Backfill runtime artifact write failed: %s", result.artifact_error)
-    if result.status is BackfillRunStatus.SKIPPED_PAUSED:
-        logger.info("Backfill remains paused; next automatic pause check will back off.")
-    elif result.status is not BackfillRunStatus.SUCCESS:
+    if result.checkpoint.exhausted and not result.outcomes:
+        logger.info(
+            "Backfill has exhausted its current historical window. Automatic polling will back off until the timeline is reset."
+        )
+    if result.status is not BackfillRunStatus.SUCCESS:
         logger.warning("Backfill run completed with non-success status: %s", result.status)
 
 
@@ -1052,6 +1133,13 @@ def _interruptible_sleep_factory(thread_stop: threading.Event) -> Callable[[int]
     return _interruptible_sleep
 
 
+def _is_transient_sqlite_lock_error(exc: Exception) -> bool:
+    if not isinstance(exc, OperationalError):
+        return False
+    message = str(exc).lower()
+    return "sqlite" in message and "database is locked" in message
+
+
 def _worker_process_lock_path(runtime_dir: Path | None) -> Path:
     base_dir = runtime_dir if runtime_dir is not None else Path.cwd()
     return base_dir / "locks" / _WORKER_PROCESS_LOCK_FILENAME
@@ -1152,6 +1240,11 @@ async def _run_worker_loop() -> None:
                 _log_firehose_result(firehose_result)
             elif isinstance(firehose_result, IntakeJobTimeoutError):
                 _log_intake_timeout(firehose_result)
+            elif isinstance(firehose_result, Exception) and _is_transient_sqlite_lock_error(firehose_result):
+                logger.warning(
+                    "Startup Firehose pass hit a transient SQLite lock; keeping the worker alive and retrying on the next interval.",
+                    exc_info=firehose_result,
+                )
             elif isinstance(firehose_result, DuplicateActiveAgentRunError):
                 logger.info("Skipping startup Firehose pass because another Firehose run is already active.")
             elif isinstance(firehose_result, Exception):
@@ -1162,6 +1255,11 @@ async def _run_worker_loop() -> None:
                 _log_backfill_result(backfill_result)
             elif isinstance(backfill_result, IntakeJobTimeoutError):
                 _log_intake_timeout(backfill_result)
+            elif isinstance(backfill_result, Exception) and _is_transient_sqlite_lock_error(backfill_result):
+                logger.warning(
+                    "Startup Backfill pass hit a transient SQLite lock; keeping the worker alive and retrying on the next interval.",
+                    exc_info=backfill_result,
+                )
             elif isinstance(backfill_result, DuplicateActiveAgentRunError):
                 logger.info("Skipping startup Backfill pass because another Backfill run is already active.")
             elif isinstance(backfill_result, Exception):

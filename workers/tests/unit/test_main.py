@@ -4,10 +4,12 @@ import asyncio
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
+import sqlite3
 import threading
 import time
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from agentic_workers.jobs.analyst_job import (
     AnalystRepositoryOutcome,
@@ -127,6 +129,64 @@ def test_configured_firehose_job_uses_settings_and_runtime_paths(monkeypatch, tm
     assert captured["agent_run_id"] == 11
 
 
+def test_configured_firehose_job_skips_tracking_when_paused(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+    cleared: dict[str, object] = {}
+
+    class StubSettings:
+        github_provider_token_values = ("worker-token",)
+        github_provider_token_value = "worker-token"
+
+        class runtime:
+            runtime_dir = tmp_path
+
+        class provider:
+            github_requests_per_minute = 120
+            intake_pacing_seconds = 3
+            firehose_per_page = 100
+            firehose_pages = 1
+            firehose_search_lanes = 1
+            backfill_per_page = 50
+            backfill_pages = 2
+            backfill_window_days = 30
+            backfill_min_created_date = "2008-01-01"
+            backfill_interval_seconds = 3600
+
+    def fake_run_firehose_job(**kwargs: object) -> FirehoseRunResult:
+        captured.update(kwargs)
+        return FirehoseRunResult(
+            status=FirehoseRunStatus.SKIPPED_PAUSED,
+            outcomes=[],
+            artifact_path=None,
+            artifact_error=None,
+        )
+
+    monkeypatch.setattr(main, "settings", StubSettings())
+    monkeypatch.setattr(main, "GitHubFirehoseProvider", DummyProvider)
+    monkeypatch.setattr(main, "Session", DummySession)
+    monkeypatch.setattr(main, "engine", object())
+    monkeypatch.setattr(main, "run_firehose_job", fake_run_firehose_job)
+    monkeypatch.setattr(main, "is_agent_paused", lambda session, agent_name: True)
+    monkeypatch.setattr(
+        main,
+        "clear_agent_progress_snapshot",
+        lambda *, runtime_dir, agent_name: cleared.update(
+            {"runtime_dir": runtime_dir, "agent_name": agent_name}
+        ),
+    )
+    monkeypatch.setattr(
+        main,
+        "start_agent_run",
+        lambda session, agent_name: pytest.fail("start_agent_run should not run while firehose is paused"),
+    )
+
+    result = main.run_configured_firehose_job()
+
+    assert result.status is FirehoseRunStatus.SKIPPED_PAUSED
+    assert cleared == {"runtime_dir": tmp_path, "agent_name": "firehose"}
+    assert captured["agent_run_id"] is None
+
+
 def test_configured_backfill_job_uses_settings_and_runtime_paths(monkeypatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 
@@ -188,6 +248,65 @@ def test_configured_backfill_job_uses_settings_and_runtime_paths(monkeypatch, tm
     assert captured["window_days"] == 14
     assert captured["min_created_date"] == "2015-01-01"
     assert captured["agent_run_id"] == 22
+
+
+def test_configured_backfill_job_skips_tracking_when_paused(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+    cleared: dict[str, object] = {}
+
+    class StubSettings:
+        github_provider_token_values = ("worker-token",)
+        github_provider_token_value = "worker-token"
+
+        class runtime:
+            runtime_dir = tmp_path
+
+        class provider:
+            github_requests_per_minute = 120
+            intake_pacing_seconds = 3
+            firehose_per_page = 100
+            firehose_pages = 1
+            firehose_search_lanes = 1
+            backfill_per_page = 25
+            backfill_pages = 2
+            backfill_window_days = 14
+            backfill_min_created_date = "2015-01-01"
+            backfill_interval_seconds = 7200
+
+    def fake_run_backfill_job(**kwargs: object) -> BackfillRunResult:
+        captured.update(kwargs)
+        return BackfillRunResult(
+            status=BackfillRunStatus.SKIPPED_PAUSED,
+            outcomes=[],
+            checkpoint=type("Checkpoint", (), {"exhausted": False})(),
+            artifact_path=None,
+            artifact_error=None,
+        )
+
+    monkeypatch.setattr(main, "settings", StubSettings())
+    monkeypatch.setattr(main, "GitHubFirehoseProvider", DummyProvider)
+    monkeypatch.setattr(main, "Session", DummySession)
+    monkeypatch.setattr(main, "engine", object())
+    monkeypatch.setattr(main, "run_backfill_job", fake_run_backfill_job)
+    monkeypatch.setattr(main, "is_agent_paused", lambda session, agent_name: True)
+    monkeypatch.setattr(
+        main,
+        "clear_agent_progress_snapshot",
+        lambda *, runtime_dir, agent_name: cleared.update(
+            {"runtime_dir": runtime_dir, "agent_name": agent_name}
+        ),
+    )
+    monkeypatch.setattr(
+        main,
+        "start_agent_run",
+        lambda session, agent_name: pytest.fail("start_agent_run should not run while backfill is paused"),
+    )
+
+    result = main.run_configured_backfill_job()
+
+    assert result.status is BackfillRunStatus.SKIPPED_PAUSED
+    assert cleared == {"runtime_dir": tmp_path, "agent_name": "backfill"}
+    assert captured["agent_run_id"] is None
 
 
 def test_configured_bouncer_job_uses_settings_and_runtime_paths(monkeypatch, tmp_path: Path) -> None:
@@ -1032,6 +1151,46 @@ def test_seconds_until_next_backfill_run_returns_zero_on_fresh_install(monkeypat
     assert remaining == pytest.approx(0.0)
 
 
+def test_seconds_until_next_backfill_run_backs_off_when_checkpoint_is_exhausted(monkeypatch) -> None:
+    class StubSession:
+        def __init__(self, engine: object) -> None:
+            self.engine = engine
+
+        def __enter__(self) -> "StubSession":
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            return None
+
+    exhausted_checkpoint = BackfillCheckpointState(
+        source_provider="github",
+        window_start_date=date(2008, 1, 1),
+        created_before_boundary=date(2008, 1, 1),
+        created_before_cursor=None,
+        next_page=1,
+        exhausted=True,
+        last_checkpointed_at=datetime(2026, 3, 8, 11, 30, tzinfo=timezone.utc),
+        resume_required=False,
+    )
+
+    monkeypatch.setattr(main, "Session", StubSession)
+    monkeypatch.setattr(main, "engine", object())
+    monkeypatch.setattr(main, "load_backfill_progress", lambda _session: exhausted_checkpoint)
+    monkeypatch.setattr(main, "calculate_exhausted_backfill_poll_seconds", lambda: 3600)
+
+    remaining = main.seconds_until_next_backfill_run(
+        now=datetime(2026, 3, 8, 12, 0, tzinfo=timezone.utc).timestamp()
+    )
+
+    assert remaining == pytest.approx(3600.0)
+
+
+def test_should_run_backfill_startup_skips_when_checkpoint_is_exhausted(monkeypatch) -> None:
+    monkeypatch.setattr(main, "seconds_until_next_backfill_run", lambda now=None: 3600.0)
+
+    assert main.should_run_backfill_startup() is False
+
+
 def test_main_skips_startup_backfill_until_interval_due(monkeypatch) -> None:
     run_calls: list[str] = []
 
@@ -1292,6 +1451,65 @@ def test_main_exits_on_startup_firehose_failure(monkeypatch) -> None:
     assert exc_info.value.code == 1
 
 
+def test_main_keeps_running_when_startup_firehose_hits_transient_sqlite_lock(monkeypatch) -> None:
+    class StubSettings:
+        github_provider_token_value = None
+
+        class runtime:
+            runtime_dir = None
+
+        class provider:
+            github_requests_per_minute = 60
+            intake_pacing_seconds = 30
+            firehose_interval_seconds = 3600
+            firehose_per_page = 100
+            firehose_pages = 1
+            backfill_interval_seconds = 21600
+            backfill_per_page = 100
+            backfill_pages = 2
+            backfill_window_days = 30
+            backfill_min_created_date = "2008-01-01"
+
+    _real_event_class = asyncio.Event
+    stop_event_ref: list[asyncio.Event] = []
+
+    class _CapturingEvent:
+        def __init__(self) -> None:
+            self._inner = _real_event_class()
+            if not stop_event_ref:
+                stop_event_ref.append(self._inner)
+
+        def set(self) -> None:
+            self._inner.set()
+
+        def is_set(self) -> bool:
+            return self._inner.is_set()
+
+        async def wait(self) -> None:
+            await self._inner.wait()
+
+    locked = OperationalError("INSERT", {}, sqlite3.OperationalError("database is locked"))
+
+    async def fake_run_due_intake_jobs(*, due_jobs: list[str], thread_stop: object) -> dict[str, object]:
+        del due_jobs, thread_stop
+        if stop_event_ref:
+            stop_event_ref[0].set()
+        return {"firehose": locked}
+
+    monkeypatch.setattr(main, "settings", StubSettings())
+    monkeypatch.setattr(main, "validate_startup_recovery", lambda session: None)
+    monkeypatch.setattr(main, "should_run_firehose_startup", lambda **kwargs: True)
+    monkeypatch.setattr(main, "should_run_backfill_startup", lambda **kwargs: False)
+    monkeypatch.setattr(main, "has_pending_bouncer_work", lambda: False)
+    monkeypatch.setattr(main, "has_pending_analyst_work", lambda: False)
+    monkeypatch.setattr(main, "seconds_until_next_firehose_run", lambda now=None: 1800.0)
+    monkeypatch.setattr(main, "seconds_until_next_backfill_run", lambda now=None: 1800.0)
+    monkeypatch.setattr(main, "_run_due_intake_jobs", fake_run_due_intake_jobs)
+    monkeypatch.setattr(asyncio, "Event", _CapturingEvent)
+
+    asyncio.run(main.main())
+
+
 def test_main_runs_firehose_on_interval_then_stops_on_signal(monkeypatch) -> None:
     """Worker runs startup Firehose/Backfill passes, then one due cycle, then exits cleanly."""
     run_calls: list[str] = []
@@ -1428,3 +1646,23 @@ def test_run_analyst_if_pending_skips_when_another_run_is_already_active(monkeyp
 def test_calculate_paused_poll_seconds_uses_floor(monkeypatch) -> None:
     monkeypatch.setattr(main, "calculate_intake_pacing_seconds", lambda: 3)
     assert main.calculate_paused_poll_seconds() == 15
+
+
+def test_log_firehose_result_throttles_repeated_paused_poll_logs(caplog: pytest.LogCaptureFixture) -> None:
+    main._last_paused_poll_log_at.clear()
+    caplog.set_level("INFO")
+
+    paused_result = FirehoseRunResult(
+        status=FirehoseRunStatus.SKIPPED_PAUSED,
+        outcomes=[],
+        artifact_path=None,
+        artifact_error=None,
+    )
+
+    main._log_firehose_result(paused_result)
+    main._log_firehose_result(paused_result)
+
+    paused_messages = [
+        record.message for record in caplog.records if "Automatic checks will retry every" in record.message
+    ]
+    assert len(paused_messages) == 1

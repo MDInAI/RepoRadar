@@ -142,7 +142,7 @@ def run_bouncer_job(
     # Check if agent is paused
     if is_agent_paused(session, "bouncer"):
         clear_agent_progress_snapshot(runtime_dir=runtime_dir, agent_name="bouncer")
-        logger.info("Bouncer is paused, skipping run")
+        logger.debug("Bouncer is paused, skipping run")
         return BouncerRunResult(
             status=BouncerRunStatus.SKIPPED_PAUSED,
             outcomes=[],

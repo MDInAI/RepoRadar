@@ -93,7 +93,7 @@ def run_combiner_job(
     # Check if agent is paused
     if is_agent_paused(session, "combiner"):
         clear_agent_progress_snapshot(runtime_dir=runtime_dir, agent_name="combiner")
-        logger.info("Combiner is paused, skipping run")
+        logger.debug("Combiner is paused, skipping run")
         return CombinerRunResult(
             status=CombinerRunStatus.SKIPPED_PAUSED,
             run_id=None,
