@@ -7,8 +7,7 @@ export type AgentName =
   | "bouncer"
   | "analyst"
   | "combiner"
-  | "obsession"
-  | "idea_scout";
+  | "obsession";
 
 export type AgentRunStatus =
   | "running"
@@ -233,7 +232,6 @@ export const AGENT_DISPLAY_ORDER: AgentName[] = [
   "overlord",
   "firehose",
   "backfill",
-  "idea_scout",
   "bouncer",
   "analyst",
   "combiner",

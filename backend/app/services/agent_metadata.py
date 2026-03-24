@@ -158,23 +158,6 @@ def get_agent_metadata(agent_name: str) -> AgentMetadata:
                 "Any model usage currently happens through downstream synthesis jobs rather than directly here.",
             ),
         ),
-        "idea_scout": AgentMetadata(
-            agent_name="idea_scout",
-            display_name="Idea Scout",
-            role_label="Idea-driven discovery",
-            description="Searches GitHub exhaustively for repositories matching a user-provided idea, both backward through history and forward for new repos.",
-            implementation_status="live",
-            runtime_kind="github-api-worker",
-            uses_github_token=True,
-            uses_model=False,
-            configured_provider="github",
-            configured_model=None,
-            notes=(
-                "Uses the configured GitHub token pool for GitHub API requests.",
-                "Supports backward (historical) and forward (watch) search directions.",
-                "Each search has independent per-query checkpointing with time-windowed progress.",
-            ),
-        ),
     }
 
     try:

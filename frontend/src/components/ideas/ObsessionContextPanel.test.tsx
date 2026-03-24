@@ -35,9 +35,6 @@ describe('ObsessionContextPanel', () => {
       {
         id: 1,
         idea_family_id: 1,
-        synthesis_run_id: null,
-        idea_search_id: null,
-        idea_text: null,
         title: 'Test Context',
         description: 'Test description',
         status: 'active',

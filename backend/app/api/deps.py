@@ -11,7 +11,6 @@ from app.repositories.agent_event_repository import AgentEventRepository
 from app.repositories.idea_family_repository import IdeaFamilyRepository
 from app.repositories.intake_runtime_repository import IntakeRuntimeRepository
 from app.repositories.memory_repository import MemoryRepository
-from app.repositories.idea_scout_repository import IdeaScoutRepository
 from app.repositories.obsession_repository import ObsessionRepository
 from app.repositories.repository_curation_repository import RepositoryCurationRepository
 from app.repositories.repository_artifact_payload_repository import (
@@ -28,7 +27,6 @@ from app.services.backfill_timeline_service import BackfillTimelineService
 from app.services.idea_family_service import IdeaFamilyService
 from app.services.intake_runtime_service import GatewayIntakeRuntimeService
 from app.services.memory_service import MemoryService
-from app.services.idea_scout_service import IdeaScoutService
 from app.services.obsession_service import ObsessionService
 from app.services.openclaw.contract_service import GatewayContractService
 from app.services.overlord_service import OverlordService, OverlordSettings
@@ -160,12 +158,6 @@ def get_synthesis_service(
     )
 
 
-def get_idea_scout_service(
-    session: Session = Depends(get_db_session),
-) -> IdeaScoutService:
-    return IdeaScoutService(IdeaScoutRepository(session))
-
-
 def get_obsession_service(
     session: Session = Depends(get_db_session),
 ) -> ObsessionService:
@@ -173,7 +165,6 @@ def get_obsession_service(
         ObsessionRepository(session),
         IdeaFamilyRepository(session),
         SynthesisRepository(session),
-        IdeaScoutRepository(session),
     )
 
 
