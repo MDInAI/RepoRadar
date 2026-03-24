@@ -18,6 +18,8 @@ class ObsessionContextResponse(BaseModel):
     id: int
     idea_family_id: int | None
     synthesis_run_id: int | None
+    idea_search_id: int | None = None
+    idea_text: str | None = None
     title: str
     description: str | None
     status: str
@@ -38,6 +40,8 @@ class ObsessionContextDetailResponse(BaseModel):
     id: int
     idea_family_id: int | None
     synthesis_run_id: int | None
+    idea_search_id: int | None = None
+    idea_text: str | None = None
     title: str
     description: str | None
     status: str
@@ -56,6 +60,7 @@ class ObsessionContextDetailResponse(BaseModel):
 class ObsessionContextCreateRequest(BaseModel):
     idea_family_id: int | None = Field(default=None, gt=0)
     synthesis_run_id: int | None = Field(default=None, gt=0)
+    idea_text: str | None = Field(default=None, min_length=1, max_length=500)
     title: str = Field(min_length=1, max_length=200)
     description: str | None = None
     refresh_policy: str = Field(default="manual")
@@ -74,12 +79,18 @@ class ObsessionContextCreateRequest(BaseModel):
             raise ValueError("refresh_policy must be manual, daily, or weekly")
         return v
 
-    @field_validator("synthesis_run_id")
+    @field_validator("idea_text")
     @classmethod
-    def exactly_one_target(cls, v: int | None, info) -> int | None:
+    def exactly_one_target(cls, v: str | None, info) -> str | None:
         idea_family_id = info.data.get("idea_family_id")
-        if (idea_family_id is None and v is None) or (idea_family_id is not None and v is not None):
-            raise ValueError("exactly one of idea_family_id or synthesis_run_id must be provided")
+        synthesis_run_id = info.data.get("synthesis_run_id")
+        targets = sum([
+            idea_family_id is not None,
+            synthesis_run_id is not None,
+            v is not None and v.strip() != "",
+        ])
+        if targets != 1:
+            raise ValueError("exactly one of idea_family_id, synthesis_run_id, or idea_text must be provided")
         return v
 
 
