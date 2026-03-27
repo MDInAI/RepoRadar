@@ -1,6 +1,6 @@
 import { getRequiredApiBaseUrl } from "./base-url";
 
-export type RepositoryDiscoverySource = "unknown" | "firehose" | "backfill";
+export type RepositoryDiscoverySource = "unknown" | "firehose" | "backfill" | "idea_scout";
 export type RepositoryFirehoseMode = "new" | "trending";
 export type RepositoryQueueStatus = "pending" | "in_progress" | "completed" | "failed";
 export type RepositoryIntakeStatus = RepositoryQueueStatus;
@@ -266,6 +266,7 @@ export interface RepositoryCatalogViewState {
   maxStars: number | null;
   starredOnly: boolean;
   ideaFamilyId: number | null;
+  ideaSearchId: number | null;
 }
 
 export type RepositoryCatalogFilterKey =
@@ -281,7 +282,9 @@ export type RepositoryCatalogFilterKey =
   | "monetization"
   | "minStars"
   | "maxStars"
-  | "starredOnly";
+  | "starredOnly"
+  | "ideaFamilyId"
+  | "ideaSearchId";
 
 export interface RepositoryCatalogFilterChip {
   key: RepositoryCatalogFilterKey;
@@ -311,9 +314,10 @@ const DEFAULT_VIEW_STATE: RepositoryCatalogViewState = {
   maxStars: null,
   starredOnly: false,
   ideaFamilyId: null,
+  ideaSearchId: null,
 };
 
-const SOURCE_VALUES: RepositoryDiscoverySource[] = ["unknown", "firehose", "backfill"];
+const SOURCE_VALUES: RepositoryDiscoverySource[] = ["unknown", "firehose", "backfill", "idea_scout"];
 const QUEUE_VALUES: RepositoryQueueStatus[] = ["pending", "in_progress", "completed", "failed"];
 const TRIAGE_VALUES: RepositoryTriageStatus[] = ["pending", "accepted", "rejected"];
 const ANALYSIS_VALUES: RepositoryAnalysisStatus[] = [
@@ -477,6 +481,7 @@ export function parseRepositoryCatalogSearchParams(
     maxStars: parseNonNegativeInt(searchParams.get("maxStars")),
     starredOnly: parseBooleanParam(searchParams.get("starredOnly")),
     ideaFamilyId: parseNonNegativeInt(searchParams.get("ideaFamilyId")),
+    ideaSearchId: parseNonNegativeInt(searchParams.get("ideaSearchId")),
   };
 }
 
@@ -536,6 +541,12 @@ export function buildRepositoryCatalogSearchParams(
   if (state.starredOnly) {
     params.set("starredOnly", "true");
   }
+  if (state.ideaFamilyId !== null) {
+    params.set("ideaFamilyId", String(state.ideaFamilyId));
+  }
+  if (state.ideaSearchId !== null) {
+    params.set("ideaSearchId", String(state.ideaSearchId));
+  }
 
   return params;
 }
@@ -561,6 +572,8 @@ export function getRepositoryCatalogQueryKey(state: RepositoryCatalogViewState) 
     state.minStars,
     state.maxStars,
     state.starredOnly,
+    state.ideaFamilyId,
+    state.ideaSearchId,
   ] as const;
 }
 
@@ -631,6 +644,9 @@ function buildRepositoryCatalogApiParams(
   }
   if (state.ideaFamilyId !== null) {
     params.set("idea_family_id", String(state.ideaFamilyId));
+  }
+  if (state.ideaSearchId !== null) {
+    params.set("idea_search_id", String(state.ideaSearchId));
   }
   return params;
 }
@@ -999,6 +1015,18 @@ export function describeRepositoryCatalogFilters(
       label: "Starred only",
     });
   }
+  if (state.ideaFamilyId !== null) {
+    chips.push({
+      key: "ideaFamilyId",
+      label: `Idea Family: #${state.ideaFamilyId}`,
+    });
+  }
+  if (state.ideaSearchId !== null) {
+    chips.push({
+      key: "ideaSearchId",
+      label: `Scout Search: #${state.ideaSearchId}`,
+    });
+  }
 
   return chips;
 }
@@ -1051,6 +1079,12 @@ export function clearRepositoryCatalogFilter(
   if (key === "starredOnly") {
     nextState.starredOnly = false;
   }
+  if (key === "ideaFamilyId") {
+    nextState.ideaFamilyId = null;
+  }
+  if (key === "ideaSearchId") {
+    nextState.ideaSearchId = null;
+  }
 
   return nextState;
 }
@@ -1074,5 +1108,7 @@ export function clearAllRepositoryCatalogFilters(
     minStars: null,
     maxStars: null,
     starredOnly: false,
+    ideaFamilyId: null,
+    ideaSearchId: null,
   };
 }

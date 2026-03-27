@@ -7,6 +7,9 @@ from time import perf_counter
 from sqlmodel import Session, create_engine
 
 from app.models import (
+    IdeaSearch,
+    IdeaSearchDirection,
+    IdeaSearchDiscovery,
     RepositoryAnalysisResult,
     RepositoryAnalysisStatus,
     RepositoryArtifact,
@@ -230,6 +233,16 @@ def test_list_repository_catalog_supports_combined_filters_and_search(tmp_path: 
     assert page.items[0].full_name == "octocat/growth-engine"
 
 
+def test_build_agent_tags_includes_scout_marker_for_idea_scout_discoveries() -> None:
+    tags = RepositoryExplorationRepository._build_agent_tags(
+        ["workflow"],
+        discovery_source=RepositoryDiscoverySource.IDEA_SCOUT,
+        firehose_discovery_mode=None,
+    )
+
+    assert tags == ["idea_scout", "workflow"]
+
+
 def _default_params(**overrides: object) -> RepositoryCatalogListParams:
     defaults = dict(
         page=1,
@@ -343,6 +356,72 @@ def test_filter_by_star_range(tmp_path: Path) -> None:
         page = repo.list_repository_catalog(_default_params(min_stars=400, max_stars=600))
     assert page.total == 1
     assert page.items[0].github_repository_id == 101
+
+
+def test_filter_by_idea_search_id_returns_only_repositories_for_that_search(tmp_path: Path) -> None:
+    with _make_session(tmp_path) as session:
+        _seed_catalog(session)
+        search = IdeaSearch(
+            idea_text="Find workflow copilots",
+            search_queries=["workflow copilot", "ai operations assistant"],
+            direction=IdeaSearchDirection.BACKWARD,
+        )
+        session.add(search)
+        session.commit()
+        session.refresh(search)
+        session.add_all(
+            [
+                IdeaSearchDiscovery(
+                    idea_search_id=search.id,
+                    github_repository_id=101,
+                ),
+                IdeaSearchDiscovery(
+                    idea_search_id=search.id,
+                    github_repository_id=303,
+                ),
+            ]
+        )
+        session.commit()
+
+        repo = RepositoryExplorationRepository(session)
+        page = repo.list_repository_catalog(_default_params(idea_search_id=search.id))
+
+    assert page.total == 2
+    assert [item.github_repository_id for item in page.items] == [303, 101]
+
+
+def test_filter_by_scout_agent_tag_matches_scout_discovery_source_without_analysis(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+
+    with _make_session(tmp_path) as session:
+        session.add(
+            RepositoryIntake(
+                github_repository_id=404,
+                owner_login="scout",
+                repository_name="watchlist",
+                full_name="scout/watchlist",
+                repository_description="Pending Scout discovery without analysis yet",
+                stargazers_count=25,
+                forks_count=2,
+                pushed_at=now,
+                discovery_source=RepositoryDiscoverySource.IDEA_SCOUT,
+                queue_status=RepositoryQueueStatus.PENDING,
+                triage_status=RepositoryTriageStatus.PENDING,
+                analysis_status=RepositoryAnalysisStatus.PENDING,
+                discovered_at=now,
+                queue_created_at=now,
+                status_updated_at=now,
+            )
+        )
+        session.commit()
+
+        repo = RepositoryExplorationRepository(session)
+        page = repo.list_repository_catalog(_default_params(agent_tag="idea_scout"))
+
+    assert page.total == 1
+    assert [item.github_repository_id for item in page.items] == [404]
 
 
 def test_get_repository_exploration_preserves_failed_analysis_with_artifact_records(

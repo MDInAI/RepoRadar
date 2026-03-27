@@ -143,3 +143,31 @@ def test_validate_startup_recovery_marks_stale_running_backfill_run_failed() -> 
         ).all()
         assert recovery_events
         assert "Recovered stale active backfill run" in recovery_events[0].message
+
+
+def test_validate_startup_recovery_marks_stale_running_idea_scout_run_failed() -> None:
+    with _build_session() as session:
+        running_run = AgentRun(
+            agent_name="idea_scout",
+            status=AgentRunStatus.RUNNING,
+            started_at=datetime.now(timezone.utc),
+        )
+        session.add(running_run)
+        session.commit()
+        session.refresh(running_run)
+
+        validate_startup_recovery(session)
+
+        session.refresh(running_run)
+        assert running_run.status is AgentRunStatus.FAILED
+        assert running_run.completed_at is not None
+        assert running_run.error_summary == "Recovered stale running job during worker startup."
+
+        recovery_events = session.exec(
+            select(SystemEvent)
+            .where(SystemEvent.agent_name == "idea_scout")
+            .where(SystemEvent.event_type == "worker_recovered")
+            .order_by(SystemEvent.id.asc())
+        ).all()
+        assert recovery_events
+        assert "Recovered stale active idea_scout run" in recovery_events[0].message

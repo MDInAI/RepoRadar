@@ -29,7 +29,7 @@ export const useIdeaSearch = (searchId: number) => {
     enabled: !!searchId,
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status === "active" ? 5000 : false;
+      return status === "active" ? 15_000 : false;
     },
   });
 };

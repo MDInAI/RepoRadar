@@ -103,6 +103,19 @@ function titleCase(value: string): string {
     .join(" ");
 }
 
+function getDiscoverySourceLabel(source: string): string {
+  if (source === "idea_scout") return "Scout";
+  if (source === "backfill") return "Backfill";
+  if (source === "firehose") return "Firehose";
+  return titleCase(source);
+}
+
+function getDiscoverySourceBadgeClass(source: string): string {
+  if (source === "idea_scout") return "tag tag-scout";
+  if (source === "backfill") return "tag tag-backfill";
+  return "tag tag-active"; // firehose
+}
+
 function renderTagList(tags: string[], className: string, emptyLabel = "None yet") {
   if (tags.length === 0) {
     return <span style={{ color: "var(--text-3)" }}>{emptyLabel}</span>;
@@ -496,7 +509,9 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
               {detail.is_starred ? "★ Watchlisted" : "☆ Watchlist"}
             </button>
             <span className="badge badge-green">{titleCase(detail.analysis_status)}</span>
-            <span className="badge badge-blue">{titleCase(detail.discovery_source)}</span>
+            <span className={getDiscoverySourceBadgeClass(detail.discovery_source)}>
+              {getDiscoverySourceLabel(detail.discovery_source)}
+            </span>
             {detail.analysis_summary?.monetization_potential ? (
               <span className="badge badge-yellow">
                 {titleCase(detail.analysis_summary.monetization_potential)} Fit
@@ -543,7 +558,9 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                   <div className="repo-insight-grid">
                     <div className="repo-inline-card">
                       <p className="card-label">Discovery Route</p>
-                      <p className="repo-inline-card-value">{titleCase(detail.discovery_source)}</p>
+                      <p className="repo-inline-card-value">
+                        {getDiscoverySourceLabel(detail.discovery_source)}
+                      </p>
                     </div>
                     <div className="repo-inline-card">
                       <p className="card-label">Triage</p>

@@ -42,7 +42,7 @@ def persist_idea_scout_batch(
             sqlite_insert(IdeaSearchDiscovery)
             .values(
                 idea_search_id=idea_search_id,
-                github_repository_id=repo.github_id,
+                github_repository_id=repo.github_repository_id,
                 discovered_at=now,
             )
             .on_conflict_do_nothing(

@@ -46,7 +46,16 @@ function getFitClass(fit: string | null): string {
 }
 
 function getSourceClass(source: string): string {
-  return source === "backfill" ? "tag tag-blue" : "tag tag-active";
+  if (source === "idea_scout") return "tag tag-scout";
+  if (source === "backfill") return "tag tag-backfill";
+  return "tag tag-active"; // firehose → amber
+}
+
+function formatSource(source: string): string {
+  if (source === "idea_scout") return "Scout";
+  if (source === "backfill") return "Backfill";
+  if (source === "firehose") return "Firehose";
+  return formatToken(source);
 }
 
 function getStatusClass(status: string): string {
@@ -168,7 +177,7 @@ export function RepositoryCatalogTable({
                 </td>
                 <td>
                   <span className={getSourceClass(item.discovery_source)}>
-                    {formatToken(item.discovery_source)}
+                    {formatSource(item.discovery_source)}
                   </span>
                 </td>
                 <td>{renderTagList(item.agent_tags ?? [], "tag tag-agent")}</td>

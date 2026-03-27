@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from app.models import (
     IdeaFamilyMembership,
+    IdeaSearchDiscovery,
     RepositoryAnalysisResult,
     RepositoryAnalysisStatus,
     RepositoryArtifact,
@@ -130,6 +131,7 @@ class RepositoryCatalogListParams:
     starred_only: bool = False
     user_tag: str | None = None
     idea_family_id: int | None = None
+    idea_search_id: int | None = None
     sort_by: str = "stars"
     sort_order: str = "desc"
 
@@ -350,6 +352,9 @@ class RepositoryExplorationRepository:
         params: RepositoryCatalogListParams,
     ) -> RepositoryCatalogPageRecord:
         filters: list[object] = []
+        scout_scoped_view = params.discovery_source is RepositoryDiscoverySource.IDEA_SCOUT or (
+            params.agent_tag is not None and params.agent_tag.strip().lower() == "idea_scout"
+        )
         if params.discovery_source is not None:
             filters.append(RepositoryIntake.discovery_source == params.discovery_source)
         if params.queue_status is not None:
@@ -370,6 +375,8 @@ class RepositoryExplorationRepository:
             and params.triage_status is None
             and params.analysis_status is None
             and not params.has_failures
+            and params.idea_search_id is None
+            and not scout_scoped_view
         ):
             filters.append(RepositoryIntake.triage_status == RepositoryTriageStatus.ACCEPTED)
             filters.append(RepositoryIntake.analysis_status == RepositoryAnalysisStatus.COMPLETED)
@@ -384,6 +391,11 @@ class RepositoryExplorationRepository:
                 f'%"{escaped_agent_tag}"%',
                 escape="\\",
             )
+            if normalized_agent_tag == "idea_scout":
+                agent_tag_filter = or_(
+                    agent_tag_filter,
+                    RepositoryIntake.discovery_source == RepositoryDiscoverySource.IDEA_SCOUT,
+                )
             if normalized_agent_tag in {
                 RepositoryFirehoseMode.NEW.value,
                 RepositoryFirehoseMode.TRENDING.value,
@@ -421,6 +433,16 @@ class RepositoryExplorationRepository:
                         IdeaFamilyMembership.github_repository_id
                         == RepositoryIntake.github_repository_id,
                         IdeaFamilyMembership.idea_family_id == params.idea_family_id,
+                    )
+                )
+            )
+        if params.idea_search_id:
+            filters.append(
+                exists(
+                    select(IdeaSearchDiscovery.id).where(
+                        IdeaSearchDiscovery.github_repository_id
+                        == RepositoryIntake.github_repository_id,
+                        IdeaSearchDiscovery.idea_search_id == params.idea_search_id,
                     )
                 )
             )
@@ -738,6 +760,13 @@ class RepositoryExplorationRepository:
     ) -> list[str]:
         tags = [str(tag) for tag in (analysis_tags or [])]
         seen = {tag.lower() for tag in tags}
+
+        if (
+            discovery_source is RepositoryDiscoverySource.IDEA_SCOUT
+            and "idea_scout" not in seen
+        ):
+            tags.insert(0, "idea_scout")
+            seen.add("idea_scout")
 
         if (
             discovery_source is RepositoryDiscoverySource.FIREHOSE

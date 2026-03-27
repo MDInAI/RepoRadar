@@ -23,7 +23,7 @@ from agentic_workers.storage.backfill_progress import load_backfill_progress
 from agentic_workers.storage.firehose_progress import load_firehose_progress
 
 logger = logging.getLogger(__name__)
-_WORKER_MANAGED_AGENTS = ("firehose", "backfill", "bouncer", "analyst", "combiner")
+_WORKER_MANAGED_AGENTS = ("firehose", "backfill", "bouncer", "analyst", "combiner", "idea_scout")
 
 
 def validate_startup_recovery(session: Session) -> None:

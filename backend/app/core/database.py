@@ -1,5 +1,6 @@
 from sqlalchemy import event
 from sqlalchemy.engine import make_url
+from sqlalchemy.pool import NullPool
 from sqlmodel import Session, create_engine
 
 from app.core.config import settings
@@ -12,6 +13,7 @@ def _create_engine_kwargs(database_url: str) -> dict[str, object]:
     try:
         if make_url(database_url).get_backend_name() == "sqlite":
             kwargs["connect_args"] = {"timeout": 30, "check_same_thread": False}
+            kwargs["poolclass"] = NullPool
     except Exception:
         pass
     return kwargs
@@ -37,10 +39,12 @@ def set_sqlite_pragma(dbapi_conn, connection_record):
 
 
 def get_session():
-    with Session(engine) as session:
-        try:
-            yield session
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
+    session = Session(engine)
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()

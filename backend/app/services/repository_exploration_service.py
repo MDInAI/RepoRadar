@@ -287,6 +287,7 @@ class RepositoryExplorationService:
                 starred_only=params.starred_only,
                 user_tag=params.user_tag,
                 idea_family_id=params.idea_family_id,
+                idea_search_id=params.idea_search_id,
                 sort_by=params.sort_by.value,
                 sort_order=params.sort_order.value,
             )

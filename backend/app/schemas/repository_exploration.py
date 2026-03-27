@@ -183,6 +183,7 @@ class RepositoryCatalogQueryParams(BaseModel):
     starred_only: bool = False
     user_tag: str | None = None
     idea_family_id: int | None = None
+    idea_search_id: int | None = None
     sort_by: RepositoryCatalogSortBy = RepositoryCatalogSortBy.STARS
     sort_order: RepositoryCatalogSortOrder = RepositoryCatalogSortOrder.DESC
 

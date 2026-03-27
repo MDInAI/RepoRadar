@@ -48,6 +48,8 @@ class IdeaSearchProgressSummary(BaseModel):
     next_page: int
     pages_processed_in_run: int
     last_checkpointed_at: datetime | None
+    consecutive_errors: int = 0
+    last_error: str | None = None
 
 
 class IdeaSearchDetailResponse(BaseModel):
