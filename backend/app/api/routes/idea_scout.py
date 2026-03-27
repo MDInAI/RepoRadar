@@ -74,6 +74,8 @@ def get_search(
                 next_page=p.next_page,
                 pages_processed_in_run=p.pages_processed_in_run,
                 last_checkpointed_at=p.last_checkpointed_at,
+                consecutive_errors=p.consecutive_errors,
+                last_error=p.last_error,
             )
             for p in progress
         ],

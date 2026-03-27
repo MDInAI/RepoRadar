@@ -5,49 +5,76 @@ import type { IdeaSearchProgressSummary } from "@/api/idea-scout";
 interface IdeaSearchProgressBarProps {
   progress: IdeaSearchProgressSummary[];
   direction: "backward" | "forward";
+  totalQueries: number;
 }
 
-export function IdeaSearchProgressBar({ progress, direction }: IdeaSearchProgressBarProps) {
+const SCAN_ORIGIN = new Date("2008-01-01").getTime();
+
+function computeOverallPct(progress: IdeaSearchProgressSummary[]): number {
+  if (!progress.length) return 0;
+  const today = Date.now();
+  const totalSpan = today - SCAN_ORIGIN; // today - Jan 2008
+  if (totalSpan <= 0) return 100;
+  let totalPct = 0;
+  for (const p of progress) {
+    if (p.exhausted) {
+      totalPct += 100;
+    } else {
+      const cur = new Date(p.window_start_date).getTime();
+      const scannedSpan = today - cur; // how far back from today we've scanned
+      totalPct += Math.min(100, Math.max(0, (scannedSpan / totalSpan) * 100));
+    }
+  }
+  return Math.round(totalPct / progress.length);
+}
+
+function queryStateLabel(p: IdeaSearchProgressSummary): string {
+  if (p.exhausted) return "done";
+  if (p.consecutive_errors > 0) return "error";
+  if (p.resume_required) return "scanning";
+  return "pending";
+}
+
+function queryStateBadgeClass(p: IdeaSearchProgressSummary): string {
+  if (p.exhausted) return "scout-badge scout-badge-completed";
+  if (p.consecutive_errors > 0) return "scout-badge scout-badge-error";
+  if (p.resume_required) return "scout-badge scout-badge-active";
+  return "scout-badge scout-badge-meta";
+}
+
+export function IdeaSearchProgressBar({ progress, direction, totalQueries }: IdeaSearchProgressBarProps) {
   if (!progress.length) {
-    return <span className="text-xs text-neutral-500">No progress yet</span>;
+    return <div className="scout-progress-empty-text">Waiting for first scan cycle\u2026</div>;
   }
 
-  const exhaustedCount = progress.filter((p) => p.exhausted).length;
-  const totalQueries = progress.length;
-  const pct = totalQueries > 0 ? Math.round((exhaustedCount / totalQueries) * 100) : 0;
+  const exhaustedCount = progress.filter((item) => item.exhausted).length;
+  const errorCount = progress.filter((item) => item.consecutive_errors > 0).length;
+  const overallPct = direction === "backward" ? computeOverallPct(progress) : null;
+
+  const dirLabel = direction === "backward"
+    ? "Scanning GitHub history from today back to 2008"
+    : "Watching for newly created repos";
 
   return (
-    <div className="space-y-1">
-      <div className="flex justify-between text-xs text-neutral-400">
-        <span>
-          {direction === "backward" ? "Historical scan" : "Forward watch"} &mdash;{" "}
+    <div className="scout-progress-wrap">
+      <div className="scout-progress-info">
+        <span>{dirLabel}</span>
+        <span className="scout-progress-pct">
           {exhaustedCount}/{totalQueries} queries done
+          {errorCount > 0 && <span className="scout-progress-error-hint"> &middot; {errorCount} with errors</span>}
         </span>
-        <span>{pct}%</span>
       </div>
-      <div className="h-1.5 bg-neutral-700 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-indigo-500 rounded-full transition-all"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <div className="flex flex-wrap gap-1 mt-1">
-        {progress.map((p) => (
-          <span
-            key={p.query_index}
-            className={`inline-block w-2 h-2 rounded-full ${
-              p.exhausted
-                ? "bg-green-500"
-                : p.resume_required
-                  ? "bg-yellow-500"
-                  : "bg-indigo-500 animate-pulse"
-            }`}
-            title={`Query ${p.query_index}: ${p.window_start_date} → ${p.created_before_boundary}${
-              p.exhausted ? " (done)" : ""
-            }`}
+      {overallPct !== null && (
+        <div className="scout-progress-track">
+          <div
+            className={`scout-progress-fill ${errorCount > 0 ? "scout-progress-fill-warn" : ""}`}
+            style={{ width: `${overallPct}%` }}
           />
-        ))}
-      </div>
+          <span className="scout-progress-pct-label">{overallPct}%</span>
+        </div>
+      )}
     </div>
   );
 }
+
+export { queryStateLabel, queryStateBadgeClass };

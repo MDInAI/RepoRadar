@@ -44,6 +44,8 @@ class IdeaSearchProgressRecord:
     pages_processed_in_run: int
     last_checkpointed_at: datetime | None
     updated_at: datetime
+    consecutive_errors: int = 0
+    last_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -157,6 +159,8 @@ class IdeaScoutRepository:
                 pages_processed_in_run=r.pages_processed_in_run,
                 last_checkpointed_at=r.last_checkpointed_at,
                 updated_at=r.updated_at,
+                consecutive_errors=getattr(r, "consecutive_errors", 0) or 0,
+                last_error=getattr(r, "last_error", None),
             )
             for r in records
         ]

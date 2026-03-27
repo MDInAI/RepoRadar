@@ -11,6 +11,7 @@ import time
 import pytest
 from sqlalchemy.exc import OperationalError
 
+from agentic_workers.core.events import DuplicateActiveAgentRunError
 from agentic_workers.jobs.analyst_job import (
     AnalystRepositoryOutcome,
     AnalystRunResult,
@@ -30,6 +31,10 @@ from agentic_workers.jobs.firehose_job import (
     FirehosePageOutcome,
     FirehoseRunResult,
     FirehoseRunStatus,
+)
+from agentic_workers.jobs.idea_scout_job import (
+    IdeaScoutRunResult,
+    IdeaScoutRunStatus,
 )
 from agentic_workers.providers.github_provider import FirehoseMode
 from agentic_workers.storage.backfill_progress import BackfillCheckpointState
@@ -67,6 +72,11 @@ class DummySession:
 
     def rollback(self) -> None:
         return None
+
+
+async def _noop_pending_runner(**kwargs: object) -> bool:
+    del kwargs
+    return False
 
 
 def test_configured_firehose_job_uses_settings_and_runtime_paths(monkeypatch, tmp_path: Path) -> None:
@@ -307,6 +317,81 @@ def test_configured_backfill_job_skips_tracking_when_paused(monkeypatch, tmp_pat
     assert result.status is BackfillRunStatus.SKIPPED_PAUSED
     assert cleared == {"runtime_dir": tmp_path, "agent_name": "backfill"}
     assert captured["agent_run_id"] is None
+
+
+def test_configured_idea_scout_cycle_uses_settings_and_runtime_paths(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class StubSettings:
+        github_provider_token_values = ("worker-token", "backup-token")
+        github_provider_token_value = "worker-token"
+
+        class runtime:
+            runtime_dir = tmp_path
+
+        class provider:
+            github_requests_per_minute = 30
+            intake_pacing_seconds = 3
+            idea_scout_per_page = 20
+            idea_scout_pages_per_run = 2
+            idea_scout_pacing_seconds = 2
+            idea_scout_window_days = 14
+            idea_scout_min_created_date = date(2020, 1, 1)
+
+    def fake_run_idea_scout_cycle(**kwargs: object) -> IdeaScoutRunResult:
+        captured.update(kwargs)
+        return IdeaScoutRunResult(
+            status=IdeaScoutRunStatus.SUCCESS,
+            outcomes=[],
+            searches_processed=0,
+            artifact_path=None,
+        )
+
+    monkeypatch.setattr(main, "settings", StubSettings())
+    monkeypatch.setattr(main, "GitHubFirehoseProvider", DummyProvider)
+    monkeypatch.setattr(main, "Session", DummySession)
+    monkeypatch.setattr(main, "engine", object())
+    monkeypatch.setattr(main, "run_idea_scout_cycle", fake_run_idea_scout_cycle)
+    monkeypatch.setattr(main, "start_agent_run", lambda session, agent_name: 17)
+    monkeypatch.setattr(
+        main,
+        "finalize_agent_run",
+        lambda session, run_id, items_processed, items_succeeded, items_failed, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        main,
+        "record_failed_agent_run",
+        lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed, **kwargs: None,
+    )
+
+    result = main.run_configured_idea_scout_cycle()
+
+    assert result.status is IdeaScoutRunStatus.SUCCESS
+    assert isinstance(captured["provider"], DummyProvider)
+    assert captured["provider"].github_token == "worker-token"
+    assert captured["provider"].github_tokens == ("worker-token", "backup-token")
+    assert captured["provider"].runtime_dir == tmp_path
+    assert captured["runtime_dir"] == tmp_path
+    assert captured["pacing_seconds"] == 2  # uses idea_scout_pacing_seconds, not intake_pacing_seconds
+    assert captured["per_page"] == 20
+    assert captured["pages_per_search"] == 2
+    assert captured["window_days"] == 14
+    assert captured["min_created_date"] == date(2020, 1, 1)
+
+
+def test_calculate_idea_scout_run_timeout_scales_with_active_searches(monkeypatch) -> None:
+    class StubSettings:
+        class provider:
+            idea_scout_pages_per_run = 3
+
+    monkeypatch.setattr(main, "settings", StubSettings())
+
+    timeout_seconds = main.calculate_idea_scout_run_timeout_seconds(active_search_count=4)
+
+    assert timeout_seconds == 840
 
 
 def test_configured_bouncer_job_uses_settings_and_runtime_paths(monkeypatch, tmp_path: Path) -> None:
@@ -1211,6 +1296,7 @@ def test_main_skips_startup_backfill_until_interval_due(monkeypatch) -> None:
             backfill_pages = 1
             backfill_window_days = 30
             backfill_min_created_date = "2008-01-01"
+            idea_scout_interval_seconds = 900
 
     success_firehose_result = FirehoseRunResult(
         status=FirehoseRunStatus.SUCCESS,
@@ -1254,6 +1340,10 @@ def test_main_skips_startup_backfill_until_interval_due(monkeypatch) -> None:
     monkeypatch.setattr(main, "has_pending_bouncer_work", lambda: False)
     monkeypatch.setattr(main, "seconds_until_next_firehose_run", lambda now=None: 1800.0)
     monkeypatch.setattr(main, "seconds_until_next_backfill_run", lambda now=None: 1800.0)
+    monkeypatch.setattr(main, "_run_bouncer_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_analyst_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_combiner_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_idea_scout_if_pending", _noop_pending_runner)
     monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
     monkeypatch.setattr(asyncio, "Event", _CapturingEvent)
 
@@ -1285,6 +1375,7 @@ def test_main_logs_firehose_interval_gate_when_no_resume_is_pending(
             backfill_pages = 1
             backfill_window_days = 30
             backfill_min_created_date = "2008-01-01"
+            idea_scout_interval_seconds = 900
 
     success_firehose_result = FirehoseRunResult(
         status=FirehoseRunStatus.SUCCESS,
@@ -1329,6 +1420,10 @@ def test_main_logs_firehose_interval_gate_when_no_resume_is_pending(
     monkeypatch.setattr(main, "seconds_until_next_firehose_run", lambda now=None: 1800.0)
     monkeypatch.setattr(main, "seconds_until_next_backfill_run", lambda now=None: 1800.0)
     monkeypatch.setattr(main, "calculate_firehose_interval_seconds", lambda: 1800)
+    monkeypatch.setattr(main, "_run_bouncer_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_analyst_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_combiner_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_idea_scout_if_pending", _noop_pending_runner)
     monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
     monkeypatch.setattr(asyncio, "Event", _CapturingEvent)
     caplog.set_level("INFO", logger=main.logger.name)
@@ -1340,6 +1435,75 @@ def test_main_logs_firehose_interval_gate_when_no_resume_is_pending(
         "Skipping immediate follow-up Firehose pass; next run remains gated by the configured 1800s interval."
         in caplog.text
     )
+
+
+def test_main_runs_startup_idea_scout_when_searches_are_pending(monkeypatch) -> None:
+    call_order: list[str] = []
+
+    class StubSettings:
+        github_provider_token_value = None
+
+        class runtime:
+            runtime_dir = None
+
+        class provider:
+            github_requests_per_minute = 60
+            intake_pacing_seconds = 30
+            firehose_interval_seconds = 1800
+            firehose_per_page = 100
+            firehose_pages = 1
+            backfill_interval_seconds = 3600
+            backfill_per_page = 100
+            backfill_pages = 1
+            backfill_window_days = 30
+            backfill_min_created_date = "2008-01-01"
+            idea_scout_interval_seconds = 900
+
+    _real_event_class = asyncio.Event
+    stop_event_ref: list[asyncio.Event] = []
+
+    class _CapturingEvent:
+        def __init__(self) -> None:
+            self._inner = _real_event_class()
+            if not stop_event_ref:
+                stop_event_ref.append(self._inner)
+
+        def set(self) -> None:
+            self._inner.set()
+
+        def is_set(self) -> bool:
+            return self._inner.is_set()
+
+        async def wait(self) -> None:
+            await self._inner.wait()
+
+    async def fake_run_idea_scout_if_pending(*, stop_event: asyncio.Event, thread_stop: threading.Event) -> bool:
+        del stop_event, thread_stop
+        call_order.append("idea_scout")
+        if stop_event_ref:
+            stop_event_ref[0].set()
+        return True
+
+    @contextmanager
+    def fake_worker_lock(_runtime_dir: Path | None):
+        yield
+
+    monkeypatch.setattr(main, "settings", StubSettings())
+    monkeypatch.setattr(main, "validate_startup_recovery", lambda session: None)
+    monkeypatch.setattr(main, "should_run_firehose_startup", lambda **kwargs: False)
+    monkeypatch.setattr(main, "should_run_backfill_startup", lambda **kwargs: False)
+    monkeypatch.setattr(main, "_run_bouncer_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_analyst_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_combiner_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_idea_scout_if_pending", fake_run_idea_scout_if_pending)
+    monkeypatch.setattr(main, "seconds_until_next_firehose_run", lambda now=None: 1800.0)
+    monkeypatch.setattr(main, "seconds_until_next_backfill_run", lambda now=None: 1800.0)
+    monkeypatch.setattr(main, "_acquire_worker_process_lock", fake_worker_lock)
+    monkeypatch.setattr(asyncio, "Event", _CapturingEvent)
+
+    asyncio.run(main.main())
+
+    assert call_order == ["idea_scout"]
 
 
 def test_main_runs_startup_backfill_without_extra_sleep_when_firehose_is_skipped(
@@ -1364,6 +1528,7 @@ def test_main_runs_startup_backfill_without_extra_sleep_when_firehose_is_skipped
             backfill_pages = 1
             backfill_window_days = 30
             backfill_min_created_date = "2008-01-01"
+            idea_scout_interval_seconds = 900
 
     success_backfill_result = BackfillRunResult(
         status=BackfillRunStatus.SUCCESS,
@@ -1397,6 +1562,9 @@ def test_main_runs_startup_backfill_without_extra_sleep_when_firehose_is_skipped
             if stop_event_ref:
                 stop_event_ref[0].set()
             return success_backfill_result
+        # Ignore rate-limit health polls and other housekeeping calls
+        if func is main._poll_github_rate_limits:
+            return None
         call_order.append("sleep")
         return None
 
@@ -1407,6 +1575,10 @@ def test_main_runs_startup_backfill_without_extra_sleep_when_firehose_is_skipped
     monkeypatch.setattr(main, "has_pending_bouncer_work", lambda: False)
     monkeypatch.setattr(main, "seconds_until_next_firehose_run", lambda now=None: 1800.0)
     monkeypatch.setattr(main, "seconds_until_next_backfill_run", lambda now=None: 1800.0)
+    monkeypatch.setattr(main, "_run_bouncer_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_analyst_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_combiner_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_idea_scout_if_pending", _noop_pending_runner)
     monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
     monkeypatch.setattr(asyncio, "Event", _CapturingEvent)
 
@@ -1435,6 +1607,7 @@ def test_main_exits_on_startup_firehose_failure(monkeypatch) -> None:
             backfill_pages = 2
             backfill_window_days = 30
             backfill_min_created_date = "2008-01-01"
+            idea_scout_interval_seconds = 900
 
     def failing_job(**kwargs: object) -> None:
         raise RuntimeError("database unavailable")
@@ -1469,6 +1642,7 @@ def test_main_keeps_running_when_startup_firehose_hits_transient_sqlite_lock(mon
             backfill_pages = 2
             backfill_window_days = 30
             backfill_min_created_date = "2008-01-01"
+            idea_scout_interval_seconds = 900
 
     _real_event_class = asyncio.Event
     stop_event_ref: list[asyncio.Event] = []
@@ -1505,6 +1679,10 @@ def test_main_keeps_running_when_startup_firehose_hits_transient_sqlite_lock(mon
     monkeypatch.setattr(main, "seconds_until_next_firehose_run", lambda now=None: 1800.0)
     monkeypatch.setattr(main, "seconds_until_next_backfill_run", lambda now=None: 1800.0)
     monkeypatch.setattr(main, "_run_due_intake_jobs", fake_run_due_intake_jobs)
+    monkeypatch.setattr(main, "_run_bouncer_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_analyst_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_combiner_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_idea_scout_if_pending", _noop_pending_runner)
     monkeypatch.setattr(asyncio, "Event", _CapturingEvent)
 
     asyncio.run(main.main())
@@ -1531,6 +1709,7 @@ def test_main_runs_firehose_on_interval_then_stops_on_signal(monkeypatch) -> Non
             backfill_pages = 1
             backfill_window_days = 30
             backfill_min_created_date = "2008-01-01"
+            idea_scout_interval_seconds = 900
 
     success_firehose_result = FirehoseRunResult(
         status=FirehoseRunStatus.SUCCESS,
@@ -1589,6 +1768,10 @@ def test_main_runs_firehose_on_interval_then_stops_on_signal(monkeypatch) -> Non
     monkeypatch.setattr(main, "has_pending_analyst_work", lambda: False)
     monkeypatch.setattr(main, "seconds_until_next_firehose_run", lambda now=None: 0.0)
     monkeypatch.setattr(main, "seconds_until_next_backfill_run", lambda now=None: 0.0)
+    monkeypatch.setattr(main, "_run_bouncer_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_analyst_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_combiner_if_pending", _noop_pending_runner)
+    monkeypatch.setattr(main, "_run_idea_scout_if_pending", _noop_pending_runner)
     monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
     monkeypatch.setattr(asyncio, "Event", _CapturingEvent)
     # Return 0 so asyncio.wait_for raises TimeoutError immediately — no real sleep.
@@ -1639,6 +1822,43 @@ def test_run_analyst_if_pending_skips_when_another_run_is_already_active(monkeyp
         raise main.DuplicateActiveAgentRunError("analyst")
 
     monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+    assert asyncio.run(run_once()) is False
+
+
+def test_run_idea_scout_if_pending_skips_when_another_run_is_already_active(monkeypatch) -> None:
+    async def run_once() -> bool:
+        stop_event = asyncio.Event()
+        thread_stop = type("ThreadStop", (), {"is_set": lambda self: False})()
+        return await main._run_idea_scout_if_pending(stop_event=stop_event, thread_stop=thread_stop)
+
+    monkeypatch.setattr(main, "count_pending_idea_scout_searches", lambda: 2)
+    monkeypatch.setattr(main, "calculate_idea_scout_run_timeout_seconds", lambda active_search_count: 60)
+
+    async def fake_to_thread(func: object, *args: object, **kwargs: object) -> object:
+        raise DuplicateActiveAgentRunError("idea_scout")
+
+    monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+    assert asyncio.run(run_once()) is False
+
+
+def test_run_idea_scout_if_pending_times_out_and_retries_later(monkeypatch) -> None:
+    async def run_once() -> bool:
+        stop_event = asyncio.Event()
+        thread_stop = threading.Event()
+        return await main._run_idea_scout_if_pending(stop_event=stop_event, thread_stop=thread_stop)
+
+    monkeypatch.setattr(main, "count_pending_idea_scout_searches", lambda: 1)
+    monkeypatch.setattr(main, "calculate_idea_scout_run_timeout_seconds", lambda active_search_count: 1)
+
+    async def fake_wait_for(awaitable: object, timeout: float) -> object:
+        if hasattr(awaitable, "close"):
+            awaitable.close()
+        del timeout
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(asyncio, "wait_for", fake_wait_for)
 
     assert asyncio.run(run_once()) is False
 

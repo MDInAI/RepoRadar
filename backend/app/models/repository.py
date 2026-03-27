@@ -727,6 +727,14 @@ class IdeaSearchProgress(SQLModel, table=True):
         default=None,
         sa_column=Column(UTCDateTimeType(), nullable=True),
     )
+    consecutive_errors: int = Field(
+        default=0,
+        sa_column=Column(Integer, nullable=False, server_default=text("0")),
+    )
+    last_error: str | None = Field(
+        default=None,
+        sa_column=Column(Text(), nullable=True),
+    )
     updated_at: datetime = Field(
         default_factory=_utcnow,
         sa_column=Column(

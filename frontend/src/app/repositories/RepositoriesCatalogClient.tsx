@@ -277,6 +277,9 @@ export function RepositoriesCatalogClient() {
           <div style={{ display: "flex", gap: "10px", marginLeft: "auto" }}>
             <span className="badge badge-muted">{data.total.toLocaleString()} total</span>
             {viewState.starredOnly ? <span className="badge badge-yellow">Starred only</span> : null}
+            {viewState.ideaSearchId !== null ? (
+              <span className="badge badge-blue">Scout search #{viewState.ideaSearchId}</span>
+            ) : null}
           </div>
         )}
       </div>
@@ -335,6 +338,20 @@ export function RepositoriesCatalogClient() {
             }}
           />
         </div>
+
+        {viewState.ideaSearchId !== null ? (
+          <div className="card" style={{ marginTop: "16px" }}>
+            <p className="card-label">Scout Trail</p>
+            <h2 className="card-title" style={{ marginTop: "8px", fontSize: "16px" }}>
+              Showing repositories linked to Scout search #{viewState.ideaSearchId}
+            </h2>
+            <p style={{ marginTop: "8px", color: "var(--text-2)", maxWidth: "780px" }}>
+              This view is narrowed to the repositories discovered by one specific Scout search, so
+              you can follow that search history in the main repository catalog instead of mixing it
+              with every other Scout run.
+            </p>
+          </div>
+        ) : null}
 
         {validationMessage === null && catalogQuery.isLoading && !data ? (
           <div className="card" style={{ marginTop: "16px", padding: "48px 24px", textAlign: "center" }}>

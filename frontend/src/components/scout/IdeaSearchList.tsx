@@ -1,139 +1,168 @@
 "use client";
 
-import { useIdeaSearches, usePauseIdeaSearch, useResumeIdeaSearch, useCancelIdeaSearch } from "@/hooks/useIdeaScout";
-import type { IdeaSearchResponse, IdeaSearchStatus, IdeaSearchDirection } from "@/api/idea-scout";
+import {
+  useCancelIdeaSearch,
+  useIdeaSearches,
+  usePauseIdeaSearch,
+  useResumeIdeaSearch,
+} from "@/hooks/useIdeaScout";
+import type { IdeaSearchDirection, IdeaSearchResponse, IdeaSearchStatus } from "@/api/idea-scout";
 
 interface IdeaSearchListProps {
+  searchTerm?: string;
   statusFilter?: IdeaSearchStatus;
   directionFilter?: IdeaSearchDirection;
   selectedSearchId?: number | null;
   onSelectSearch: (searchId: number) => void;
 }
 
-const STATUS_BADGE: Record<IdeaSearchStatus, { bg: string; text: string }> = {
-  active: { bg: "bg-green-900/40", text: "text-green-400" },
-  paused: { bg: "bg-yellow-900/40", text: "text-yellow-400" },
-  completed: { bg: "bg-blue-900/40", text: "text-blue-400" },
-  cancelled: { bg: "bg-neutral-700", text: "text-neutral-400" },
-};
+const STATUS_ORDER: IdeaSearchStatus[] = ["active", "paused", "completed", "cancelled"];
 
-const DIRECTION_BADGE: Record<IdeaSearchDirection, { bg: string; text: string; label: string }> = {
-  backward: { bg: "bg-purple-900/40", text: "text-purple-400", label: "Historical" },
-  forward: { bg: "bg-teal-900/40", text: "text-teal-400", label: "Forward" },
-};
+function dotClass(status: IdeaSearchStatus): string {
+  return `scout-scard-dot scout-scard-dot-${status}`;
+}
 
-function StatusBadge({ status }: { status: IdeaSearchStatus }) {
-  const s = STATUS_BADGE[status];
+function dirLabel(direction: IdeaSearchDirection): string {
+  return direction === "backward" ? "Historical" : "Forward";
+}
+
+function timeAgo(value: string): string {
+  const ms = Date.now() - new Date(value).getTime();
+  const min = Math.floor(ms / 60000);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
+
+function matchesSearchTerm(search: IdeaSearchResponse, term: string): boolean {
+  const normalized = term.trim().toLowerCase();
+  if (!normalized) return true;
   return (
-    <span className={`px-2 py-0.5 rounded text-xs font-medium ${s.bg} ${s.text}`}>
-      {status}
-    </span>
+    search.idea_text.toLowerCase().includes(normalized) ||
+    search.search_queries.some((q) => q.toLowerCase().includes(normalized))
   );
 }
 
-function DirectionBadge({ direction }: { direction: IdeaSearchDirection }) {
-  const d = DIRECTION_BADGE[direction];
+function SearchCard({
+  search,
+  isSelected,
+  onSelect,
+}: {
+  search: IdeaSearchResponse;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  const pauseMutation = usePauseIdeaSearch();
+  const resumeMutation = useResumeIdeaSearch();
+  const cancelMutation = useCancelIdeaSearch();
+
   return (
-    <span className={`px-2 py-0.5 rounded text-xs font-medium ${d.bg} ${d.text}`}>
-      {d.label}
-    </span>
+    <div
+      className={`scout-scard ${isSelected ? "scout-scard-selected" : ""}`}
+      onClick={onSelect}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && onSelect()}
+    >
+      <div className="scout-scard-toprow">
+        <span className={dotClass(search.status)} />
+        <span className="scout-scard-idea">{search.idea_text}</span>
+      </div>
+      <div className="scout-scard-meta">
+        <span>{search.search_queries.length} queries</span>
+        <span>{search.total_repos_found.toLocaleString()} repos</span>
+        <span>{dirLabel(search.direction)}</span>
+        <span>{timeAgo(search.updated_at)}</span>
+      </div>
+      {(search.status === "active" || search.status === "paused") && (
+        <div className="scout-scard-actions" onClick={(e) => e.stopPropagation()}>
+          {search.status === "active" && (
+            <button
+              type="button"
+              className="scout-scard-action scout-scard-action-pause"
+              disabled={pauseMutation.isPending}
+              onClick={() => pauseMutation.mutate(search.id)}
+            >
+              Pause
+            </button>
+          )}
+          {search.status === "paused" && (
+            <button
+              type="button"
+              className="scout-scard-action scout-scard-action-resume"
+              disabled={resumeMutation.isPending}
+              onClick={() => resumeMutation.mutate(search.id)}
+            >
+              Resume
+            </button>
+          )}
+          <button
+            type="button"
+            className="scout-scard-action scout-scard-action-danger"
+            disabled={cancelMutation.isPending}
+            onClick={() => {
+              if (confirm(`Stop "${search.idea_text}"?`)) cancelMutation.mutate(search.id);
+            }}
+          >
+            Stop
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
 export function IdeaSearchList({
+  searchTerm = "",
   statusFilter,
   directionFilter,
   selectedSearchId,
   onSelectSearch,
 }: IdeaSearchListProps) {
-  const { data: searches, isLoading } = useIdeaSearches({
+  const { data: searches, isLoading, isError, error, isFetching } = useIdeaSearches({
     status: statusFilter,
     direction: directionFilter,
   });
-  const pauseMutation = usePauseIdeaSearch();
-  const resumeMutation = useResumeIdeaSearch();
-  const cancelMutation = useCancelIdeaSearch();
 
   if (isLoading) {
-    return <div className="text-sm text-neutral-400 p-4">Loading searches...</div>;
+    return <div className="scout-list-loading">{isFetching ? "Loading…" : "No data"}</div>;
   }
 
-  if (!searches?.length) {
+  if (isError) {
     return (
-      <div className="text-sm text-neutral-500 p-4 text-center">
-        No searches yet. Create one above.
+      <div className="scout-list-error">
+        {error instanceof Error ? error.message : "Failed to load searches."}
       </div>
     );
   }
 
+  const filtered = (searches ?? []).filter((s) => matchesSearchTerm(s, searchTerm));
+
+  if (filtered.length === 0) {
+    return <div className="scout-list-empty">No searches match the current filters.</div>;
+  }
+
+  const sections = STATUS_ORDER.map((status) => ({
+    status,
+    items: filtered.filter((s) => s.status === status),
+  })).filter((s) => s.items.length > 0);
+
   return (
-    <div className="space-y-2">
-      {searches.map((search: IdeaSearchResponse) => {
-        const isSelected = search.id === selectedSearchId;
-        return (
-          <div
-            key={search.id}
-            onClick={() => onSelectSearch(search.id)}
-            className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-              isSelected
-                ? "border-indigo-500 bg-indigo-950/30"
-                : "border-neutral-700 bg-neutral-800/50 hover:border-neutral-600"
-            }`}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{search.idea_text}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <StatusBadge status={search.status} />
-                  <DirectionBadge direction={search.direction} />
-                  <span className="text-xs text-neutral-500">
-                    {search.total_repos_found} repos found
-                  </span>
-                </div>
-                <p className="text-xs text-neutral-500 mt-1">
-                  {search.search_queries.length} quer{search.search_queries.length === 1 ? "y" : "ies"}
-                </p>
-              </div>
-              <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                {search.status === "active" && (
-                  <button
-                    onClick={() => pauseMutation.mutate(search.id)}
-                    disabled={pauseMutation.isPending}
-                    className="px-2 py-1 text-xs bg-yellow-900/40 text-yellow-400 rounded hover:bg-yellow-900/60 transition-colors"
-                    title="Pause"
-                  >
-                    ⏸
-                  </button>
-                )}
-                {search.status === "paused" && (
-                  <button
-                    onClick={() => resumeMutation.mutate(search.id)}
-                    disabled={resumeMutation.isPending}
-                    className="px-2 py-1 text-xs bg-green-900/40 text-green-400 rounded hover:bg-green-900/60 transition-colors"
-                    title="Resume"
-                  >
-                    ▶
-                  </button>
-                )}
-                {(search.status === "active" || search.status === "paused") && (
-                  <button
-                    onClick={() => {
-                      if (confirm("Cancel this search?")) {
-                        cancelMutation.mutate(search.id);
-                      }
-                    }}
-                    disabled={cancelMutation.isPending}
-                    className="px-2 py-1 text-xs bg-red-900/40 text-red-400 rounded hover:bg-red-900/60 transition-colors"
-                    title="Cancel"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
+    <>
+      {sections.map(({ status, items }) => (
+        <div key={status}>
+          <div className="scout-list-section-label">{status} · {items.length}</div>
+          {items.map((search) => (
+            <SearchCard
+              key={search.id}
+              search={search}
+              isSelected={search.id === selectedSearchId}
+              onSelect={() => onSelectSearch(search.id)}
+            />
+          ))}
+        </div>
+      ))}
+    </>
   );
 }

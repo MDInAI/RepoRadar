@@ -14,6 +14,7 @@ const SOURCE_OPTIONS: Array<{ label: string; value: RepositoryDiscoverySource | 
   { label: "All sources", value: "" },
   { label: "Firehose", value: "firehose" },
   { label: "Backfill", value: "backfill" },
+  { label: "Scout", value: "idea_scout" },
 ];
 
 const CATEGORY_OPTIONS: Array<{ label: string; value: RepositoryCategory | "" }> = [

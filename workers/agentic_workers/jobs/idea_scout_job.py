@@ -43,6 +43,7 @@ from agentic_workers.storage.idea_search_progress import (
     initialize_forward_watch_progress,
     initialize_idea_search_progress,
     load_idea_search_progress,
+    record_idea_search_error,
     save_idea_search_progress,
 )
 from agentic_workers.storage.repository_intake import IntakePersistenceResult
@@ -197,6 +198,11 @@ def _process_single_search(
     is_forward = search.direction == IdeaSearchDirection.FORWARD.value
     pages_used = 0
 
+    # Distribute page budget fairly across queries so no single query starves others.
+    # Each query gets an equal share; any leftover pages go to the last query.
+    num_queries = len(queries)
+    pages_per_query = max(1, pages_per_search // num_queries) if num_queries > 1 else pages_per_search
+
     for qi, query_text in enumerate(queries):
         if pages_used >= pages_per_search:
             break
@@ -243,8 +249,11 @@ def _process_single_search(
                 pages_processed_in_run=0,
             )
 
-        # Process pages for this query
-        remaining = pages_per_search - pages_used
+        # Process pages for this query — limited to this query's fair share of
+        # the budget so that later queries are not starved.
+        is_last_query = (qi == num_queries - 1)
+        query_budget = pages_per_search - pages_used if is_last_query else pages_per_query
+        remaining = min(query_budget, pages_per_search - pages_used)
         for page_idx in range(remaining):
             if checkpoint.exhausted:
                 break
@@ -283,9 +292,16 @@ def _process_single_search(
                     default=None,
                 )
 
+                # If a full page returned zero new repos (all already in DB from
+                # firehose/backfill), this window is fully covered — skip it now
+                # rather than wasting pages paginating through known-duplicate data.
+                effective_fetched = len(repositories)
+                if persisted.inserted_count == 0 and len(repositories) >= per_page:
+                    effective_fetched = 0
+
                 next_checkpoint = advance_idea_search_progress(
                     checkpoint,
-                    repositories_fetched=len(repositories),
+                    repositories_fetched=effective_fetched,
                     oldest_created_at=oldest_created_at,
                     batch_has_mixed_timestamps=(
                         oldest_created_at is not None
@@ -377,6 +393,17 @@ def _process_single_search(
 
             except GitHubProviderError as exc:
                 session.rollback()
+
+                # Record error on checkpoint and advance if too many consecutive failures
+                error_checkpoint = record_idea_search_error(
+                    checkpoint,
+                    error_message=str(exc),
+                    window_days=window_days,
+                    min_created_date=min_created_date,
+                )
+                save_idea_search_progress(session, error_checkpoint, commit=True)
+                skipped_window = error_checkpoint.window_start_date != checkpoint.window_start_date
+
                 outcomes.append(IdeaScoutPageOutcome(
                     idea_search_id=search.id,
                     query_index=qi,
@@ -386,17 +413,18 @@ def _process_single_search(
                     fetched_count=0,
                     inserted_count=0,
                     skipped_count=0,
-                    exhausted_after=False,
+                    exhausted_after=error_checkpoint.exhausted,
                     error=str(exc),
                 ))
                 try:
+                    skip_msg = " Skipping to next window." if skipped_window else ""
                     classification = classify_github_error(exc)
                     failure_sev = determine_severity(classification, 1)
                     emit_failure_event(
                         session,
                         event_type="repository_discovery_failed",
                         agent_name="idea_scout",
-                        message=f"IdeaScout provider error on search {search.id}.",
+                        message=f"IdeaScout provider error on search {search.id}.{skip_msg}",
                         classification=classification,
                         failure_severity=failure_sev,
                         http_status_code=getattr(exc, "status_code", None),
@@ -405,12 +433,16 @@ def _process_single_search(
                             "idea_search_id": search.id,
                             "query_index": qi,
                             "error": str(exc),
+                            "consecutive_errors": error_checkpoint.consecutive_errors,
+                            "skipped_window": skipped_window,
                         }, sort_keys=True),
                         agent_run_id=agent_run_id,
                         commit=True,
                     )
                 except Exception:
                     logger.warning("Failed to emit discovery_failed event", exc_info=True)
+
+                checkpoint = error_checkpoint
                 break
 
             except Exception as exc:

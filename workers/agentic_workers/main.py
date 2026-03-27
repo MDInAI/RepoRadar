@@ -243,6 +243,22 @@ def calculate_backfill_run_timeout_seconds() -> int:
     return max(_MIN_BACKFILL_RUN_TIMEOUT_SECONDS, estimated + _TIMEOUT_BUFFER_SECONDS)
 
 
+def count_pending_idea_scout_searches() -> int:
+    with Session(engine) as session:
+        pending_count = session.exec(
+            select(func.count(IdeaSearch.id))
+            .where(IdeaSearch.status == IdeaSearchStatus.ACTIVE.value)
+        ).one()
+    return int(pending_count or 0)
+
+
+def calculate_idea_scout_run_timeout_seconds(active_search_count: int | None = None) -> int:
+    search_count = max(active_search_count or 0, 1)
+    request_count = search_count * max(settings.provider.idea_scout_pages_per_run, 1)
+    estimated = request_count * _ESTIMATED_GITHUB_REQUEST_BUDGET_SECONDS
+    return max(_MIN_BACKFILL_RUN_TIMEOUT_SECONDS, estimated + _TIMEOUT_BUFFER_SECONDS)
+
+
 def run_configured_firehose_job(
     *,
     sleep_fn: Callable[[int], None] = time.sleep,
@@ -821,6 +837,56 @@ def _summarize_backfill_run(result: BackfillRunResult) -> AgentRunMetrics:
     )
 
 
+def _summarize_idea_scout_run(result: IdeaScoutRunResult) -> AgentRunMetrics:
+    items_processed = sum(o.fetched_count for o in result.outcomes)
+    items_succeeded = sum(o.inserted_count + o.skipped_count for o in result.outcomes)
+    items_failed = max(items_processed - items_succeeded, 0)
+    if items_failed == 0 and result.status not in (
+        IdeaScoutRunStatus.SUCCESS,
+        IdeaScoutRunStatus.NO_WORK,
+        IdeaScoutRunStatus.SKIPPED,
+        IdeaScoutRunStatus.SKIPPED_PAUSED,
+    ):
+        items_failed = sum(1 for o in result.outcomes if o.error)
+
+    failure_entries = [
+        {
+            "idea_search_id": o.idea_search_id,
+            "query_index": o.query_index,
+            "page": o.page,
+            "error": o.error,
+            "rate_limit_backoff_seconds": o.rate_limit_backoff_seconds,
+        }
+        for o in result.outcomes
+        if o.error
+    ]
+    error_summary = None
+    error_context = None
+    if result.status in (IdeaScoutRunStatus.FAILED, IdeaScoutRunStatus.PARTIAL_FAILURE):
+        error_summary = failure_entries[0]["error"] if failure_entries else None
+        error_summary = error_summary or f"idea_scout run ended with status {result.status.value}"
+        error_context = _serialize_json(
+            {
+                "status": result.status,
+                "searches_processed": result.searches_processed,
+                "failures": failure_entries,
+            }
+        )
+
+    return AgentRunMetrics(
+        items_processed=items_processed,
+        items_succeeded=items_succeeded,
+        items_failed=items_failed,
+        error_summary=error_summary,
+        error_context=error_context,
+        provider_name="github",
+        model_name=None,
+        input_tokens=0,
+        output_tokens=0,
+        total_tokens=0,
+    )
+
+
 def _summarize_bouncer_run(result: BouncerRunResult) -> AgentRunMetrics:
     items_processed = len(result.outcomes)
     # Both ACCEPTED and REJECTED are correct triage decisions — only outcomes with
@@ -952,12 +1018,7 @@ def run_configured_combiner_job() -> CombinerRunResult:
 
 
 def has_pending_idea_scout_work() -> bool:
-    with Session(engine) as session:
-        pending_count = session.exec(
-            select(func.count(IdeaSearch.id))
-            .where(IdeaSearch.status == IdeaSearchStatus.ACTIVE.value)
-        ).one()
-    return int(pending_count or 0) > 0
+    return count_pending_idea_scout_searches() > 0
 
 
 def run_configured_idea_scout_cycle(
@@ -966,20 +1027,59 @@ def run_configured_idea_scout_cycle(
     should_stop: Callable[[], bool] | None = None,
 ) -> IdeaScoutRunResult:
     prov = settings.provider
-    pacing = max(prov.intake_pacing_seconds, 60 // max(1, prov.github_requests_per_minute))
-    provider = GitHubFirehoseProvider(token_values=settings.github_provider_token_values)
+    # Scout uses the search API (30 req/min per token). Use a dedicated pacing
+    # value independent of the global intake_pacing_seconds so it can run much
+    # faster when multiple tokens are configured.
+    pacing = prov.idea_scout_pacing_seconds
+    github_tokens = getattr(settings, "github_provider_token_values", ())
+    provider_kwargs = dict(
+        github_token=settings.github_provider_token_value,
+        runtime_dir=settings.runtime.runtime_dir,
+    )
+    if github_tokens:
+        provider_kwargs["github_tokens"] = github_tokens
+    provider = GitHubFirehoseProvider(**provider_kwargs)
     with Session(engine) as session:
-        return run_idea_scout_cycle(
+        if is_agent_paused(session, "idea_scout"):
+            return run_idea_scout_cycle(
+                session=session,
+                provider=provider,
+                runtime_dir=settings.runtime.runtime_dir,
+                pacing_seconds=pacing,
+                per_page=prov.idea_scout_per_page,
+                pages_per_search=prov.idea_scout_pages_per_run,
+                window_days=prov.idea_scout_window_days,
+                min_created_date=prov.idea_scout_min_created_date,
+                sleep_fn=sleep_fn,
+                should_stop=should_stop,
+            )
+        return _run_tracked_job(
             session=session,
-            provider=provider,
+            agent_name="idea_scout",
             runtime_dir=settings.runtime.runtime_dir,
-            pacing_seconds=pacing,
-            per_page=prov.idea_scout_per_page,
-            pages_per_search=prov.idea_scout_pages_per_run,
-            window_days=prov.idea_scout_window_days,
-            min_created_date=prov.idea_scout_min_created_date,
-            sleep_fn=sleep_fn,
-            should_stop=should_stop,
+            execute_job=lambda run_id: run_idea_scout_cycle(
+                session=session,
+                provider=provider,
+                runtime_dir=settings.runtime.runtime_dir,
+                pacing_seconds=pacing,
+                per_page=prov.idea_scout_per_page,
+                pages_per_search=prov.idea_scout_pages_per_run,
+                window_days=prov.idea_scout_window_days,
+                min_created_date=prov.idea_scout_min_created_date,
+                sleep_fn=sleep_fn,
+                should_stop=should_stop,
+                agent_run_id=run_id,
+            ),
+            summarize_run=_summarize_idea_scout_run,
+            is_success=lambda result: result.status is IdeaScoutRunStatus.SUCCESS,
+            is_skipped=lambda result: result.status
+            in (
+                IdeaScoutRunStatus.SKIPPED,
+                IdeaScoutRunStatus.SKIPPED_PAUSED,
+                IdeaScoutRunStatus.NO_WORK,
+            ),
+            is_paused_skip=lambda result: result.status is IdeaScoutRunStatus.SKIPPED_PAUSED,
+            skipped_reason="idea_scout run skipped because shutdown was requested.",
         )
 
 
@@ -1114,6 +1214,31 @@ async def _run_combiner_if_pending(
     return True
 
 
+def _sleep_wake_cancel_on_wake(job_stop: threading.Event, check_interval: float = 5.0) -> None:
+    """
+    Daemon thread: detect macOS sleep/wake and immediately signal the current IdeaScout
+    cycle to stop.  Works by comparing how much wall-clock time elapsed across a real
+    time.sleep() call.  time.sleep() is always wall-clock based in Python threads; if the
+    machine slept the elapsed interval will be >> check_interval.
+    """
+    while not job_stop.is_set():
+        wall_before = time.time()
+        time.sleep(check_interval)
+        if job_stop.is_set():
+            return
+        wall_elapsed = time.time() - wall_before
+        # More than 3× the expected interval → the machine was asleep
+        if wall_elapsed > check_interval * 3:
+            logger.warning(
+                "System sleep/wake detected (%.0fs gap, expected %.0fs). "
+                "Cancelling current IdeaScout cycle so it restarts cleanly.",
+                wall_elapsed,
+                check_interval,
+            )
+            job_stop.set()
+            return
+
+
 async def _run_idea_scout_if_pending(
     *,
     stop_event: asyncio.Event,
@@ -1123,7 +1248,8 @@ async def _run_idea_scout_if_pending(
         return False
 
     try:
-        if not has_pending_idea_scout_work():
+        pending_search_count = count_pending_idea_scout_searches()
+        if pending_search_count <= 0:
             return False
     except Exception:
         logger.exception("Unable to inspect pending IdeaScout work. Skipping this pass.")
@@ -1131,15 +1257,43 @@ async def _run_idea_scout_if_pending(
 
     job_stop = threading.Event()
     should_stop = lambda: thread_stop.is_set() or job_stop.is_set()
+    timeout_seconds = calculate_idea_scout_run_timeout_seconds(pending_search_count)
+
+    # Detect Mac sleep/wake and cancel the in-flight cycle so it can restart cleanly.
+    wake_watchdog = threading.Thread(
+        target=_sleep_wake_cancel_on_wake,
+        args=(job_stop,),
+        daemon=True,
+        name="idea-scout-wake-watchdog",
+    )
+    wake_watchdog.start()
+
     try:
-        result = await asyncio.to_thread(
-            run_configured_idea_scout_cycle,
-            sleep_fn=_interruptible_sleep_factory(job_stop),
-            should_stop=should_stop,
+        result = await asyncio.wait_for(
+            asyncio.to_thread(
+                run_configured_idea_scout_cycle,
+                sleep_fn=_interruptible_sleep_factory(job_stop),
+                should_stop=should_stop,
+            ),
+            timeout=timeout_seconds,
         )
+    except asyncio.TimeoutError:
+        job_stop.set()
+        logger.error(
+            "IdeaScout exceeded the watchdog timeout of %ss; the scheduler will retry it on the next interval.",
+            int(timeout_seconds),
+        )
+        return False
+    except DuplicateActiveAgentRunError:
+        logger.info("Skipping IdeaScout pass because another IdeaScout run is already active.")
+        return False
     except Exception:
         logger.exception("IdeaScout cycle failed.")
         return False
+    finally:
+        # Always stop the watchdog thread when the cycle ends.
+        job_stop.set()
+
     _log_idea_scout_result(result)
     return True
 
@@ -1271,12 +1425,39 @@ def _acquire_worker_process_lock(runtime_dir: Path | None):
         lock_file.close()
 
 
+def _poll_github_rate_limits() -> None:
+    """Call GitHub /rate_limit for each configured token and update quota snapshots.
+
+    This keeps the token health panel accurate even when the worker is idle or
+    only one API resource type is being used (e.g., Scout-only mode only calls
+    the search endpoint, leaving core quota readings stale).
+    """
+    github_tokens = getattr(settings, "github_provider_token_values", ())
+    provider_kwargs: dict[str, object] = dict(
+        github_token=settings.github_provider_token_value,
+        runtime_dir=settings.runtime.runtime_dir,
+    )
+    if github_tokens:
+        provider_kwargs["github_tokens"] = github_tokens
+    try:
+        provider = GitHubFirehoseProvider(**provider_kwargs)
+        provider.poll_rate_limits()
+    except Exception:
+        logger.debug("GitHub rate-limit health poll failed.", exc_info=True)
+
+
 async def _run_worker_loop() -> None:
     logger.info("Starting Agentic-Workflow worker processes...")
 
     # Validate recovery state before starting work
     with Session(engine) as session:
         validate_startup_recovery(session)
+
+    # Prime the token health panel immediately so the UI shows accurate data
+    try:
+        await asyncio.to_thread(_poll_github_rate_limits)
+    except Exception:
+        logger.debug("Startup GitHub rate-limit poll failed.", exc_info=True)
 
     stop_event = asyncio.Event()
     # Mirrors stop_event for threads: allows in-progress pacing sleeps to be
@@ -1351,6 +1532,8 @@ async def _run_worker_loop() -> None:
             await _run_analyst_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
         if not stop_event.is_set():
             await _run_combiner_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
+        if not stop_event.is_set():
+            await _run_idea_scout_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
     except Exception:
         logger.exception("Startup ingestion pass failed. Exiting.")
         sys.exit(1)
@@ -1374,9 +1557,11 @@ async def _run_worker_loop() -> None:
     next_combiner_check_at = time.monotonic() + combiner_check_interval
     idea_scout_check_interval = float(settings.provider.idea_scout_interval_seconds)
     next_idea_scout_check_at = time.monotonic() + idea_scout_check_interval
+    rate_limit_poll_interval = 60.0  # Poll /rate_limit for fresh token health every 60 seconds
+    next_rate_limit_poll_at = time.monotonic() + rate_limit_poll_interval
 
     while not stop_event.is_set():
-        next_due_at = min(next_firehose_run_at, next_backfill_run_at, next_combiner_check_at, next_idea_scout_check_at)
+        next_due_at = min(next_firehose_run_at, next_backfill_run_at, next_combiner_check_at, next_idea_scout_check_at, next_rate_limit_poll_at)
         timeout = max(0.0, next_due_at - time.monotonic())
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=timeout)
@@ -1451,6 +1636,14 @@ async def _run_worker_loop() -> None:
         if now >= next_idea_scout_check_at and not stop_event.is_set():
             await _run_idea_scout_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
             next_idea_scout_check_at = time.monotonic() + idea_scout_check_interval
+
+        # Periodically poll /rate_limit for each token to keep the health panel accurate
+        if now >= next_rate_limit_poll_at and not stop_event.is_set():
+            try:
+                await asyncio.to_thread(_poll_github_rate_limits)
+            except Exception:
+                logger.debug("GitHub rate-limit health poll failed.", exc_info=True)
+            next_rate_limit_poll_at = time.monotonic() + rate_limit_poll_interval
 
     logger.info("Worker shutdown complete.")
 

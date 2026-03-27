@@ -84,6 +84,7 @@ def get_repository_catalog_query_params(
     starred_only: bool = Query(default=False),
     user_tag: str | None = Query(default=None),
     idea_family_id: int | None = Query(default=None),
+    idea_search_id: int | None = Query(default=None),
     sort_by: str = Query(default=RepositoryCatalogSortBy.STARS.value),
     sort_order: str = Query(default=RepositoryCatalogSortOrder.DESC.value),
 ) -> RepositoryCatalogQueryParams:
@@ -125,6 +126,20 @@ def get_repository_catalog_query_params(
                 "received": max_stars,
                 "min_stars": min_stars,
             },
+        )
+    if idea_family_id is not None and idea_family_id < 1:
+        raise AppError(
+            message="idea_family_id must be greater than or equal to 1.",
+            code="invalid_repository_catalog_query",
+            status_code=400,
+            details={"field": "idea_family_id", "received": idea_family_id},
+        )
+    if idea_search_id is not None and idea_search_id < 1:
+        raise AppError(
+            message="idea_search_id must be greater than or equal to 1.",
+            code="invalid_repository_catalog_query",
+            status_code=400,
+            details={"field": "idea_search_id", "received": idea_search_id},
         )
 
     normalized_search = search.strip() if search else None
@@ -172,6 +187,7 @@ def get_repository_catalog_query_params(
         starred_only=starred_only,
         user_tag=normalized_user_tag or None,
         idea_family_id=idea_family_id,
+        idea_search_id=idea_search_id,
         sort_by=_parse_repository_catalog_enum(sort_by, RepositoryCatalogSortBy, "sort_by")
         or RepositoryCatalogSortBy.STARS,
         sort_order=_parse_repository_catalog_enum(

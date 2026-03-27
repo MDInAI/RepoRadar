@@ -213,6 +213,10 @@ class GitHubTokenPool:
     def labels(self) -> tuple[str, ...]:
         return tuple(state.label for state in self._states)
 
+    def token_for_label(self, label: str) -> str | None:
+        state = self._state_by_label(label)
+        return state.token if state is not None else None
+
     def _state_by_label(self, label: str) -> GitHubTokenBudgetState | None:
         for state in self._states:
             if state.label == label:
@@ -1395,6 +1399,57 @@ class GitHubFirehoseProvider:
         if last_error is not None:
             raise last_error
         raise GitHubProviderError("GitHub token pool could not satisfy the request")
+
+    # --- Token health polling ---
+
+    RATE_LIMIT_URL = "https://api.github.com/rate_limit"
+
+    def poll_rate_limits(self) -> None:
+        """Fetch live rate-limit data for all configured tokens and update snapshots.
+
+        GitHub's /rate_limit endpoint does NOT consume any API quota — it is
+        specifically designed for health checks.  This is safe to call at any
+        frequency.
+        """
+        for label in self._token_pool.labels():
+            token = self._token_pool.token_for_label(label)
+            try:
+                payload = self.transport.get_json(
+                    url=self.RATE_LIMIT_URL,
+                    headers=self._build_headers(
+                        user_agent="agentic-workflow-health-check",
+                        accept="application/vnd.github+json",
+                        token=token,
+                    ),
+                    params={},
+                    token_label=label,
+                )
+                now = datetime.now(timezone.utc)
+                resources = payload.get("resources", {})
+                for resource_name, bucket in resources.items():
+                    if not isinstance(bucket, dict):
+                        continue
+                    reset_ts = bucket.get("reset")
+                    reset_at: datetime | None = None
+                    if isinstance(reset_ts, (int, float)):
+                        reset_at = datetime.fromtimestamp(reset_ts, tz=timezone.utc)
+                    remaining = bucket.get("remaining")
+                    observation = GitHubQuotaObservation(
+                        token_label=label,
+                        captured_at=now,
+                        status_code=200,
+                        request_url=self.RATE_LIMIT_URL,
+                        resource=resource_name,
+                        limit=bucket.get("limit"),
+                        remaining=remaining,
+                        used=bucket.get("used"),
+                        reset_at=reset_at,
+                        retry_after_seconds=None,
+                        exhausted=isinstance(remaining, int) and remaining <= 0,
+                    )
+                    self._token_pool.observe(observation)
+            except Exception:
+                logger.debug("Rate limit poll failed for token %s", label, exc_info=True)
 
     def _observe_quota_snapshot(self, observation: GitHubQuotaObservation) -> None:
         self._token_pool.observe(observation)

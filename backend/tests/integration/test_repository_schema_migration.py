@@ -1030,6 +1030,60 @@ def test_repository_intake_migration_rejects_firehose_rows_without_firehose_mode
             )
 
 
+def test_repository_intake_migration_upgrade_accepts_idea_scout_rows(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "idea-scout-discovery-source.db"
+    database_url = f"sqlite:///{database_path}"
+    config = _build_alembic_config(database_url)
+
+    command.upgrade(config, "20260324_0037")
+    command.upgrade(config, "head")
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO repository_intake (
+                    github_repository_id,
+                    owner_login,
+                    repository_name,
+                    full_name,
+                    discovery_source
+                ) VALUES (
+                    :github_repository_id,
+                    :owner_login,
+                    :repository_name,
+                    :full_name,
+                    :discovery_source
+                )
+                """
+            ),
+            {
+                "github_repository_id": 222225,
+                "owner_login": "octocat",
+                "repository_name": "idea-scout-repo",
+                "full_name": "octocat/idea-scout-repo",
+                "discovery_source": "idea_scout",
+            },
+        )
+
+        row = connection.execute(
+            text(
+                """
+                SELECT discovery_source, firehose_discovery_mode
+                FROM repository_intake
+                WHERE github_repository_id = :github_repository_id
+                """
+            ),
+            {"github_repository_id": 222225},
+        ).one()
+
+    assert row.discovery_source == "idea_scout"
+    assert row.firehose_discovery_mode is None
+
+
 def test_repository_intake_migration_timestamps_are_utc_aware(
     tmp_path: Path,
 ) -> None:
@@ -1216,3 +1270,60 @@ def test_repository_intake_migration_rejects_inconsistent_full_name(
                     "full_name": "wrong/full-name",
                 },
             )
+
+
+def test_idea_search_migration_recovers_when_table_already_exists(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "idea-search-partial-upgrade.db"
+    database_url = f"sqlite:///{database_path}"
+    config = _build_alembic_config(database_url)
+
+    command.upgrade(config, "20260316_0036")
+
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE idea_search (
+                    id INTEGER NOT NULL,
+                    idea_text TEXT NOT NULL,
+                    search_queries TEXT DEFAULT '[]' NOT NULL,
+                    direction VARCHAR(16) NOT NULL,
+                    status VARCHAR(16) DEFAULT 'active' NOT NULL,
+                    obsession_context_id INTEGER,
+                    total_repos_found INTEGER DEFAULT '0' NOT NULL,
+                    created_at DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')) NOT NULL,
+                    updated_at DATETIME DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')) NOT NULL,
+                    PRIMARY KEY (id),
+                    CONSTRAINT ck_idea_search_idea_text_not_blank CHECK (idea_text != ''),
+                    CONSTRAINT ck_idea_search_total_repos_non_negative CHECK (total_repos_found >= 0),
+                    CONSTRAINT ck_idea_search_direction_valid CHECK (direction IN ('backward', 'forward')),
+                    CONSTRAINT ck_idea_search_status_valid CHECK (status IN ('active', 'paused', 'completed', 'cancelled')),
+                    FOREIGN KEY(obsession_context_id) REFERENCES obsession_context (id) ON DELETE SET NULL
+                )
+                """
+            )
+        )
+
+    command.upgrade(config, "head")
+
+    inspector = inspect(engine)
+    assert "idea_search" in inspector.get_table_names()
+    assert "idea_search_progress" in inspector.get_table_names()
+    assert "idea_search_discovery" in inspector.get_table_names()
+    assert {index["name"] for index in inspector.get_indexes("idea_search")} == {
+        "ix_idea_search_direction",
+        "ix_idea_search_obsession_context_id",
+        "ix_idea_search_status",
+    }
+
+    obsession_columns = {column["name"] for column in inspector.get_columns("obsession_context")}
+    assert {"idea_search_id", "idea_text"} <= obsession_columns
+    assert {index["name"] for index in inspector.get_indexes("obsession_context")} >= {
+        "ix_obsession_context_idea_family_id",
+        "ix_obsession_context_idea_search_id",
+        "ix_obsession_context_status",
+        "ix_obsession_context_synthesis_run_id",
+    }
