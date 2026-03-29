@@ -577,6 +577,27 @@ export function RepositoryDetailClient({ repositoryId }: { repositoryId: number 
                       </p>
                     </div>
                   </div>
+                  {detail.scout_context && (
+                    <div className="repo-scout-origin">
+                      <p className="card-label" style={{ marginBottom: "6px" }}>Scout Discovery Origin</p>
+                      <div className="repo-scout-origin-body">
+                        <div className="repo-scout-origin-row">
+                          <span className="repo-scout-origin-key">Search</span>
+                          <span className="repo-scout-origin-val">
+                            {detail.scout_context.idea_text.length > 80
+                              ? detail.scout_context.idea_text.slice(0, 80) + "…"
+                              : detail.scout_context.idea_text}
+                          </span>
+                        </div>
+                        <div className="repo-scout-origin-row">
+                          <span className="repo-scout-origin-key">Query {detail.scout_context.query_index + 1}</span>
+                          <span className="repo-scout-origin-val repo-scout-origin-query">
+                            {detail.scout_context.query_text || "—"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </section>
 
                 <div className="repo-paired-grid">

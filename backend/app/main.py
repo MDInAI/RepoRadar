@@ -19,6 +19,7 @@ from app.core.event_broadcaster import EventBroadcaster
 from app.repositories.agent_event_repository import AgentEventRepository
 from app.schemas.common import ErrorEnvelope, ErrorDetails
 from app.services.agent_event_service import AgentEventService
+from app.services.runtime_history_archive_service import RuntimeHistoryArchiveService
 
 # Configure root logger
 logging.basicConfig(
@@ -67,8 +68,52 @@ async def run_overlord_control_loop(app: FastAPI) -> None:
         await asyncio.sleep(settings.OVERLORD_EVALUATION_INTERVAL_SECONDS)
 
 
+_RETENTION_CLEANUP_INTERVAL_SECONDS = 6 * 3600  # every 6 hours
+
+
+async def run_retention_cleanup_loop() -> None:
+    """Periodically purge old system_events and agent_runs to keep the DB small."""
+    while True:
+        await asyncio.sleep(_RETENTION_CLEANUP_INTERVAL_SECONDS)
+        try:
+            with Session(engine) as session:
+                svc = RuntimeHistoryArchiveService(session, runtime_dir=settings.AGENTIC_RUNTIME_DIR)
+                result = svc.purge_operational_history()
+                total = result["system_events_deleted"] + result["agent_runs_deleted"]
+                if total > 0:
+                    logger.info(
+                        "Retention cleanup: deleted %d system_events, %d agent_runs.",
+                        result["system_events_deleted"],
+                        result["agent_runs_deleted"],
+                    )
+        except Exception:
+            logger.warning("Retention cleanup loop failed (will retry).", exc_info=True)
+
+
+def _run_startup_retention_purge() -> None:
+    """Purge stale telemetry on startup so the DB doesn't grow unbounded."""
+    try:
+        with Session(engine) as session:
+            svc = RuntimeHistoryArchiveService(session, runtime_dir=settings.AGENTIC_RUNTIME_DIR)
+            result = svc.purge_operational_history(vacuum=True)
+            total = result["system_events_deleted"] + result["agent_runs_deleted"]
+            if total > 0:
+                logger.info(
+                    "Startup retention purge: deleted %d system_events, %d agent_runs.",
+                    result["system_events_deleted"],
+                    result["agent_runs_deleted"],
+                )
+            else:
+                logger.info("Startup retention purge: nothing to clean up.")
+    except Exception:
+        logger.warning("Startup retention purge failed (non-critical).", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Purge stale telemetry before accepting requests (runs synchronously).
+    _run_startup_retention_purge()
+
     app.state.event_bridge_health = EventBridgeHealth()
     app.state.event_broadcaster = EventBroadcaster(
         max_subscribers=settings.EVENT_STREAM_MAX_SUBSCRIBERS,
@@ -76,11 +121,15 @@ async def lifespan(app: FastAPI):
     )
     bridge_task = asyncio.create_task(bridge_persisted_events(app))
     overlord_task = asyncio.create_task(run_overlord_control_loop(app))
+    retention_task = asyncio.create_task(run_retention_cleanup_loop())
     try:
         yield
     finally:
+        retention_task.cancel()
         overlord_task.cancel()
         bridge_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await retention_task
         with suppress(asyncio.CancelledError):
             await overlord_task
         with suppress(asyncio.CancelledError):

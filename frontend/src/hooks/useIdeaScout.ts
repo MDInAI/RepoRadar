@@ -8,6 +8,8 @@ import {
   cancelIdeaSearch,
   updateIdeaSearch,
   fetchIdeaSearchDiscoveries,
+  enableAnalystForSearch,
+  disableAnalystForSearch,
   type IdeaSearchDirection,
   type IdeaSearchStatus,
 } from "@/api/idea-scout";
@@ -28,8 +30,11 @@ export const useIdeaSearch = (searchId: number) => {
     queryFn: () => fetchIdeaSearch(searchId),
     enabled: !!searchId,
     refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status === "active" ? 15_000 : false;
+      const data = query.state.data;
+      // Poll if scouting is active OR if analyst is enabled and has repos left to analyze
+      if (data?.status === "active") return 15_000;
+      if (data?.analyst_enabled && (data.analyzed_count ?? 0) < data.discovery_count) return 20_000;
+      return false;
     },
   });
 };
@@ -84,6 +89,18 @@ export const useCancelIdeaSearch = () => {
     mutationFn: (searchId: number) => cancelIdeaSearch(searchId),
     onSuccess: (_data, searchId) => {
       queryClient.invalidateQueries({ queryKey: ["idea-search", searchId] });
+      queryClient.invalidateQueries({ queryKey: ["idea-searches"] });
+    },
+  });
+};
+
+export const useSetAnalystEnabled = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ searchId, enabled }: { searchId: number; enabled: boolean }) =>
+      enabled ? enableAnalystForSearch(searchId) : disableAnalystForSearch(searchId),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["idea-search", variables.searchId] });
       queryClient.invalidateQueries({ queryKey: ["idea-searches"] });
     },
   });

@@ -7,6 +7,9 @@ from app.schemas.idea_family import (
     IdeaFamilyCreateRequest,
     IdeaFamilyUpdateRequest,
     IdeaFamilyMembershipRequest,
+    BulkMembershipRequest,
+    CreateFamilyFromSearchRequest,
+    CreateFamilyFromSearchResponse,
 )
 from app.services.idea_family_service import IdeaFamilyService
 
@@ -73,3 +76,26 @@ def remove_repository(
     service: IdeaFamilyService = Depends(get_idea_family_service),
 ) -> None:
     service.remove_repository(family_id, github_repository_id)
+
+
+@router.post("/{family_id}/members/bulk")
+def bulk_add_repositories(
+    family_id: int,
+    request: BulkMembershipRequest,
+    service: IdeaFamilyService = Depends(get_idea_family_service),
+) -> dict:
+    added_count = service.bulk_add_repositories(family_id, request.github_repository_ids)
+    return {"added_count": added_count}
+
+
+@router.post("/from-search", response_model=CreateFamilyFromSearchResponse, status_code=status.HTTP_201_CREATED)
+def create_family_from_search(
+    request: CreateFamilyFromSearchRequest,
+    service: IdeaFamilyService = Depends(get_idea_family_service),
+) -> CreateFamilyFromSearchResponse:
+    return service.create_from_search(
+        idea_search_id=request.idea_search_id,
+        title=request.title,
+        description=request.description,
+        only_analyzed=request.only_analyzed,
+    )

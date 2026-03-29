@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAnalystSourceSettings, useUpdateAnalystSourceSettings } from "@/hooks/useAgentMonitor";
 
 import {
   fetchAgentConfig,
@@ -1782,6 +1783,8 @@ function AnalystPanels({
         />
       </ConfigPanel>
 
+      <AnalystSourceSettingsPanel />
+
       <ConfigPanel title="Notes">
         {entry.notes.map((note) => (
           <p key={note} style={{ color: "var(--text-1)", fontSize: "12px", marginBottom: "10px" }}>
@@ -1790,6 +1793,85 @@ function AnalystPanels({
         ))}
       </ConfigPanel>
     </>
+  );
+}
+
+function AnalystSourceSettingsPanel() {
+  const { data: settings, isLoading } = useAnalystSourceSettings();
+  const updateMutation = useUpdateAnalystSourceSettings();
+
+  const toggle = (key: "firehose_enabled" | "backfill_enabled") => {
+    if (!settings) return;
+    updateMutation.mutate({ ...settings, [key]: !settings[key] });
+  };
+
+  return (
+    <ConfigPanel title="Source Queue Settings">
+      <p style={{ fontSize: "12px", color: "var(--text-2)", marginBottom: "14px", lineHeight: 1.5 }}>
+        Choose which repo sources the Analyst processes. Firehose and backfill are <strong>disabled by default</strong> — the Analyst will only process Scout repos unless you enable them here.
+      </p>
+      {isLoading ? (
+        <div style={{ fontSize: "12px", color: "var(--text-3)" }}>Loading…</div>
+      ) : settings ? (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid var(--border)" }}>
+            <div>
+              <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-0)" }}>Firehose repos</div>
+              <div style={{ fontSize: "11px", color: "var(--text-2)", marginTop: "2px" }}>~30k triage-accepted repos from the GitHub firehose</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => toggle("firehose_enabled")}
+              disabled={updateMutation.isPending}
+              style={{
+                padding: "5px 14px",
+                fontSize: "12px",
+                fontWeight: 600,
+                borderRadius: "6px",
+                border: "1px solid",
+                cursor: updateMutation.isPending ? "not-allowed" : "pointer",
+                opacity: updateMutation.isPending ? 0.6 : 1,
+                background: settings.firehose_enabled ? "rgba(61,186,106,0.12)" : "transparent",
+                color: settings.firehose_enabled ? "var(--green)" : "var(--text-3)",
+                borderColor: settings.firehose_enabled ? "rgba(61,186,106,0.4)" : "var(--border)",
+              }}
+            >
+              {settings.firehose_enabled ? "Enabled" : "Disabled"}
+            </button>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid var(--border)" }}>
+            <div>
+              <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-0)" }}>Backfill repos</div>
+              <div style={{ fontSize: "11px", color: "var(--text-2)", marginTop: "2px" }}>Historical repos from the backfill agent</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => toggle("backfill_enabled")}
+              disabled={updateMutation.isPending}
+              style={{
+                padding: "5px 14px",
+                fontSize: "12px",
+                fontWeight: 600,
+                borderRadius: "6px",
+                border: "1px solid",
+                cursor: updateMutation.isPending ? "not-allowed" : "pointer",
+                opacity: updateMutation.isPending ? 0.6 : 1,
+                background: settings.backfill_enabled ? "rgba(61,186,106,0.12)" : "transparent",
+                color: settings.backfill_enabled ? "var(--green)" : "var(--text-3)",
+                borderColor: settings.backfill_enabled ? "rgba(61,186,106,0.4)" : "var(--border)",
+              }}
+            >
+              {settings.backfill_enabled ? "Enabled" : "Backfill"}
+            </button>
+          </div>
+          {updateMutation.error && (
+            <div style={{ fontSize: "11px", color: "var(--red)", marginTop: "8px" }}>
+              {updateMutation.error instanceof Error ? updateMutation.error.message : "Failed to update settings"}
+            </div>
+          )}
+        </>
+      ) : null}
+    </ConfigPanel>
   );
 }
 

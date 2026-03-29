@@ -903,6 +903,58 @@ tbody tr:hover {
   font-size: 13px;
 }
 
+.repo-table-scout-query {
+  margin-top: 3px;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--green);
+  opacity: 0.8;
+  cursor: default;
+}
+
+.repo-scout-origin {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: rgba(61, 186, 106, 0.06);
+  border: 1px solid rgba(61, 186, 106, 0.2);
+  border-radius: 8px;
+}
+
+.repo-scout-origin-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.repo-scout-origin-row {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.repo-scout-origin-key {
+  flex-shrink: 0;
+  width: 72px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--green);
+}
+
+.repo-scout-origin-val {
+  font-size: 13px;
+  color: var(--text-1);
+  line-height: 1.5;
+}
+
+.repo-scout-origin-query {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-0);
+  word-break: break-all;
+}
+
 .repo-paired-grid {
   display: grid;
   gap: 16px;
@@ -2484,6 +2536,242 @@ tbody tr:hover {
 .scout-scard-action-resume { color: var(--green) !important;  border-color: rgba(61, 186, 106, 0.2) !important; }
 .scout-scard-action-danger { color: var(--red) !important;    border-color: rgba(217, 79, 79, 0.2) !important; }
 
+/* ANALYST TOGGLE */
+.scout-scard-analyst {
+  margin-top: 8px;
+}
+
+.scout-scard-analyst-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid;
+  transition: opacity 0.15s;
+}
+
+.scout-scard-analyst-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.scout-scard-analyst-btn-off {
+  color: var(--text-3);
+  background: transparent;
+  border-color: var(--border-1);
+}
+
+.scout-scard-analyst-btn-off:hover:not(:disabled) {
+  color: var(--blue);
+  border-color: rgba(99, 148, 255, 0.4);
+  background: rgba(99, 148, 255, 0.06);
+}
+
+.scout-scard-analyst-btn-on {
+  color: var(--blue);
+  background: rgba(99, 148, 255, 0.1);
+  border-color: rgba(99, 148, 255, 0.35);
+}
+
+.scout-scard-analyst-btn-on:hover:not(:disabled) {
+  background: rgba(99, 148, 255, 0.06);
+}
+
+.scout-scard-analyst-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* ANALYST PROGRESS PANEL (detail view) */
+.scout-analyst-panel {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.scout-analyst-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.scout-analyst-panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+}
+
+.scout-analyst-counts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.scout-analyst-done {
+  color: var(--green);
+  font-weight: 500;
+}
+
+.scout-analyst-sep {
+  color: var(--text-3);
+}
+
+.scout-analyst-remaining {
+  color: var(--text-1);
+}
+
+.scout-analyst-pct {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.scout-analyst-bar {
+  height: 4px;
+  background: var(--bg-5);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.scout-analyst-bar-fill {
+  height: 100%;
+  background: var(--blue);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.scout-analyst-hint {
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.4;
+}
+
+.scout-analyst-hint-done {
+  color: var(--green);
+}
+
+.scout-analyst-pause-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(217, 79, 79, 0.1);
+  border: 1px solid rgba(217, 79, 79, 0.3);
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.scout-analyst-pause-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.scout-analyst-pause-msg {
+  font-size: 12px;
+  color: var(--text-1);
+  flex: 1;
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.scout-analyst-resume-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  background: var(--red);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.scout-analyst-resume-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.scout-analyst-resume-btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.scout-analyst-pause-err {
+  font-size: 11px;
+  color: var(--red);
+  width: 100%;
+}
+
+.scout-analyst-live {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  background: var(--bg-4);
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.scout-analyst-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-3);
+  flex-shrink: 0;
+}
+
+.scout-analyst-live-dot-active {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(61, 186, 106, 0.2);
+  animation: pulse-green 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-green {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(61, 186, 106, 0.2); }
+  50% { box-shadow: 0 0 0 6px rgba(61, 186, 106, 0.05); }
+}
+
+.scout-analyst-live-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.scout-analyst-live-target {
+  font-size: 11px;
+  color: var(--text-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scout-analyst-live-target code {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-1);
+}
+
 /* SIDEBAR STATES */
 .scout-list-loading,
 .scout-list-empty {
@@ -3525,4 +3813,77 @@ tbody tr:hover {
   .scout-detail-grid  { grid-template-columns: 1fr; }
   .scout-detail-topbar { flex-direction: column; }
   .scout-detail-right  { width: 100%; }
+}
+
+/* ── SCOUT DIALOGS ──────────────────────────────────────────── */
+.scout-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+}
+
+.scout-dialog {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 1.5);
+  padding: 24px;
+  width: min(480px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.scout-dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg-1);
+}
+
+.scout-dialog-body {
+  font-size: 13px;
+  color: var(--fg-2);
+  margin: 0;
+}
+
+.scout-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scout-dialog-label {
+  font-size: 11px;
+  color: var(--fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.scout-dialog-input {
+  padding: 7px 10px;
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg-1);
+  font-size: 13px;
+  outline: none;
+  width: 100%;
+}
+
+.scout-dialog-input:focus { border-color: var(--border-h); }
+
+.scout-dialog-checkbox-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.scout-dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
 }

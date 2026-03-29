@@ -60,6 +60,7 @@ class ObsessionContextDetailResponse(BaseModel):
 class ObsessionContextCreateRequest(BaseModel):
     idea_family_id: int | None = Field(default=None, gt=0)
     synthesis_run_id: int | None = Field(default=None, gt=0)
+    idea_search_id: int | None = Field(default=None, gt=0)
     idea_text: str | None = Field(default=None, min_length=1, max_length=500)
     title: str = Field(min_length=1, max_length=200)
     description: str | None = None
@@ -84,13 +85,18 @@ class ObsessionContextCreateRequest(BaseModel):
     def exactly_one_target(cls, v: str | None, info) -> str | None:
         idea_family_id = info.data.get("idea_family_id")
         synthesis_run_id = info.data.get("synthesis_run_id")
+        idea_search_id = info.data.get("idea_search_id")
         targets = sum([
             idea_family_id is not None,
             synthesis_run_id is not None,
+            idea_search_id is not None,
             v is not None and v.strip() != "",
         ])
         if targets != 1:
-            raise ValueError("exactly one of idea_family_id, synthesis_run_id, or idea_text must be provided")
+            raise ValueError(
+                "exactly one of idea_family_id, synthesis_run_id, idea_search_id, "
+                "or idea_text must be provided"
+            )
         return v
 
 

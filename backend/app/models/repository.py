@@ -648,6 +648,10 @@ class IdeaSearch(SQLModel, table=True):
         default=0,
         sa_column=Column(Integer, nullable=False, server_default=text("0")),
     )
+    analyst_enabled: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default=text("0")),
+    )
     created_at: datetime = Field(
         default_factory=_utcnow,
         sa_column=Column(
@@ -782,6 +786,14 @@ class IdeaSearchDiscovery(SQLModel, table=True):
             nullable=False,
             server_default=text("(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"),
         ),
+    )
+    query_index: int = Field(
+        default=0,
+        sa_column=Column(Integer, nullable=False, server_default=text("0")),
+    )
+    query_text: str = Field(
+        default="",
+        sa_column=Column(Text, nullable=False, server_default=text("''")),
     )
 
 
@@ -965,6 +977,7 @@ class AgentMemorySegment(SQLModel, table=True):
 class SynthesisRunType(StrEnum):
     COMBINER = "combiner"
     OBSESSION = "obsession"
+    DEEP_SYNTHESIS = "deep_synthesis"
 
 
 class SynthesisRunStatus(StrEnum):
@@ -978,7 +991,7 @@ class SynthesisRun(SQLModel, table=True):
     __tablename__ = "synthesis_run"
     __table_args__ = (
         CheckConstraint(
-            "run_type IN ('combiner', 'obsession')",
+            "run_type IN ('combiner', 'obsession', 'deep_synthesis')",
             name="ck_synthesis_run_type_valid",
         ),
         Index("ix_synthesis_run_idea_family_id", "idea_family_id"),
@@ -1450,3 +1463,26 @@ class FirehoseProgress(SQLModel, table=True):
 
 def exhausted_backfill_boundary(min_created_date: date) -> date:
     return min_created_date + timedelta(days=1)
+
+
+class AnalystSourceSettings(SQLModel, table=True):
+    """Singleton table (always id=1) controlling which repo sources the analyst processes.
+
+    Firehose and backfill are opt-in (default False). Scout repos are always processed
+    when any IdeaSearch has analyst_enabled=True.
+    """
+
+    __tablename__ = "analyst_source_settings"
+
+    id: int = Field(
+        default=1,
+        sa_column=Column(Integer, primary_key=True),
+    )
+    firehose_enabled: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default=text("0")),
+    )
+    backfill_enabled: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default=text("0")),
+    )

@@ -100,8 +100,9 @@ class GitHubTokenPool:
         finally:
             self.release(selection.label)
 
-    def acquire(self, preferred_resource: str | None) -> GitHubTokenSelection:
+    def acquire(self, preferred_resource: str | None, *, max_wait_seconds: float = 120.0) -> GitHubTokenSelection:
         resource = preferred_resource or "core"
+        deadline = datetime.now(timezone.utc) + timedelta(seconds=max_wait_seconds)
         with self._condition:
             while True:
                 now = datetime.now(timezone.utc)
@@ -115,7 +116,15 @@ class GitHubTokenPool:
                     self._write_scheduler_snapshot_locked()
                     return GitHubTokenSelection(label=selected.label, token=selected.token)
 
-                self._condition.wait(timeout=max(self._next_wait_seconds_locked(now), 0.05))
+                if now >= deadline:
+                    raise GitHubRateLimitError(
+                        status_code=429,
+                        retry_after_seconds=60,
+                        token_label=None,
+                        resource=resource,
+                    )
+                wait_secs = min(self._next_wait_seconds_locked(now), (deadline - now).total_seconds())
+                self._condition.wait(timeout=max(wait_secs, 0.05))
 
     def observe(self, observation: GitHubQuotaObservation) -> None:
         if not observation.token_label:
@@ -126,7 +135,13 @@ class GitHubTokenPool:
                 return
             if observation.resource:
                 state.resource_observations[observation.resource] = observation
-            if observation.retry_after_seconds is not None and observation.retry_after_seconds > 0:
+            # Only set cooldown when actually rate-limited (429 or exhausted),
+            # not on every response that carries X-RateLimit-Reset.
+            is_rate_limited = (
+                observation.status_code == 429
+                or observation.exhausted is True
+            )
+            if is_rate_limited and observation.retry_after_seconds is not None and observation.retry_after_seconds > 0:
                 state.cooldown_until = observation.captured_at + timedelta(seconds=observation.retry_after_seconds)
             elif observation.exhausted is False:
                 state.cooldown_until = None

@@ -24,6 +24,8 @@ def persist_idea_scout_batch(
     repositories: list[DiscoveredRepository],
     *,
     idea_search_id: int,
+    query_index: int = 0,
+    query_text: str = "",
     commit: bool = True,
 ) -> IntakePersistenceResult:
     """Persist discovered repos and link them to the originating IdeaSearch."""
@@ -35,7 +37,8 @@ def persist_idea_scout_batch(
         commit=False,
     )
 
-    # Record discovery linkage
+    # Record discovery linkage — on conflict do nothing so the first query
+    # that finds a repo wins (query_index/query_text reflect the original discoverer).
     now = datetime.now(timezone.utc)
     for repo in repositories:
         stmt = (
@@ -44,6 +47,8 @@ def persist_idea_scout_batch(
                 idea_search_id=idea_search_id,
                 github_repository_id=repo.github_repository_id,
                 discovered_at=now,
+                query_index=query_index,
+                query_text=query_text,
             )
             .on_conflict_do_nothing(
                 index_elements=["idea_search_id", "github_repository_id"],

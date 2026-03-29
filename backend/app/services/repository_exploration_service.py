@@ -28,6 +28,7 @@ from app.schemas.repository_exploration import (
     RepositoryReadmeSnapshotResponse,
     RepositoryTriageContextResponse,
     RepositoryTriageExplanationResponse,
+    ScoutDiscoveryContextResponse,
 )
 
 
@@ -263,6 +264,17 @@ class RepositoryExplorationService:
             is_starred=record.is_starred,
             user_tags=record.user_tags,
             idea_family_ids=record.idea_family_ids,
+            scout_context=(
+                ScoutDiscoveryContextResponse(
+                    idea_search_id=record.scout_context.idea_search_id,
+                    idea_text=record.scout_context.idea_text,
+                    query_index=record.scout_context.query_index,
+                    query_text=record.scout_context.query_text,
+                    discovered_at=record.scout_context.discovered_at,
+                )
+                if record.scout_context is not None
+                else None
+            ),
         )
 
     def list_repository_catalog(
@@ -338,6 +350,17 @@ class RepositoryExplorationService:
                     is_starred=item.is_starred,
                     user_tags=item.user_tags,
                     idea_family_ids=item.idea_family_ids,
+                    scout_context=(
+                        ScoutDiscoveryContextResponse(
+                            idea_search_id=item.scout_context.idea_search_id,
+                            idea_text=item.scout_context.idea_text,
+                            query_index=item.scout_context.query_index,
+                            query_text=item.scout_context.query_text,
+                            discovered_at=item.scout_context.discovered_at,
+                        )
+                        if item.scout_context is not None
+                        else None
+                    ),
                 )
                 for item in page.items
             ],

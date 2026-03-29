@@ -179,6 +179,11 @@ export function RepositoryCatalogTable({
                   <span className={getSourceClass(item.discovery_source)}>
                     {formatSource(item.discovery_source)}
                   </span>
+                  {item.scout_context && (
+                    <div className="repo-table-scout-query" title={item.scout_context.query_text}>
+                      Q{item.scout_context.query_index + 1}
+                    </div>
+                  )}
                 </td>
                 <td>{renderTagList(item.agent_tags ?? [], "tag tag-agent")}</td>
                 <td>{renderTagList(item.user_tags, "tag tag-user")}</td>

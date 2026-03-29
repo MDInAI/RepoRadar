@@ -29,6 +29,9 @@ from agentic_workers.storage.artifact_store import (
     build_json_artifact,
  )  # noqa: E402
 from agentic_workers.storage.backend_models import (
+    AnalystSourceSettings,
+    IdeaSearch,
+    IdeaSearchDiscovery,
     RepositoryCategory,
     RepositoryAnalysisFailureCode,
     RepositoryAnalysisResult,
@@ -81,37 +84,102 @@ class PersistedAnalysisArtifacts:
 
 def list_pending_analysis_targets(session: Session) -> list[RepositoryIntake]:
     from agentic_workers.storage.backend_models import RepositoryTriageStatus
+    from sqlalchemy import func as sa_func
 
+    # ── Load source settings (firehose/backfill opt-in flags) ─────────────────
+    source_settings = session.get(AnalystSourceSettings, 1)
+    firehose_enabled = bool(source_settings.firehose_enabled) if source_settings else False
+    backfill_enabled = bool(source_settings.backfill_enabled) if source_settings else False
+
+    # ── Scout repos: always included when any IdeaSearch has analyst_enabled ──
+    scout_enabled_count: int = session.exec(
+        select(sa_func.count(IdeaSearch.id)).where(IdeaSearch.analyst_enabled.is_(True))
+    ).one()
+
+    pending_targets: list[RepositoryIntake] = []
+
+    if scout_enabled_count > 0:
+        scout_repositories = session.exec(
+            select(RepositoryIntake)
+            .join(
+                IdeaSearchDiscovery,
+                RepositoryIntake.github_repository_id == IdeaSearchDiscovery.github_repository_id,
+            )
+            .join(IdeaSearch, IdeaSearchDiscovery.idea_search_id == IdeaSearch.id)
+            .where(IdeaSearch.analyst_enabled.is_(True))
+            .where(RepositoryIntake.analysis_status != RepositoryAnalysisStatus.COMPLETED)
+            .order_by(RepositoryIntake.discovered_at, RepositoryIntake.github_repository_id)
+            .distinct()
+        ).all()
+        logger.info(
+            "Scout queue: %d repos pending from %d enabled search(es)",
+            len(scout_repositories),
+            scout_enabled_count,
+        )
+        pending_targets.extend(scout_repositories)
+
+    # ── Firehose/backfill: only when explicitly enabled in source settings ─────
+    if not firehose_enabled and not backfill_enabled:
+        if not pending_targets:
+            logger.info(
+                "Analyst has no work: firehose and backfill are disabled and no Scout searches are enabled"
+            )
+        else:
+            logger.info(
+                "Analyst processing %d Scout repos (firehose disabled, backfill disabled)",
+                len(pending_targets),
+            )
+        return pending_targets
+
+    # Build triage-accepted queue only for enabled sources
     accepted_repositories = session.exec(
         select(RepositoryIntake)
         .where(RepositoryIntake.triage_status == RepositoryTriageStatus.ACCEPTED)
         .order_by(RepositoryIntake.triaged_at, RepositoryIntake.github_repository_id)
     ).all()
-    if not accepted_repositories:
-        return []
 
-    repository_ids = [repository.github_repository_id for repository in accepted_repositories]
+    if not accepted_repositories:
+        return pending_targets
+
+    accepted_ids = [r.github_repository_id for r in accepted_repositories]
     starred_repository_ids = set(
         session.exec(
             select(RepositoryUserCuration.github_repository_id).where(
-                RepositoryUserCuration.github_repository_id.in_(repository_ids),
+                RepositoryUserCuration.github_repository_id.in_(accepted_ids),
                 RepositoryUserCuration.is_starred.is_(True),
             )
         ).all()
     )
     analysis_rows = session.exec(
         select(RepositoryAnalysisResult).where(
-            RepositoryAnalysisResult.github_repository_id.in_(repository_ids)
+            RepositoryAnalysisResult.github_repository_id.in_(accepted_ids)
         )
     ).all()
     analysis_by_repository_id = {
         analysis.github_repository_id: analysis for analysis in analysis_rows
     }
 
-    pending_targets: list[RepositoryIntake] = []
+    # Track which repo IDs are already in the Scout list to avoid duplicates
+    already_queued_ids = {r.github_repository_id for r in pending_targets}
+
     stale_completed_count = 0
     skipped_by_selection_count = 0
+    firehose_added = 0
+    backfill_added = 0
+
     for repository in accepted_repositories:
+        if repository.github_repository_id in already_queued_ids:
+            continue
+
+        source = getattr(repository, "discovery_source", None)
+        is_firehose = source == "firehose" if source is not None else True
+        is_backfill = source == "backfill" if source is not None else False
+
+        if is_firehose and not firehose_enabled:
+            continue
+        if is_backfill and not backfill_enabled:
+            continue
+
         if not _repository_selected_for_analysis(
             repository,
             is_starred=repository.github_repository_id in starred_repository_ids,
@@ -121,6 +189,10 @@ def list_pending_analysis_targets(session: Session) -> list[RepositoryIntake]:
 
         if repository.analysis_status is not RepositoryAnalysisStatus.COMPLETED:
             pending_targets.append(repository)
+            if is_firehose:
+                firehose_added += 1
+            elif is_backfill:
+                backfill_added += 1
             continue
 
         if _analysis_requires_reanalysis(
@@ -131,14 +203,22 @@ def list_pending_analysis_targets(session: Session) -> list[RepositoryIntake]:
 
     if stale_completed_count > 0:
         logger.info(
-            "Queued %d accepted repositories for Analyst refresh because they use legacy analysis output",
+            "Queued %d accepted repositories for Analyst refresh (legacy analysis output)",
             stale_completed_count,
         )
     if skipped_by_selection_count > 0:
         logger.info(
-            "Skipped %d accepted repositories because they did not match the Analyst selection gate",
+            "Skipped %d accepted repositories (did not match Analyst selection gate)",
             skipped_by_selection_count,
         )
+    logger.info(
+        "Analyst queue: %d total (%d firehose, %d backfill added, firehose_enabled=%s, backfill_enabled=%s)",
+        len(pending_targets),
+        firehose_added,
+        backfill_added,
+        firehose_enabled,
+        backfill_enabled,
+    )
 
     return pending_targets
 

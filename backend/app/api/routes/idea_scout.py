@@ -23,6 +23,7 @@ def _to_response(rec) -> IdeaSearchResponse:
         status=rec.status,
         obsession_context_id=rec.obsession_context_id,
         total_repos_found=rec.total_repos_found,
+        analyst_enabled=rec.analyst_enabled,
         created_at=rec.created_at,
         updated_at=rec.updated_at,
     )
@@ -56,6 +57,7 @@ def get_search(
     service: IdeaScoutService = Depends(get_idea_scout_service),
 ) -> IdeaSearchDetailResponse:
     search, progress, discovery_count = service.get_search_detail(search_id)
+    analyzed_count = service._repo.get_analyzed_count(search_id)
     return IdeaSearchDetailResponse(
         id=search.id,
         idea_text=search.idea_text,
@@ -64,6 +66,7 @@ def get_search(
         status=search.status,
         obsession_context_id=search.obsession_context_id,
         total_repos_found=search.total_repos_found,
+        analyst_enabled=search.analyst_enabled,
         progress=[
             IdeaSearchProgressSummary(
                 query_index=p.query_index,
@@ -80,9 +83,26 @@ def get_search(
             for p in progress
         ],
         discovery_count=discovery_count,
+        analyzed_count=analyzed_count,
         created_at=search.created_at,
         updated_at=search.updated_at,
     )
+
+
+@router.post("/searches/{search_id}/analyst/enable", response_model=IdeaSearchResponse)
+def enable_analyst(
+    search_id: int,
+    service: IdeaScoutService = Depends(get_idea_scout_service),
+) -> IdeaSearchResponse:
+    return _to_response(service.set_analyst_enabled(search_id, True))
+
+
+@router.post("/searches/{search_id}/analyst/disable", response_model=IdeaSearchResponse)
+def disable_analyst(
+    search_id: int,
+    service: IdeaScoutService = Depends(get_idea_scout_service),
+) -> IdeaSearchResponse:
+    return _to_response(service.set_analyst_enabled(search_id, False))
 
 
 @router.post("/searches/{search_id}/pause", response_model=IdeaSearchResponse)

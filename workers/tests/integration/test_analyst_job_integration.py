@@ -13,6 +13,7 @@ from agentic_workers.jobs.analyst_job import AnalystRunStatus, run_analyst_job
 from agentic_workers.providers.github_provider import RepositoryReadme
 from agentic_workers.providers.readme_analyst import ReadmeAnalysisUsage
 from agentic_workers.storage.backend_models import (
+    AnalystSourceSettings,
     RepositoryCategory,
     RepositoryAnalysisFailureCode,
     RepositoryAnalysisResult,
@@ -58,9 +59,13 @@ class StaticAnalysisProvider:
 
 def _make_session(tmp_path: Path) -> Session:
     database_url = f"sqlite:///{tmp_path / 'analyst-integration.db'}"
-    engine = create_engine(database_url)
+    engine = create_engine(database_url, connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
-    return Session(engine)
+    session = Session(engine)
+    # Seed the analyst source settings so list_pending_analysis_targets finds work.
+    session.add(AnalystSourceSettings(id=1, firehose_enabled=True, backfill_enabled=False))
+    session.commit()
+    return session
 
 
 def _accepted_row(repository_id: int, full_name: str) -> RepositoryIntake:
@@ -297,13 +302,13 @@ def test_analyst_job_restores_previous_artifacts_when_db_persistence_fails(
     original_commit = Session.commit
     commit_calls = {"count": 0}
 
-    def fail_second_commit(self: Session) -> None:
+    def fail_third_commit(self: Session) -> None:
         commit_calls["count"] += 1
-        if commit_calls["count"] == 2:
+        if commit_calls["count"] == 3:
             raise RuntimeError("database write failed")
         original_commit(self)
 
-    monkeypatch.setattr(Session, "commit", fail_second_commit)
+    monkeypatch.setattr(Session, "commit", fail_third_commit)
 
     with _make_session(tmp_path) as session:
         session.add(_accepted_row(909, "octocat/rollback-check"))

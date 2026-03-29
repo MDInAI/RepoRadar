@@ -937,3 +937,42 @@ export async function fetchArtifactStorageStatus(): Promise<ArtifactStorageStatu
     "artifact_storage_status_shape_invalid",
   );
 }
+
+// ── Analyst source settings ───────────────────────────────────────────────────
+
+export interface AnalystSourceSettings {
+  firehose_enabled: boolean;
+  backfill_enabled: boolean;
+}
+
+export function getAnalystSourceSettingsQueryKey() {
+  return ["agents", "analyst", "source-settings"] as const;
+}
+
+export async function fetchAnalystSourceSettings(): Promise<AnalystSourceSettings> {
+  const result = await requestJson<unknown>("/api/v1/agents/analyst/source-settings");
+  if (
+    !result ||
+    typeof result !== "object" ||
+    typeof (result as AnalystSourceSettings).firehose_enabled !== "boolean" ||
+    typeof (result as AnalystSourceSettings).backfill_enabled !== "boolean"
+  ) {
+    throw new Error("Analyst source settings response has unexpected shape");
+  }
+  return result as AnalystSourceSettings;
+}
+
+export async function updateAnalystSourceSettings(
+  settings: AnalystSourceSettings,
+): Promise<AnalystSourceSettings> {
+  const result = await mutateJson<unknown>("/api/v1/agents/analyst/source-settings", "PUT", settings);
+  if (
+    !result ||
+    typeof result !== "object" ||
+    typeof (result as AnalystSourceSettings).firehose_enabled !== "boolean" ||
+    typeof (result as AnalystSourceSettings).backfill_enabled !== "boolean"
+  ) {
+    throw new Error("Analyst source settings update response has unexpected shape");
+  }
+  return result as AnalystSourceSettings;
+}

@@ -331,6 +331,25 @@ def pause_event_run_id(
     return triggering_run_id
 
 
+def discard_noop_run(session: Session, run_id: int) -> None:
+    """Delete an AgentRun and its associated SystemEvents when a run did no work.
+
+    This prevents no-op runs (e.g. exhausted backfill, empty firehose) from
+    polluting the DB with tracking rows that carry no diagnostic value.
+    """
+    try:
+        from sqlalchemy import delete as sa_delete
+
+        sa_delete_events = sa_delete(SystemEvent).where(SystemEvent.agent_run_id == run_id)
+        session.execute(sa_delete_events)
+        sa_delete_run = sa_delete(AgentRun).where(AgentRun.id == run_id)
+        session.execute(sa_delete_run)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+
 def _add_system_event(
     session: Session,
     *,

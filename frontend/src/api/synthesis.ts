@@ -35,6 +35,18 @@ export async function triggerCombiner(data: TriggerCombinerRequest): Promise<Syn
   return response.json();
 }
 
+export async function triggerDeepSynthesis(familyId: number): Promise<SynthesisRun> {
+  const response = await fetch(`${getBaseUrl()}/deep-synthesis`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idea_family_id: familyId }),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to trigger deep synthesis: ${response.statusText}`);
+  }
+  return response.json();
+}
+
 export async function fetchSynthesisRuns(
   familyId?: number | null,
   filters?: {

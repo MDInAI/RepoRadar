@@ -18,6 +18,7 @@ export interface IdeaSearchResponse {
   status: IdeaSearchStatus;
   obsession_context_id: number | null;
   total_repos_found: number;
+  analyst_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -38,6 +39,7 @@ export interface IdeaSearchProgressSummary {
 export interface IdeaSearchDetailResponse extends IdeaSearchResponse {
   progress: IdeaSearchProgressSummary[];
   discovery_count: number;
+  analyzed_count: number;
 }
 
 export interface DiscoveredRepo {
@@ -136,6 +138,18 @@ export async function resumeIdeaSearch(searchId: number): Promise<IdeaSearchResp
 
 export async function cancelIdeaSearch(searchId: number): Promise<IdeaSearchResponse> {
   return requestJson<IdeaSearchResponse>(`${base()}/searches/${searchId}/cancel`, {
+    method: "POST",
+  });
+}
+
+export async function enableAnalystForSearch(searchId: number): Promise<IdeaSearchResponse> {
+  return requestJson<IdeaSearchResponse>(`${base()}/searches/${searchId}/analyst/enable`, {
+    method: "POST",
+  });
+}
+
+export async function disableAnalystForSearch(searchId: number): Promise<IdeaSearchResponse> {
+  return requestJson<IdeaSearchResponse>(`${base()}/searches/${searchId}/analyst/disable`, {
     method: "POST",
   });
 }

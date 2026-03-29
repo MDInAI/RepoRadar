@@ -32,6 +32,7 @@ def validate_startup_recovery(session: Session) -> None:
     _recover_stale_running_agent_runs(session)
     _reset_stale_in_progress_states(session)
     _auto_resume_transient_intake_pauses(session)
+    _auto_resume_retryable_agent_pauses(session)
     _log_recovery_diagnostics(session)
 
 
@@ -182,6 +183,73 @@ def _auto_resume_transient_intake_pauses(session: Session) -> None:
         session.commit()
         logger.info(
             "Auto-resumed stale transient intake pauses for: %s",
+            ", ".join(sorted(resumed_agents)),
+        )
+
+
+def _auto_resume_retryable_agent_pauses(session: Session) -> None:
+    """Auto-resume agents paused by consecutive retryable failures (e.g. upstream 502s).
+
+    Unlike ``_auto_resume_transient_intake_pauses`` which only handles firehose/backfill
+    with checkpoint-specific logic, this covers any agent (analyst, combiner, etc.)
+    that was paused due to transient upstream errors classified as RETRYABLE.
+    """
+    paused_states = session.exec(
+        select(AgentPauseState).where(AgentPauseState.is_paused == True)  # noqa: E712
+    ).all()
+
+    resumed_agents: list[str] = []
+    now = datetime.now(timezone.utc)
+    for pause_state in paused_states:
+        # Skip firehose/backfill — they have their own auto-resume logic above.
+        if pause_state.agent_name in {"firehose", "backfill"}:
+            continue
+        if pause_state.triggered_by_event_id is None:
+            continue
+
+        triggering_event = session.get(SystemEvent, pause_state.triggered_by_event_id)
+        if triggering_event is None:
+            continue
+
+        # Only auto-resume if the triggering failure was classified as retryable.
+        if triggering_event.failure_classification is not FailureClassification.RETRYABLE:
+            continue
+
+        pause_state.is_paused = False
+        pause_state.pause_reason = None
+        pause_state.resume_condition = None
+        pause_state.triggered_by_event_id = None
+        pause_state.resumed_at = now
+        pause_state.resumed_by = "auto"
+        session.add(pause_state)
+
+        session.add(
+            SystemEvent(
+                event_type="agent_resumed",
+                agent_name=pause_state.agent_name,
+                severity=EventSeverity.INFO,
+                message=f"Agent '{pause_state.agent_name}' auto-resumed after transient upstream failure recovery.",
+                context_json=json.dumps(
+                    {
+                        "action": "auto_resume_retryable_pause",
+                        "triggering_event_id": triggering_event.id,
+                        "triggering_event_type": triggering_event.event_type,
+                        "original_classification": triggering_event.failure_classification.value
+                        if triggering_event.failure_classification
+                        else None,
+                    },
+                    sort_keys=True,
+                ),
+                agent_run_id=triggering_event.agent_run_id,
+                created_at=now,
+            )
+        )
+        resumed_agents.append(pause_state.agent_name)
+
+    if resumed_agents:
+        session.commit()
+        logger.info(
+            "Auto-resumed retryable agent pauses for: %s",
             ", ".join(sorted(resumed_agents)),
         )
 

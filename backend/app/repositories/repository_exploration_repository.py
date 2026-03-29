@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from app.models import (
     IdeaFamilyMembership,
+    IdeaSearch,
     IdeaSearchDiscovery,
     RepositoryAnalysisResult,
     RepositoryAnalysisStatus,
@@ -84,6 +85,15 @@ class RepositoryTriageRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ScoutDiscoveryRecord:
+    idea_search_id: int
+    idea_text: str
+    query_index: int
+    query_text: str
+    discovered_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class RepositoryExplorationRecord:
     github_repository_id: int
     source_provider: str
@@ -111,6 +121,7 @@ class RepositoryExplorationRecord:
     is_starred: bool
     user_tags: list[str]
     idea_family_ids: list[int]
+    scout_context: ScoutDiscoveryRecord | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +180,7 @@ class RepositoryCatalogItemRecord:
     is_starred: bool
     user_tags: list[str]
     idea_family_ids: list[int]
+    scout_context: ScoutDiscoveryRecord | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +244,12 @@ class RepositoryExplorationRepository:
             select(IdeaFamilyMembership)
             .where(IdeaFamilyMembership.github_repository_id == github_repository_id)
         ).all()
+
+        scout_context = (
+            self._fetch_scout_context(github_repository_id)
+            if intake.discovery_source is RepositoryDiscoverySource.IDEA_SCOUT
+            else None
+        )
 
         analysis_row = self.session.get(RepositoryAnalysisResult, github_repository_id)
         analysis_summary = None
@@ -345,6 +363,7 @@ class RepositoryExplorationRepository:
             is_starred=curation_row.is_starred if curation_row is not None else False,
             user_tags=[row.tag_label for row in tag_rows],
             idea_family_ids=[row.idea_family_id for row in family_rows],
+            scout_context=scout_context,
         )
 
     def list_repository_catalog(
@@ -555,6 +574,7 @@ class RepositoryExplorationRepository:
         repository_ids = [row.github_repository_id for row in rows]
         user_tags_by_repository_id: dict[int, list[str]] = defaultdict(list)
         idea_family_ids_by_repository_id: dict[int, list[int]] = defaultdict(list)
+        scout_context_by_repository_id: dict[int, ScoutDiscoveryRecord] = {}
         if repository_ids:
             tag_rows = self.session.exec(
                 select(RepositoryUserTag)
@@ -575,6 +595,37 @@ class RepositoryExplorationRepository:
             ).all()
             for family_row in family_rows:
                 idea_family_ids_by_repository_id[family_row.github_repository_id].append(family_row.idea_family_id)
+
+            scout_ids = [
+                row.github_repository_id
+                for row in rows
+                if row.discovery_source is RepositoryDiscoverySource.IDEA_SCOUT
+            ]
+            if scout_ids:
+                scout_rows = self.session.exec(
+                    select(
+                        IdeaSearchDiscovery.github_repository_id,
+                        IdeaSearchDiscovery.idea_search_id,
+                        IdeaSearchDiscovery.query_index,
+                        IdeaSearchDiscovery.query_text,
+                        IdeaSearchDiscovery.discovered_at,
+                        IdeaSearch.idea_text,
+                    )
+                    .join(IdeaSearch, IdeaSearchDiscovery.idea_search_id == IdeaSearch.id)
+                    .where(IdeaSearchDiscovery.github_repository_id.in_(scout_ids))
+                    .order_by(IdeaSearchDiscovery.github_repository_id.asc())
+                ).all()
+                for scout_row in scout_rows:
+                    repo_id = scout_row.github_repository_id
+                    if repo_id not in scout_context_by_repository_id:
+                        scout_context_by_repository_id[repo_id] = ScoutDiscoveryRecord(
+                            idea_search_id=scout_row.idea_search_id,
+                            idea_text=scout_row.idea_text,
+                            query_index=scout_row.query_index,
+                            query_text=scout_row.query_text,
+                            discovered_at=scout_row.discovered_at,
+                        )
+
         items = [
             RepositoryCatalogItemRecord(
                 github_repository_id=row.github_repository_id,
@@ -629,6 +680,7 @@ class RepositoryExplorationRepository:
                 is_starred=bool(row.is_starred),
                 user_tags=user_tags_by_repository_id.get(row.github_repository_id, []),
                 idea_family_ids=idea_family_ids_by_repository_id.get(row.github_repository_id, []),
+                scout_context=scout_context_by_repository_id.get(row.github_repository_id),
             )
             for row in rows
         ]
@@ -698,6 +750,28 @@ class RepositoryExplorationRepository:
             label = f"{prefix}_{status.value}"
             counts[status.value] = int(getattr(row, label))
         return counts
+
+    def _fetch_scout_context(self, github_repository_id: int) -> ScoutDiscoveryRecord | None:
+        row = self.session.exec(
+            select(
+                IdeaSearchDiscovery.idea_search_id,
+                IdeaSearchDiscovery.query_index,
+                IdeaSearchDiscovery.query_text,
+                IdeaSearchDiscovery.discovered_at,
+                IdeaSearch.idea_text,
+            )
+            .join(IdeaSearch, IdeaSearchDiscovery.idea_search_id == IdeaSearch.id)
+            .where(IdeaSearchDiscovery.github_repository_id == github_repository_id)
+        ).first()
+        if row is None:
+            return None
+        return ScoutDiscoveryRecord(
+            idea_search_id=row.idea_search_id,
+            idea_text=row.idea_text,
+            query_index=row.query_index,
+            query_text=row.query_text,
+            discovered_at=row.discovered_at,
+        )
 
     @staticmethod
     def _build_failure_context(intake: RepositoryIntake) -> RepositoryFailureContextRecord | None:

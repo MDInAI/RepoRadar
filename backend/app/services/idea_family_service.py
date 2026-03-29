@@ -1,5 +1,9 @@
 from app.repositories.idea_family_repository import IdeaFamilyRepository, IdeaFamilyRecord
-from app.schemas.idea_family import IdeaFamilyResponse, IdeaFamilyDetailResponse
+from app.schemas.idea_family import (
+    IdeaFamilyResponse,
+    IdeaFamilyDetailResponse,
+    CreateFamilyFromSearchResponse,
+)
 
 
 class IdeaFamilyService:
@@ -75,6 +79,30 @@ class IdeaFamilyService:
 
     def remove_repository(self, family_id: int, github_repository_id: int) -> None:
         self._repo.remove_repository(family_id, github_repository_id)
+
+    def bulk_add_repositories(
+        self, family_id: int, github_repository_ids: list[int]
+    ) -> int:
+        return self._repo.bulk_add_repositories(family_id, github_repository_ids)
+
+    def create_from_search(
+        self,
+        idea_search_id: int,
+        title: str,
+        description: str | None,
+        only_analyzed: bool,
+    ) -> CreateFamilyFromSearchResponse:
+        self._validate_title(title)
+        repo_ids = self._repo.get_search_discovery_repo_ids(idea_search_id, only_analyzed)
+        record = self._repo.create_family(title, description)
+        added_count = 0
+        if repo_ids:
+            added_count = self._repo.bulk_add_repositories(record.id, repo_ids)
+        return CreateFamilyFromSearchResponse(
+            family_id=record.id,
+            title=record.title,
+            member_count=added_count,
+        )
 
     def _validate_title(self, title: str) -> None:
         if not title or not title.strip():

@@ -18,6 +18,7 @@ from app.models.artifact import (
 )
 from app.models.repository import (
     AgentMemorySegment,
+    AnalystSourceSettings,
     BackfillProgress,
     FirehoseProgress,
     IdeaFamily,
@@ -62,6 +63,7 @@ __all__ = [
     "RepositoryArtifact",
     "RepositoryArtifactKind",
     "RepositoryArtifactPayload",
+    "AnalystSourceSettings",
     "BackfillProgress",
     "FirehoseProgress",
     "IdeaFamily",

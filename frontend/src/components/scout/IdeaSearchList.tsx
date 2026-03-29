@@ -5,6 +5,7 @@ import {
   useIdeaSearches,
   usePauseIdeaSearch,
   useResumeIdeaSearch,
+  useSetAnalystEnabled,
 } from "@/hooks/useIdeaScout";
 import type { IdeaSearchDirection, IdeaSearchResponse, IdeaSearchStatus } from "@/api/idea-scout";
 
@@ -56,6 +57,9 @@ function SearchCard({
   const pauseMutation = usePauseIdeaSearch();
   const resumeMutation = useResumeIdeaSearch();
   const cancelMutation = useCancelIdeaSearch();
+  const analystMutation = useSetAnalystEnabled();
+
+  const analystPending = analystMutation.isPending;
 
   return (
     <div
@@ -75,6 +79,23 @@ function SearchCard({
         <span>{dirLabel(search.direction)}</span>
         <span>{timeAgo(search.updated_at)}</span>
       </div>
+
+      {/* Analyst toggle — always visible so you can activate it from any state */}
+      <div className="scout-scard-analyst" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          className={`scout-scard-analyst-btn ${search.analyst_enabled ? "scout-scard-analyst-btn-on" : "scout-scard-analyst-btn-off"}`}
+          disabled={analystPending}
+          title={search.analyst_enabled ? "Analyst is processing this search — click to stop" : "Enable Analyst for this search to score and tag all discoveries"}
+          onClick={() =>
+            analystMutation.mutate({ searchId: search.id, enabled: !search.analyst_enabled })
+          }
+        >
+          <span className="scout-scard-analyst-dot" />
+          {search.analyst_enabled ? "Analyst On" : "Analyst Off"}
+        </button>
+      </div>
+
       {(search.status === "active" || search.status === "paused") && (
         <div className="scout-scard-actions" onClick={(e) => e.stopPropagation()}>
           {search.status === "active" && (
