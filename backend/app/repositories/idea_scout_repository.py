@@ -10,6 +10,7 @@ from app.models.repository import (
     IdeaSearch,
     IdeaSearchDiscovery,
     IdeaSearchProgress,
+    RepositoryAnalysisStatus,
     RepositoryIntake,
 )
 
@@ -27,6 +28,7 @@ class IdeaSearchRecord:
     status: str
     obsession_context_id: int | None
     total_repos_found: int
+    analyst_enabled: bool
     created_at: datetime
     updated_at: datetime
 
@@ -70,6 +72,7 @@ class IdeaScoutRepository:
             status=_enum_to_str(s.status),
             obsession_context_id=s.obsession_context_id,
             total_repos_found=s.total_repos_found,
+            analyst_enabled=bool(getattr(s, "analyst_enabled", False)),
             created_at=s.created_at,
             updated_at=s.updated_at,
         )
@@ -198,3 +201,31 @@ class IdeaScoutRepository:
             .where(IdeaSearchDiscovery.idea_search_id == idea_search_id)
         )
         return self._session.execute(stmt).scalar_one()
+
+    def get_analyzed_count(self, idea_search_id: int) -> int:
+        """Count repos from this search that have completed analysis."""
+        stmt = (
+            select(func.count())
+            .select_from(IdeaSearchDiscovery)
+            .join(
+                RepositoryIntake,
+                IdeaSearchDiscovery.github_repository_id == RepositoryIntake.github_repository_id,
+            )
+            .where(IdeaSearchDiscovery.idea_search_id == idea_search_id)
+            .where(RepositoryIntake.analysis_status == RepositoryAnalysisStatus.COMPLETED)
+        )
+        return self._session.execute(stmt).scalar_one()
+
+    def set_analyst_enabled(self, search_id: int, enabled: bool) -> IdeaSearchRecord:
+        search = self._session.get(IdeaSearch, search_id)
+        if not search:
+            from app.core.errors import AppError
+            raise AppError(
+                message=f"IdeaSearch {search_id} not found",
+                code="idea_search_not_found",
+                status_code=404,
+            )
+        search.analyst_enabled = enabled
+        search.updated_at = datetime.now(timezone.utc)
+        self._session.flush()
+        return self._to_record(search)

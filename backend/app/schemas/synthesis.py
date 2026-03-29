@@ -35,3 +35,7 @@ class CombinerTriggerRequest(BaseModel):
             raise ValueError("Either idea_family_id or repository_ids must be provided")
         if self.idea_family_id is not None and self.repository_ids is not None:
             raise ValueError("Cannot provide both idea_family_id and repository_ids")
+
+
+class DeepSynthesisTriggerRequest(BaseModel):
+    idea_family_id: int

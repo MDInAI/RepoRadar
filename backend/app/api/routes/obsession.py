@@ -24,6 +24,7 @@ def create_context(
         refresh_policy=request.refresh_policy,
         idea_family_id=request.idea_family_id,
         synthesis_run_id=request.synthesis_run_id,
+        idea_search_id=request.idea_search_id,
         idea_text=request.idea_text,
     )
     return ObsessionContextResponse(

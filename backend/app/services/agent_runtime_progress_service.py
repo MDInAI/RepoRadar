@@ -11,6 +11,8 @@ from app.core.config import settings
 from app.models import (
     AgentRun,
     AgentRunStatus,
+    IdeaSearch,
+    IdeaSearchDiscovery,
     RepositoryAnalysisStatus,
     RepositoryIntake,
     RepositoryQueueStatus,
@@ -207,6 +209,73 @@ class AgentRuntimeProgressService:
         latest_event: SystemEvent | None,
     ) -> AgentRuntimeProgress:
         snapshot = self._load_progress_snapshot("analyst")
+
+        # Check if Scout-exclusive mode is active (any IdeaSearch has analyst_enabled=True).
+        scout_enabled_count = int(
+            self.session.exec(
+                select(func.count(IdeaSearch.id)).where(IdeaSearch.analyst_enabled.is_(True))
+            ).one()
+            or 0
+        )
+
+        if scout_enabled_count > 0:
+            # Scout-exclusive mode: count only repos from analyst-enabled IdeaSearches.
+            scout_total = int(
+                self.session.exec(
+                    select(func.count(RepositoryIntake.github_repository_id))
+                    .join(
+                        IdeaSearchDiscovery,
+                        RepositoryIntake.github_repository_id == IdeaSearchDiscovery.github_repository_id,
+                    )
+                    .join(IdeaSearch, IdeaSearchDiscovery.idea_search_id == IdeaSearch.id)
+                    .where(IdeaSearch.analyst_enabled.is_(True))
+                ).one()
+                or 0
+            )
+            scout_completed = int(
+                self.session.exec(
+                    select(func.count(RepositoryIntake.github_repository_id))
+                    .join(
+                        IdeaSearchDiscovery,
+                        RepositoryIntake.github_repository_id == IdeaSearchDiscovery.github_repository_id,
+                    )
+                    .join(IdeaSearch, IdeaSearchDiscovery.idea_search_id == IdeaSearch.id)
+                    .where(IdeaSearch.analyst_enabled.is_(True))
+                    .where(RepositoryIntake.analysis_status == RepositoryAnalysisStatus.COMPLETED)
+                ).one()
+                or 0
+            )
+            scout_remaining = scout_total - scout_completed
+            pct = min(100, round(scout_completed / scout_total * 100)) if scout_total > 0 else 0
+            details = [
+                f"Scout-exclusive mode: firehose/backfill queue is bypassed",
+                f"Enabled searches: {scout_enabled_count}",
+                f"Scout repos analyzed: {scout_completed} / {scout_total}",
+                f"Scout repos remaining: {scout_remaining}",
+            ]
+            if latest_event is not None:
+                details.append(latest_event.message)
+            return self._build_snapshot_or_queue_progress(
+                latest_run=latest_run,
+                snapshot=None,  # ignore snapshot — it reflects old firehose counts
+                running_label=f"Analyzing Scout repos (Scout-exclusive mode, {scout_enabled_count} search(es) enabled).",
+                idle_label=f"Scout-exclusive mode active ({scout_enabled_count} search(es)). Resume the analyst to process Scout repos.",
+                current_target_fallback=(
+                    f"{scout_remaining} Scout repos remaining ({scout_completed}/{scout_total} done)"
+                    if scout_remaining > 0
+                    else "All Scout repos have been analyzed"
+                ),
+                source_fallback="Scout-exclusive analysis queue",
+                details=details,
+                primary_counts_label="Processed in this analyst run",
+                secondary_counts_label="Scout repos analyzed (firehose/backfill skipped)",
+                secondary_completed_count=scout_completed,
+                secondary_total_count=scout_total,
+                secondary_remaining_count=scout_remaining,
+                secondary_unit_label="repos",
+            )
+
+        # Normal mode: triage-accepted queue (firehose + backfill repos).
         accepted_total = self._count_repositories(
             RepositoryIntake.triage_status == RepositoryTriageStatus.ACCEPTED,
         )
@@ -245,7 +314,7 @@ class AgentRuntimeProgressService:
             ),
             source_fallback="analysis queue snapshot",
             details=details,
-            primary_counts_label="Processed in this Gemini refresh run",
+            primary_counts_label="Processed in this analyst run",
             secondary_counts_label="Already analyzed across accepted repos",
             secondary_completed_count=completed,
             secondary_total_count=accepted_total,

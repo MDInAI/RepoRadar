@@ -7,6 +7,7 @@ from functools import lru_cache
 import json
 from pathlib import Path
 import re
+import threading
 from typing import Callable, Protocol
 
 from anthropic import Anthropic
@@ -282,31 +283,34 @@ class GeminiKeyPool:
             for index, key in enumerate(configured_keys)
         ]
         self._next_index = 0
+        self._lock = threading.Lock()
 
     def select(self) -> GeminiKeySelection:
-        now = datetime.now(timezone.utc)
-        healthy_states = [
-            state for state in self._states if state.cooldown_until is None or state.cooldown_until <= now
-        ]
-        candidate_states = healthy_states or self._states
-        selected = candidate_states[self._next_index % len(candidate_states)]
-        self._next_index += 1
-        selected.last_used_at = now
-        if selected.cooldown_until is not None and selected.cooldown_until <= now:
-            selected.cooldown_until = None
-            selected.last_status = "healthy"
-            selected.last_error = None
-            selected.last_response_status = None
-        return GeminiKeySelection(label=selected.label, api_key=selected.api_key)
+        with self._lock:
+            now = datetime.now(timezone.utc)
+            healthy_states = [
+                state for state in self._states if state.cooldown_until is None or state.cooldown_until <= now
+            ]
+            candidate_states = healthy_states or self._states
+            selected = candidate_states[self._next_index % len(candidate_states)]
+            self._next_index += 1
+            selected.last_used_at = now
+            if selected.cooldown_until is not None and selected.cooldown_until <= now:
+                selected.cooldown_until = None
+                selected.last_status = "healthy"
+                selected.last_error = None
+                selected.last_response_status = None
+            return GeminiKeySelection(label=selected.label, api_key=selected.api_key)
 
     def mark_success(self, label: str) -> None:
-        state = self._state_by_label(label)
-        if state is None:
-            return
-        state.cooldown_until = None
-        state.last_error = None
-        state.last_status = "healthy"
-        state.last_response_status = 200
+        with self._lock:
+            state = self._state_by_label(label)
+            if state is None:
+                return
+            state.cooldown_until = None
+            state.last_error = None
+            state.last_status = "healthy"
+            state.last_response_status = 200
 
     def mark_cooldown(
         self,
@@ -317,28 +321,30 @@ class GeminiKeyPool:
         cooldown_seconds: int,
         status_label: str,
     ) -> None:
-        state = self._state_by_label(label)
-        if state is None:
-            return
-        state.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=max(cooldown_seconds, 1))
-        state.last_error = error_message
-        state.last_status = status_label
-        state.last_response_status = status_code
+        with self._lock:
+            state = self._state_by_label(label)
+            if state is None:
+                return
+            state.cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=max(cooldown_seconds, 1))
+            state.last_error = error_message
+            state.last_status = status_label
+            state.last_response_status = status_code
 
     def snapshot_payload(self) -> list[dict[str, object]]:
-        return [
-            {
-                "label": state.label,
-                "status": state.last_status,
-                "last_used_at": state.last_used_at.isoformat() if state.last_used_at is not None else None,
-                "cooldown_until": state.cooldown_until.isoformat()
-                if state.cooldown_until is not None
-                else None,
-                "last_error": state.last_error,
-                "last_response_status": state.last_response_status,
-            }
-            for state in self._states
-        ]
+        with self._lock:
+            return [
+                {
+                    "label": state.label,
+                    "status": state.last_status,
+                    "last_used_at": state.last_used_at.isoformat() if state.last_used_at is not None else None,
+                    "cooldown_until": state.cooldown_until.isoformat()
+                    if state.cooldown_until is not None
+                    else None,
+                    "last_error": state.last_error,
+                    "last_response_status": state.last_response_status,
+                }
+                for state in self._states
+            ]
 
     def key_count(self) -> int:
         return len(self._states)
@@ -648,7 +654,7 @@ class GeminiReadmeAnalysisProvider:
         self._base_url = base_url or "https://api.haimaker.ai/v1"
         self._runtime_dir = runtime_dir
         self._model_name = model_name or "google/gemini-2.0-flash-001"
-        self._last_usage = ReadmeAnalysisUsage()
+        self._usage_local = threading.local()
         self._key_pool = GeminiKeyPool(deduped_keys)
         self._clients = {
             f"key-{index + 1}": OpenAI(api_key=key, base_url=self._base_url)
@@ -703,7 +709,7 @@ Return valid JSON matching this schema:
 Return ONLY valid JSON, no markdown formatting."""
 
         last_error: Exception | None = None
-        self._last_usage = ReadmeAnalysisUsage()
+        self._usage_local.usage = ReadmeAnalysisUsage()
 
         for _ in range(self._key_pool.key_count()):
             selection = self._key_pool.select()
@@ -723,10 +729,11 @@ Return ONLY valid JSON, no markdown formatting."""
                 input_tokens = _coerce_token_count(getattr(usage, "prompt_tokens", 0))
                 output_tokens = _coerce_token_count(getattr(usage, "completion_tokens", 0))
                 total_tokens = _coerce_token_count(getattr(usage, "total_tokens", input_tokens + output_tokens))
-                self._last_usage = ReadmeAnalysisUsage(
-                    input_tokens=self._last_usage.input_tokens + input_tokens,
-                    output_tokens=self._last_usage.output_tokens + output_tokens,
-                    total_tokens=self._last_usage.total_tokens + total_tokens,
+                prev = self._usage_local.usage
+                self._usage_local.usage = ReadmeAnalysisUsage(
+                    input_tokens=prev.input_tokens + input_tokens,
+                    output_tokens=prev.output_tokens + output_tokens,
+                    total_tokens=prev.total_tokens + total_tokens,
                 )
                 validated = _validate_or_repair_analysis_output(
                     response_text,
@@ -751,11 +758,11 @@ Return ONLY valid JSON, no markdown formatting."""
                     last_error = exc
                     continue
                 self._write_pool_snapshot()
-                self._last_usage = ReadmeAnalysisUsage()
+                self._usage_local.usage = ReadmeAnalysisUsage()
                 raise
 
         self._write_pool_snapshot()
-        self._last_usage = ReadmeAnalysisUsage()
+        self._usage_local.usage = ReadmeAnalysisUsage()
         if last_error is not None:
             raise last_error
         raise RuntimeError("Gemini key pool exhausted without a usable key")
@@ -784,10 +791,11 @@ Return ONLY valid JSON, no markdown formatting."""
         input_tokens = _coerce_token_count(getattr(usage, "prompt_tokens", 0))
         output_tokens = _coerce_token_count(getattr(usage, "completion_tokens", 0))
         total_tokens = _coerce_token_count(getattr(usage, "total_tokens", input_tokens + output_tokens))
-        self._last_usage = ReadmeAnalysisUsage(
-            input_tokens=self._last_usage.input_tokens + input_tokens,
-            output_tokens=self._last_usage.output_tokens + output_tokens,
-            total_tokens=self._last_usage.total_tokens + total_tokens,
+        prev = getattr(self._usage_local, "usage", ReadmeAnalysisUsage())
+        self._usage_local.usage = ReadmeAnalysisUsage(
+            input_tokens=prev.input_tokens + input_tokens,
+            output_tokens=prev.output_tokens + output_tokens,
+            total_tokens=prev.total_tokens + total_tokens,
         )
         return response_text
 
@@ -801,7 +809,7 @@ Return ONLY valid JSON, no markdown formatting."""
 
     @property
     def last_usage(self) -> ReadmeAnalysisUsage:
-        return self._last_usage
+        return getattr(self._usage_local, "usage", ReadmeAnalysisUsage())
 
     def _write_pool_snapshot(self) -> None:
         write_gemini_key_pool_snapshot(

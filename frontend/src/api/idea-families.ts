@@ -108,3 +108,49 @@ export async function removeRepositoryFromFamily(
     throw new Error(`Failed to remove repository from family: ${response.statusText}`);
   }
 }
+
+export interface BulkAddRepositoriesResult {
+  added_count: number;
+}
+
+export async function bulkAddRepositoriesToFamily(
+  familyId: number,
+  githubRepositoryIds: number[],
+): Promise<BulkAddRepositoriesResult> {
+  const response = await fetch(`${getBaseUrl()}/${familyId}/members/bulk`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ github_repository_ids: githubRepositoryIds }),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to bulk add repositories: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export interface CreateFamilyFromSearchRequest {
+  idea_search_id: number;
+  title: string;
+  description?: string | null;
+  only_analyzed?: boolean;
+}
+
+export interface CreateFamilyFromSearchResult {
+  family_id: number;
+  title: string;
+  member_count: number;
+}
+
+export async function createFamilyFromSearch(
+  data: CreateFamilyFromSearchRequest,
+): Promise<CreateFamilyFromSearchResult> {
+  const response = await fetch(`${getBaseUrl()}/from-search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to create family from search: ${response.statusText}`);
+  }
+  return response.json();
+}

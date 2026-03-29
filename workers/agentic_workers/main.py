@@ -28,6 +28,7 @@ from agentic_workers.core.config import settings
 from agentic_workers.core.events import (
     DuplicateActiveAgentRunError,
     complete_agent_run as finalize_agent_run,
+    discard_noop_run,
     fail_agent_run as record_failed_agent_run,
     mark_agent_run_skipped,
     start_agent_run,
@@ -317,6 +318,9 @@ def run_configured_firehose_job(
             ),
             is_paused_skip=lambda result: result.status is FirehoseRunStatus.SKIPPED_PAUSED,
             skipped_reason="firehose run skipped because shutdown was requested.",
+            is_noop=lambda result: (
+                result.status is FirehoseRunStatus.SUCCESS and not result.outcomes
+            ),
         )
 
 
@@ -378,6 +382,9 @@ def run_configured_backfill_job(
             ),
             is_paused_skip=lambda result: result.status is BackfillRunStatus.SKIPPED_PAUSED,
             skipped_reason="backfill run skipped because shutdown was requested.",
+            is_noop=lambda result: (
+                result.status is BackfillRunStatus.SUCCESS and not result.outcomes
+            ),
         )
 
 
@@ -664,6 +671,7 @@ def _run_tracked_job(
     is_skipped: Callable[[ResultT], bool],
     is_paused_skip: Callable[[ResultT], bool],
     skipped_reason: str,
+    is_noop: Callable[[ResultT], bool] | None = None,
 ) -> ResultT:
     run_id: int | None = None
     metrics: AgentRunMetrics | None = None
@@ -673,6 +681,13 @@ def _run_tracked_job(
         result = execute_job(run_id)
         metrics = summarize_run(result)
         failure_phase = "persisting terminal state"
+
+        # Discard tracking rows for no-op runs (e.g. exhausted backfill,
+        # empty firehose) to avoid polluting the DB with useless telemetry.
+        if is_noop is not None and is_noop(result):
+            discard_noop_run(session, run_id)
+            return result
+
         if is_skipped(result):
             paused_skip = is_paused_skip(result)
             if paused_skip:
@@ -1557,11 +1572,13 @@ async def _run_worker_loop() -> None:
     next_combiner_check_at = time.monotonic() + combiner_check_interval
     idea_scout_check_interval = float(settings.provider.idea_scout_interval_seconds)
     next_idea_scout_check_at = time.monotonic() + idea_scout_check_interval
+    analyst_check_interval = 30.0  # Check for analyst work every 30 seconds (independent of firehose/backfill)
+    next_analyst_check_at = time.monotonic() + analyst_check_interval
     rate_limit_poll_interval = 60.0  # Poll /rate_limit for fresh token health every 60 seconds
     next_rate_limit_poll_at = time.monotonic() + rate_limit_poll_interval
 
     while not stop_event.is_set():
-        next_due_at = min(next_firehose_run_at, next_backfill_run_at, next_combiner_check_at, next_idea_scout_check_at, next_rate_limit_poll_at)
+        next_due_at = min(next_firehose_run_at, next_backfill_run_at, next_combiner_check_at, next_idea_scout_check_at, next_analyst_check_at, next_rate_limit_poll_at)
         timeout = max(0.0, next_due_at - time.monotonic())
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=timeout)
@@ -1624,18 +1641,35 @@ async def _run_worker_loop() -> None:
 
         if due_jobs and not stop_event.is_set():
             await _run_bouncer_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
-        if due_jobs and not stop_event.is_set():
-            await _run_analyst_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
+
+        # Run analyst, combiner, and idea scout concurrently so a long-running
+        # analyst batch doesn't starve the scout (they use different resources).
+        _concurrent_tasks: list[asyncio.Task[bool]] = []
+
+        # Analyst runs on its own 30-second schedule, independent of firehose/backfill.
+        # Also runs after producer jobs finish so newly triaged repos are picked up immediately.
+        if (now >= next_analyst_check_at or due_jobs) and not stop_event.is_set():
+            _concurrent_tasks.append(
+                asyncio.create_task(_run_analyst_if_pending(stop_event=stop_event, thread_stop=_thread_stop))
+            )
+            next_analyst_check_at = time.monotonic() + analyst_check_interval
 
         # Check Combiner on its own schedule (every 10s) or after producer jobs
         if (now >= next_combiner_check_at or due_jobs) and not stop_event.is_set():
-            await _run_combiner_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
+            _concurrent_tasks.append(
+                asyncio.create_task(_run_combiner_if_pending(stop_event=stop_event, thread_stop=_thread_stop))
+            )
             next_combiner_check_at = time.monotonic() + combiner_check_interval
 
         # Check IdeaScout on its own schedule
         if now >= next_idea_scout_check_at and not stop_event.is_set():
-            await _run_idea_scout_if_pending(stop_event=stop_event, thread_stop=_thread_stop)
+            _concurrent_tasks.append(
+                asyncio.create_task(_run_idea_scout_if_pending(stop_event=stop_event, thread_stop=_thread_stop))
+            )
             next_idea_scout_check_at = time.monotonic() + idea_scout_check_interval
+
+        if _concurrent_tasks:
+            await asyncio.gather(*_concurrent_tasks, return_exceptions=True)
 
         # Periodically poll /rate_limit for each token to keep the health panel accurate
         if now >= next_rate_limit_poll_at and not stop_event.is_set():

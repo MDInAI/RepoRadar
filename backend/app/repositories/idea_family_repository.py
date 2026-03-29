@@ -6,7 +6,13 @@ from datetime import datetime, timezone
 from sqlalchemy import select, delete, func
 from sqlalchemy.orm import Session
 
-from app.models.repository import IdeaFamily, IdeaFamilyMembership, RepositoryIntake
+from app.models.repository import (
+    IdeaFamily,
+    IdeaFamilyMembership,
+    IdeaSearchDiscovery,
+    RepositoryAnalysisStatus,
+    RepositoryIntake,
+)
 from app.core.errors import AppError
 
 
@@ -179,6 +185,60 @@ class IdeaFamilyRepository:
         stmt = select(IdeaFamilyMembership.idea_family_id).where(
             IdeaFamilyMembership.github_repository_id == github_repository_id
         )
+        return list(self._session.execute(stmt).scalars().all())
+
+    def bulk_add_repositories(self, family_id: int, github_repository_ids: list[int]) -> int:
+        """Add multiple repositories to a family, skipping duplicates. Returns count added."""
+        family = self._session.get(IdeaFamily, family_id)
+        if not family:
+            raise AppError(
+                message=f"Idea family {family_id} not found",
+                code="idea_family_not_found",
+                status_code=404,
+            )
+
+        # Fetch existing members to skip duplicates
+        existing_stmt = select(IdeaFamilyMembership.github_repository_id).where(
+            IdeaFamilyMembership.idea_family_id == family_id
+        )
+        existing_ids = set(self._session.execute(existing_stmt).scalars().all())
+
+        new_ids = [rid for rid in github_repository_ids if rid not in existing_ids]
+        if not new_ids:
+            return 0
+
+        now = datetime.now(timezone.utc)
+        for repo_id in new_ids:
+            self._session.add(
+                IdeaFamilyMembership(
+                    idea_family_id=family_id,
+                    github_repository_id=repo_id,
+                    added_at=now,
+                )
+            )
+        self._session.flush()
+        return len(new_ids)
+
+    def get_search_discovery_repo_ids(
+        self, idea_search_id: int, only_analyzed: bool = False
+    ) -> list[int]:
+        """Return github_repository_ids for all discoveries in a scout search."""
+        stmt = select(IdeaSearchDiscovery.github_repository_id).where(
+            IdeaSearchDiscovery.idea_search_id == idea_search_id
+        )
+        if only_analyzed:
+            stmt = (
+                select(IdeaSearchDiscovery.github_repository_id)
+                .join(
+                    RepositoryIntake,
+                    IdeaSearchDiscovery.github_repository_id
+                    == RepositoryIntake.github_repository_id,
+                )
+                .where(IdeaSearchDiscovery.idea_search_id == idea_search_id)
+                .where(
+                    RepositoryIntake.analysis_status == RepositoryAnalysisStatus.COMPLETED
+                )
+            )
         return list(self._session.execute(stmt).scalars().all())
 
     def get_family_member_counts(self, family_ids: list[int]) -> dict[int, int]:

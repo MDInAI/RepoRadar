@@ -18,6 +18,14 @@ from app.models import (
 )
 
 
+class ScoutDiscoveryContextResponse(BaseModel):
+    idea_search_id: int
+    idea_text: str
+    query_index: int
+    query_text: str
+    discovered_at: datetime
+
+
 class RepositoryArtifactRefResponse(BaseModel):
     artifact_kind: RepositoryArtifactKind
     runtime_relative_path: str
@@ -152,6 +160,7 @@ class RepositoryExplorationResponse(BaseModel):
     is_starred: bool = False
     user_tags: list[str] = Field(default_factory=list)
     idea_family_ids: list[int] = Field(default_factory=list)
+    scout_context: ScoutDiscoveryContextResponse | None = None
 
 
 class RepositoryCatalogSortBy(StrEnum):
@@ -220,6 +229,7 @@ class RepositoryCatalogItemResponse(BaseModel):
     is_starred: bool = False
     user_tags: list[str] = Field(default_factory=list)
     idea_family_ids: list[int] = Field(default_factory=list)
+    scout_context: ScoutDiscoveryContextResponse | None = None
 
 
 class RepositoryCatalogPageResponse(BaseModel):

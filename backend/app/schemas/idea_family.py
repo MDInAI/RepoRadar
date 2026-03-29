@@ -51,3 +51,28 @@ class IdeaFamilyUpdateRequest(BaseModel):
 
 class IdeaFamilyMembershipRequest(BaseModel):
     github_repository_id: int
+
+
+class BulkMembershipRequest(BaseModel):
+    github_repository_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class CreateFamilyFromSearchRequest(BaseModel):
+    idea_search_id: int
+    title: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+    only_analyzed: bool = False
+
+    @field_validator("title")
+    @classmethod
+    def strip_title(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Title cannot be empty")
+        return stripped
+
+
+class CreateFamilyFromSearchResponse(BaseModel):
+    family_id: int
+    title: str
+    member_count: int

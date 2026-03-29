@@ -10,7 +10,7 @@ from urllib import parse, request
 from sqlmodel import Session
 
 from app.models import EventSeverity, ResumedBy
-from app.repositories.agent_event_repository import AgentEventRepository, SystemEventListFilters
+from app.repositories.agent_event_repository import AgentEventRepository, AgentRunListFilters, SystemEventListFilters
 from app.schemas.gateway_contract import GeminiApiKeyPoolSnapshot, GitHubApiBudgetSnapshot
 from app.schemas.overlord import (
     OverlordActionRecord,
@@ -340,6 +340,13 @@ class OverlordService:
 
         for agent in overview.agents:
             if agent.status == "failed" and not agent.is_paused:
+                _latest_runs = self.repository.list_agent_runs(
+                    AgentRunListFilters(agent_name=agent.agent_name, limit=1)
+                )
+                _latest_err = (_latest_runs[0].error_summary or "") if _latest_runs else ""
+                _is_stale_recovery = "stale" in _latest_err.lower() or "drift" in _latest_err.lower()
+                if _is_stale_recovery:
+                    continue
                 incidents.append(
                     OverlordIncident(
                         incident_key=f"failed-agent-{agent.agent_name}",
@@ -533,7 +540,7 @@ class OverlordService:
         now = datetime.now(timezone.utc)
         for key in gemini_pool.keys:
             cooldown_until = self._parse_dt(key.cooldown_until)
-            if key.status.lower() in {"available", "ready", "ok", "healthy"}:
+            if key.status.lower() in {"available", "ready", "ok", "healthy", "idle"}:
                 available += 1
                 continue
             if cooldown_until is not None and cooldown_until <= now:

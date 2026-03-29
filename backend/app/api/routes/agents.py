@@ -18,7 +18,10 @@ from app.schemas.agent_config import (
     AgentConfigUpdateRequest,
     AgentConfigUpdateResponse,
 )
-from app.models import AgentRunStatus, EventSeverity, FailureClassification, FailureSeverity
+from sqlmodel import Session
+from pydantic import BaseModel
+from app.api.deps import get_db_session
+from app.models import AgentRunStatus, AnalystSourceSettings, EventSeverity, FailureClassification, FailureSeverity
 from app.schemas.agent_event import (
     AgentLatestRunsResponse,
     AgentManualRunTriggerResponse,
@@ -245,3 +248,54 @@ def get_artifact_storage_status(
     service: ArtifactStorageStatusService = ArtifactStorageStatusServiceDep,
 ) -> ArtifactStorageStatusResponse:
     return service.get_status()
+
+
+# ── Analyst source settings ───────────────────────────────────────────────────
+
+class AnalystSourceSettingsResponse(BaseModel):
+    firehose_enabled: bool
+    backfill_enabled: bool
+
+
+class AnalystSourceSettingsUpdateRequest(BaseModel):
+    firehose_enabled: bool
+    backfill_enabled: bool
+
+
+def _get_or_create_analyst_source_settings(session: Session) -> AnalystSourceSettings:
+    row = session.get(AnalystSourceSettings, 1)
+    if row is None:
+        row = AnalystSourceSettings(id=1, firehose_enabled=False, backfill_enabled=False)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+    return row
+
+
+@router.get("/agents/analyst/source-settings", response_model=AnalystSourceSettingsResponse)
+def get_analyst_source_settings(
+    session: Session = Depends(get_db_session),
+) -> AnalystSourceSettingsResponse:
+    row = _get_or_create_analyst_source_settings(session)
+    return AnalystSourceSettingsResponse(
+        firehose_enabled=bool(row.firehose_enabled),
+        backfill_enabled=bool(row.backfill_enabled),
+    )
+
+
+@router.put("/agents/analyst/source-settings", response_model=AnalystSourceSettingsResponse)
+def update_analyst_source_settings(
+    request: AnalystSourceSettingsUpdateRequest,
+    session: Session = Depends(get_db_session),
+) -> AnalystSourceSettingsResponse:
+    row = _get_or_create_analyst_source_settings(session)
+    row.firehose_enabled = request.firehose_enabled
+    row.backfill_enabled = request.backfill_enabled
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return AnalystSourceSettingsResponse(
+        firehose_enabled=bool(row.firehose_enabled),
+        backfill_enabled=bool(row.backfill_enabled),
+    )
+

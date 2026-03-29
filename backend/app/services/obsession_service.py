@@ -45,22 +45,22 @@ class ObsessionService:
         refresh_policy: str,
         idea_family_id: int | None = None,
         synthesis_run_id: int | None = None,
+        idea_search_id: int | None = None,
         idea_text: str | None = None,
     ) -> ObsessionContextRecord:
         # Validate exactly one target is provided
         targets_provided = sum([
             idea_family_id is not None,
             synthesis_run_id is not None,
+            idea_search_id is not None,
             idea_text is not None and idea_text.strip() != "",
         ])
         if targets_provided != 1:
             raise AppError(
-                message="Exactly one of idea_family_id, synthesis_run_id, or idea_text must be provided",
+                message="Exactly one of idea_family_id, synthesis_run_id, idea_search_id, or idea_text must be provided",
                 code="invalid_input",
                 status_code=400,
             )
-
-        idea_search_id = None
 
         # Validate the target exists
         if idea_family_id is not None:
@@ -77,6 +77,20 @@ class ObsessionService:
                 raise AppError(
                     message=f"Synthesis run {synthesis_run_id} not found",
                     code="synthesis_run_not_found",
+                    status_code=404,
+                )
+        elif idea_search_id is not None:
+            if self._idea_scout_repo is None:
+                raise AppError(
+                    message="IdeaScout repository is not available",
+                    code="internal_error",
+                    status_code=500,
+                )
+            search = self._idea_scout_repo.get_search(idea_search_id)
+            if not search:
+                raise AppError(
+                    message=f"Idea search {idea_search_id} not found",
+                    code="idea_search_not_found",
                     status_code=404,
                 )
         elif idea_text is not None:

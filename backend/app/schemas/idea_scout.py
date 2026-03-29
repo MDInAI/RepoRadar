@@ -35,6 +35,7 @@ class IdeaSearchResponse(BaseModel):
     status: str
     obsession_context_id: int | None
     total_repos_found: int
+    analyst_enabled: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -60,8 +61,10 @@ class IdeaSearchDetailResponse(BaseModel):
     status: str
     obsession_context_id: int | None
     total_repos_found: int
+    analyst_enabled: bool = False
     progress: list[IdeaSearchProgressSummary]
     discovery_count: int
+    analyzed_count: int = 0
     created_at: datetime
     updated_at: datetime
 

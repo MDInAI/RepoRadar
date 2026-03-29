@@ -68,6 +68,26 @@ class SynthesisService:
 
         return self._to_response(record)
 
+    def trigger_deep_synthesis(self, idea_family_id: int) -> SynthesisRunResponse:
+        family = self._family_repo.get_family(idea_family_id)
+        if not family:
+            raise AppError(
+                message=f"Idea family {idea_family_id} not found",
+                code="idea_family_not_found",
+                status_code=404,
+            )
+
+        repository_ids = self._family_repo.list_family_repositories(idea_family_id)
+        if not repository_ids:
+            raise AppError(
+                message="Idea family has no member repositories",
+                code="empty_family",
+                status_code=400,
+            )
+
+        record = self._synthesis_repo.create_run(idea_family_id, "deep_synthesis", repository_ids)
+        return self._to_response(record)
+
     def get_run(self, run_id: int) -> SynthesisRunResponse:
         record = self._synthesis_repo.get_run(run_id)
         if not record:

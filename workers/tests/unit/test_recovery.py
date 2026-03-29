@@ -171,3 +171,79 @@ def test_validate_startup_recovery_marks_stale_running_idea_scout_run_failed() -
         ).all()
         assert recovery_events
         assert "Recovered stale active idea_scout run" in recovery_events[0].message
+
+
+def test_validate_startup_recovery_auto_resumes_analyst_paused_by_retryable_failures() -> None:
+    """Analyst paused by transient upstream errors (e.g. 502) should auto-resume on restart."""
+    with _build_session() as session:
+        triggering_event = SystemEvent(
+            event_type="repository_analysis_failed",
+            agent_name="analyst",
+            severity=EventSeverity.ERROR,
+            message="haimaker.ai | 502: Bad gateway",
+            context_json=None,
+            failure_classification=FailureClassification.RETRYABLE,
+            created_at=datetime.now(timezone.utc),
+        )
+        session.add(triggering_event)
+        session.commit()
+        session.refresh(triggering_event)
+
+        pause_state = AgentPauseState(
+            agent_name="analyst",
+            is_paused=True,
+            paused_at=datetime.now(timezone.utc),
+            pause_reason="3 consecutive retryable failures in analyst",
+            resume_condition="Operator review or automatic retry after cooldown",
+            triggered_by_event_id=triggering_event.id,
+        )
+        session.add(pause_state)
+        session.commit()
+
+        validate_startup_recovery(session)
+
+        session.refresh(pause_state)
+        assert pause_state.is_paused is False
+        assert pause_state.resumed_by == "auto"
+        assert pause_state.triggered_by_event_id is None
+
+        resume_events = session.exec(
+            select(SystemEvent)
+            .where(SystemEvent.agent_name == "analyst")
+            .where(SystemEvent.event_type == "agent_resumed")
+        ).all()
+        assert len(resume_events) == 1
+        assert "auto-resumed" in resume_events[0].message
+
+
+def test_validate_startup_recovery_keeps_analyst_blocking_pause() -> None:
+    """Analyst paused by a blocking failure (e.g. auth error) should NOT auto-resume."""
+    with _build_session() as session:
+        triggering_event = SystemEvent(
+            event_type="repository_analysis_failed",
+            agent_name="analyst",
+            severity=EventSeverity.CRITICAL,
+            message="Gemini API key invalid",
+            context_json=None,
+            failure_classification=FailureClassification.BLOCKING,
+            created_at=datetime.now(timezone.utc),
+        )
+        session.add(triggering_event)
+        session.commit()
+        session.refresh(triggering_event)
+
+        pause_state = AgentPauseState(
+            agent_name="analyst",
+            is_paused=True,
+            paused_at=datetime.now(timezone.utc),
+            pause_reason="Blocking failure in analyst",
+            resume_condition="Operator review required",
+            triggered_by_event_id=triggering_event.id,
+        )
+        session.add(pause_state)
+        session.commit()
+
+        validate_startup_recovery(session)
+
+        session.refresh(pause_state)
+        assert pause_state.is_paused is True

@@ -190,6 +190,16 @@ class IdeaScoutService:
             )
         return self._repo.update_search_status(search_id, "active")
 
+    def set_analyst_enabled(self, search_id: int, enabled: bool) -> IdeaSearchRecord:
+        search = self._repo.get_search(search_id)
+        if not search:
+            raise AppError(
+                message=f"IdeaSearch {search_id} not found",
+                code="idea_search_not_found",
+                status_code=404,
+            )
+        return self._repo.set_analyst_enabled(search_id, enabled)
+
     def cancel_search(self, search_id: int) -> IdeaSearchRecord:
         search = self._repo.get_search(search_id)
         if not search:

@@ -30,6 +30,14 @@ export type RepositoryTriageExplanationKind =
   | "allowlist_miss"
   | "pass_through";
 
+export interface ScoutDiscoveryContext {
+  idea_search_id: number;
+  idea_text: string;
+  query_index: number;
+  query_text: string;
+  discovered_at: string;
+}
+
 export interface RepositoryCatalogItem {
   github_repository_id: number;
   full_name: string;
@@ -62,6 +70,7 @@ export interface RepositoryCatalogItem {
   is_starred: boolean;
   user_tags: string[];
   idea_family_ids?: number[];
+  scout_context?: ScoutDiscoveryContext | null;
 }
 
 export interface RepositoryBacklogSummary {
@@ -226,6 +235,7 @@ export interface RepositoryDetailResponse {
   is_starred: boolean;
   user_tags: string[];
   idea_family_ids: number[];
+  scout_context?: ScoutDiscoveryContext | null;
 }
 
 export interface RepositoryCurationState {

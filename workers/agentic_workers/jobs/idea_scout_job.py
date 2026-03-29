@@ -284,6 +284,8 @@ def _process_single_search(
                     session,
                     repositories,
                     idea_search_id=search.id,
+                    query_index=qi,
+                    query_text=query_text,
                     commit=False,
                 )
 

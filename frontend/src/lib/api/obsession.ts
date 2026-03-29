@@ -56,6 +56,7 @@ export interface ObsessionContextDetailResponse {
 export interface ObsessionContextCreateRequest {
   idea_family_id?: number | null;
   synthesis_run_id?: number | null;
+  idea_search_id?: number | null;
   idea_text?: string | null;
   title: string;
   description?: string | null;

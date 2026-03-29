@@ -8,10 +8,14 @@ import {
   useIdeaSearchDiscoveries,
   usePauseIdeaSearch,
   useResumeIdeaSearch,
+  useSetAnalystEnabled,
   useUpdateIdeaSearch,
 } from "@/hooks/useIdeaScout";
 import { IdeaSearchProgressBar } from "./IdeaSearchProgressBar";
 import { ScoutWorkerMonitorPanel } from "./ScoutWorkerMonitor";
+import { useAnalystPauseState, useAnalystLiveStatus, useResumeAnalyst } from "@/hooks/useAgentMonitor";
+import { createFamilyFromSearch } from "@/api/idea-families";
+import { useCreateObsessionContext } from "@/hooks/useObsession";
 
 interface IdeaSearchDetailViewProps {
   searchId: number;
@@ -90,6 +94,63 @@ function DetailPanel({ searchId }: IdeaSearchDetailViewProps) {
   const pauseMutation = usePauseIdeaSearch();
   const resumeMutation = useResumeIdeaSearch();
   const cancelMutation = useCancelIdeaSearch();
+  const analystMutation = useSetAnalystEnabled();
+  const { data: analystPauseState } = useAnalystPauseState();
+  const { data: analystLiveStatus } = useAnalystLiveStatus();
+  const resumeAnalystMutation = useResumeAnalyst();
+
+  // Create Family from Results dialog
+  const [showFamilyDialog, setShowFamilyDialog] = useState(false);
+  const [familyTitle, setFamilyTitle] = useState("");
+  const [familyDescription, setFamilyDescription] = useState("");
+  const [familyOnlyAnalyzed, setFamilyOnlyAnalyzed] = useState(false);
+  const [familyPending, setFamilyPending] = useState(false);
+  const [familyResult, setFamilyResult] = useState<{ family_id: number; title: string; member_count: number } | null>(null);
+  const [familyError, setFamilyError] = useState<string | null>(null);
+
+  // Create Obsession Watch dialog
+  const [showWatchDialog, setShowWatchDialog] = useState(false);
+  const [watchTitle, setWatchTitle] = useState("");
+  const [watchDescription, setWatchDescription] = useState("");
+  const [watchPolicy, setWatchPolicy] = useState("manual");
+  const [watchResult, setWatchResult] = useState<{ id: number } | null>(null);
+  const [watchError, setWatchError] = useState<string | null>(null);
+  const createObsessionMutation = useCreateObsessionContext();
+
+  const handleCreateFamily = async () => {
+    if (!familyTitle.trim()) return;
+    setFamilyPending(true);
+    setFamilyError(null);
+    try {
+      const result = await createFamilyFromSearch({
+        idea_search_id: searchId,
+        title: familyTitle.trim(),
+        description: familyDescription.trim() || null,
+        only_analyzed: familyOnlyAnalyzed,
+      });
+      setFamilyResult(result);
+    } catch (e) {
+      setFamilyError(e instanceof Error ? e.message : "Failed to create family");
+    } finally {
+      setFamilyPending(false);
+    }
+  };
+
+  const handleCreateWatch = () => {
+    if (!watchTitle.trim()) return;
+    createObsessionMutation.mutate(
+      {
+        title: watchTitle.trim(),
+        description: watchDescription.trim() || null,
+        refresh_policy: watchPolicy,
+        idea_search_id: searchId,
+      },
+      {
+        onSuccess: (ctx) => setWatchResult({ id: ctx.id }),
+        onError: (e) => setWatchError(e instanceof Error ? e.message : "Failed to create watch"),
+      }
+    );
+  };
 
   if (isLoading) return <div className="scout-loading">Loading\u2026</div>;
   if (isError || !search) return <div className="scout-detail-error">{errMsg(error, "Unable to load search.")}</div>;
@@ -99,6 +160,11 @@ function DetailPanel({ searchId }: IdeaSearchDetailViewProps) {
   const hasErrors = search.progress.some((p) => p.consecutive_errors > 0);
   const pageStart = search.discovery_count === 0 ? 0 : page * pageSize + 1;
   const pageEnd = search.discovery_count === 0 ? 0 : Math.min(search.discovery_count, page * pageSize + (discoveries?.length ?? 0));
+
+  const analysisTotal = search.discovery_count;
+  const analysisCompleted = search.analyzed_count ?? 0;
+  const analysisRemaining = Math.max(0, analysisTotal - analysisCompleted);
+  const analysisPct = analysisTotal > 0 ? Math.min(100, Math.round((analysisCompleted / analysisTotal) * 100)) : 0;
 
   const handleSaveQueries = () => {
     const queries = queryDraft.split("\n").map((q) => q.trim()).filter(Boolean);
@@ -147,6 +213,14 @@ function DetailPanel({ searchId }: IdeaSearchDetailViewProps) {
             {!editingQueries && canControl && (
               <button type="button" className="scout-action-btn" onClick={startEditing}>Edit queries</button>
             )}
+            {search.discovery_count > 0 && (
+              <button type="button" className="scout-action-btn" onClick={() => { setFamilyResult(null); setFamilyError(null); setFamilyTitle(search.idea_text.slice(0, 100)); setShowFamilyDialog(true); }}>
+                Save to Idea Family
+              </button>
+            )}
+            <button type="button" className="scout-action-btn" onClick={() => { setWatchResult(null); setWatchError(null); setWatchTitle(search.idea_text.slice(0, 100)); setShowWatchDialog(true); }}>
+              Watch for New Repos
+            </button>
           </div>
           {(pauseMutation.error || resumeMutation.error || cancelMutation.error) && (
             <div className="scout-detail-error" style={{ marginTop: 10 }}>
@@ -167,6 +241,95 @@ function DetailPanel({ searchId }: IdeaSearchDetailViewProps) {
 
       {/* OVERALL PROGRESS BAR */}
       <IdeaSearchProgressBar progress={search.progress} direction={search.direction} totalQueries={totalQueries} />
+
+      {/* ANALYST PROGRESS */}
+      <div className="scout-detail-section scout-analyst-section">
+        <div className="scout-section-head">
+          <span className="scout-section-title">Analyst</span>
+          <button
+            type="button"
+            className={`scout-scard-analyst-btn ${search.analyst_enabled ? "scout-scard-analyst-btn-on" : "scout-scard-analyst-btn-off"}`}
+            disabled={analystMutation.isPending}
+            title={search.analyst_enabled ? "Analyst is processing this search — click to stop" : "Enable Analyst to score and tag all discoveries"}
+            onClick={() => analystMutation.mutate({ searchId: search.id, enabled: !search.analyst_enabled })}
+          >
+            <span className="scout-scard-analyst-dot" />
+            {search.analyst_enabled ? "Analyst On" : "Analyst Off"}
+          </button>
+        </div>
+
+        {/* Pause warning + Resume button */}
+        {search.analyst_enabled && analystPauseState?.is_paused && (
+          <div className="scout-analyst-pause-banner">
+            <span className="scout-analyst-pause-icon">⚠</span>
+            <span className="scout-analyst-pause-msg">
+              Analyst agent is paused{analystPauseState.pause_reason ? ` — ${analystPauseState.pause_reason}` : ""}. Click Resume to start analyzing Scout repos (firehose/backfill will be skipped).
+            </span>
+            <button
+              type="button"
+              className="scout-analyst-resume-btn"
+              disabled={resumeAnalystMutation.isPending}
+              onClick={() => resumeAnalystMutation.mutate()}
+            >
+              {resumeAnalystMutation.isPending ? "Resuming…" : "Resume Analyst"}
+            </button>
+            {resumeAnalystMutation.error && (
+              <span className="scout-analyst-pause-err">
+                {resumeAnalystMutation.error instanceof Error ? resumeAnalystMutation.error.message : "Failed to resume"}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Live run activity */}
+        {search.analyst_enabled && !analystPauseState?.is_paused && (() => {
+          const run = analystLiveStatus?.latest_run;
+          const progress = analystLiveStatus?.runtime_progress;
+          const isRunning = run?.status === "running";
+          const currentTarget = progress?.current_target;
+          const runCompleted = progress?.completed_count ?? 0;
+          const runTotal = progress?.total_count ?? 0;
+          if (!currentTarget && !isRunning) return null;
+          return (
+            <div className="scout-analyst-live">
+              <span className={`scout-analyst-live-dot ${isRunning ? "scout-analyst-live-dot-active" : ""}`} />
+              <span className="scout-analyst-live-label">
+                {isRunning ? "Running" : "Last run"}
+                {runTotal > 0 ? ` — ${runCompleted} / ${runTotal} this pass` : ""}
+              </span>
+              {currentTarget && (
+                <span className="scout-analyst-live-target" title={currentTarget}>
+                  {isRunning ? "Now: " : "Last: "}<code>{currentTarget}</code>
+                </span>
+              )}
+            </div>
+          );
+        })()}
+
+        {analysisTotal > 0 ? (
+          <>
+            <div className="scout-analyst-counts">
+              <span className="scout-analyst-done">{analysisCompleted.toLocaleString()} analyzed</span>
+              <span className="scout-analyst-sep">·</span>
+              <span className="scout-analyst-remaining">{analysisRemaining.toLocaleString()} remaining</span>
+              <span className="scout-analyst-pct">{analysisPct}%</span>
+            </div>
+            <div className="scout-analyst-bar">
+              <div className="scout-analyst-bar-fill" style={{ width: `${analysisPct}%` }} />
+            </div>
+            {search.analyst_enabled && analysisRemaining > 0 && !analystPauseState?.is_paused && (
+              <div className="scout-analyst-hint">
+                Analyst is running — {analysisRemaining.toLocaleString()} Scout repos remaining. Firehose/backfill skipped.
+              </div>
+            )}
+            {analysisPct === 100 && (
+              <div className="scout-analyst-hint scout-analyst-hint-done">All {analysisTotal.toLocaleString()} repos analyzed.</div>
+            )}
+          </>
+        ) : (
+          <div className="scout-analyst-hint">No repos discovered yet.</div>
+        )}
+      </div>
 
       {/* PER-QUERY SCAN STATUS */}
       <div className="scout-detail-section" style={{ marginTop: 16 }}>
@@ -223,6 +386,98 @@ function DetailPanel({ searchId }: IdeaSearchDetailViewProps) {
           </div>
         )}
       </div>
+
+      {/* CREATE FAMILY DIALOG */}
+      {showFamilyDialog && (
+        <div className="scout-dialog-backdrop" onClick={() => setShowFamilyDialog(false)}>
+          <div className="scout-dialog" onClick={(e) => e.stopPropagation()}>
+            {familyResult ? (
+              <>
+                <div className="scout-dialog-title">Family created</div>
+                <p className="scout-dialog-body">
+                  <strong>{familyResult.title}</strong> — {familyResult.member_count} repos added.
+                </p>
+                <div className="scout-dialog-actions">
+                  <Link href={`/ideas?family=${familyResult.family_id}`} className="scout-action-btn scout-action-btn-resume" onClick={() => setShowFamilyDialog(false)}>
+                    Open in Ideas
+                  </Link>
+                  <button type="button" className="scout-action-btn" onClick={() => setShowFamilyDialog(false)}>Close</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="scout-dialog-title">Save to Idea Family</div>
+                <div className="scout-dialog-field">
+                  <label className="scout-dialog-label">Family name</label>
+                  <input className="scout-dialog-input" value={familyTitle} onChange={(e) => setFamilyTitle(e.target.value)} placeholder="e.g. Polymarket trading bots" maxLength={200} />
+                </div>
+                <div className="scout-dialog-field">
+                  <label className="scout-dialog-label">Description (optional)</label>
+                  <input className="scout-dialog-input" value={familyDescription} onChange={(e) => setFamilyDescription(e.target.value)} placeholder="Optional description" />
+                </div>
+                <div className="scout-dialog-field scout-dialog-checkbox-row">
+                  <input type="checkbox" id="only-analyzed" checked={familyOnlyAnalyzed} onChange={(e) => setFamilyOnlyAnalyzed(e.target.checked)} />
+                  <label htmlFor="only-analyzed" className="scout-dialog-label">Only include analyzed repos</label>
+                </div>
+                {familyError && <div className="scout-detail-error">{familyError}</div>}
+                <div className="scout-dialog-actions">
+                  <button type="button" className="scout-action-btn" onClick={() => setShowFamilyDialog(false)}>Cancel</button>
+                  <button type="button" className="scout-action-btn scout-action-btn-resume" disabled={familyPending || !familyTitle.trim()} onClick={handleCreateFamily}>
+                    {familyPending ? "Creating…" : "Create Family"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* CREATE OBSESSION WATCH DIALOG */}
+      {showWatchDialog && (
+        <div className="scout-dialog-backdrop" onClick={() => setShowWatchDialog(false)}>
+          <div className="scout-dialog" onClick={(e) => e.stopPropagation()}>
+            {watchResult ? (
+              <>
+                <div className="scout-dialog-title">Obsession watch created</div>
+                <p className="scout-dialog-body">Now watching for new repos matching this search.</p>
+                <div className="scout-dialog-actions">
+                  <Link href={`/ideas?obsession=${watchResult.id}`} className="scout-action-btn scout-action-btn-resume" onClick={() => setShowWatchDialog(false)}>
+                    Open in Ideas
+                  </Link>
+                  <button type="button" className="scout-action-btn" onClick={() => setShowWatchDialog(false)}>Close</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="scout-dialog-title">Watch for New Repos</div>
+                <div className="scout-dialog-field">
+                  <label className="scout-dialog-label">Watch name</label>
+                  <input className="scout-dialog-input" value={watchTitle} onChange={(e) => setWatchTitle(e.target.value)} placeholder="e.g. Polymarket bots watch" maxLength={200} />
+                </div>
+                <div className="scout-dialog-field">
+                  <label className="scout-dialog-label">Description (optional)</label>
+                  <input className="scout-dialog-input" value={watchDescription} onChange={(e) => setWatchDescription(e.target.value)} placeholder="Optional description" />
+                </div>
+                <div className="scout-dialog-field">
+                  <label className="scout-dialog-label">Refresh policy</label>
+                  <select className="scout-dialog-input" value={watchPolicy} onChange={(e) => setWatchPolicy(e.target.value)}>
+                    <option value="manual">Manual</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                </div>
+                {watchError && <div className="scout-detail-error">{watchError}</div>}
+                <div className="scout-dialog-actions">
+                  <button type="button" className="scout-action-btn" onClick={() => setShowWatchDialog(false)}>Cancel</button>
+                  <button type="button" className="scout-action-btn scout-action-btn-resume" disabled={createObsessionMutation.isPending || !watchTitle.trim()} onClick={handleCreateWatch}>
+                    {createObsessionMutation.isPending ? "Creating…" : "Create Watch"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* WORKER MONITOR */}
       <ScoutWorkerMonitorPanel />

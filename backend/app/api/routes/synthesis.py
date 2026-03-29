@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query, status
 from app.api.deps import get_synthesis_service
 from app.core.errors import AppError
 from app.models.repository import SynthesisRunStatus
-from app.schemas.synthesis import SynthesisRunResponse, CombinerTriggerRequest
+from app.schemas.synthesis import SynthesisRunResponse, CombinerTriggerRequest, DeepSynthesisTriggerRequest
 from app.services.synthesis_service import SynthesisService
 
 router = APIRouter()
@@ -22,6 +22,14 @@ def trigger_combiner(
             status_code=400
         )
     return service.trigger_combiner(request.idea_family_id, request.repository_ids)
+
+
+@router.post("/deep-synthesis", response_model=SynthesisRunResponse, status_code=status.HTTP_201_CREATED)
+def trigger_deep_synthesis(
+    request: DeepSynthesisTriggerRequest,
+    service: SynthesisService = Depends(get_synthesis_service),
+) -> SynthesisRunResponse:
+    return service.trigger_deep_synthesis(request.idea_family_id)
 
 
 @router.get("/runs", response_model=list[SynthesisRunResponse])

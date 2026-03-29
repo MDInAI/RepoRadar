@@ -12,6 +12,7 @@ from agentic_workers.storage.analysis_store import (
 )
 from agentic_workers.storage.artifact_store import build_text_artifact
 from agentic_workers.storage.backend_models import (
+    AnalystSourceSettings,
     RepositoryArtifact,
     RepositoryArtifactKind,
     RepositoryAnalysisStatus,
@@ -25,7 +26,10 @@ from agentic_workers.storage.backend_models import (
 def _make_session(tmp_path: Path) -> Session:
     engine = create_engine(f"sqlite:///{tmp_path / 'analysis-store.db'}")
     SQLModel.metadata.create_all(engine)
-    return Session(engine)
+    session = Session(engine)
+    session.add(AnalystSourceSettings(id=1, firehose_enabled=True, backfill_enabled=False))
+    session.commit()
+    return session
 
 
 def _make_repo(

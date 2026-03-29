@@ -126,6 +126,7 @@ def test_configured_firehose_job_uses_settings_and_runtime_paths(monkeypatch, tm
         "record_failed_agent_run",
         lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed, **kwargs: None,
     )
+    monkeypatch.setattr(main, "discard_noop_run", lambda session, run_id: None)
 
     result = main.run_configured_firehose_job()
 
@@ -245,6 +246,7 @@ def test_configured_backfill_job_uses_settings_and_runtime_paths(monkeypatch, tm
         "record_failed_agent_run",
         lambda session, run_id, error_summary, error_context, items_processed, items_succeeded, items_failed, **kwargs: None,
     )
+    monkeypatch.setattr(main, "discard_noop_run", lambda session, run_id: None)
 
     result = main.run_configured_backfill_job()
 
@@ -572,7 +574,16 @@ def test_configured_firehose_job_records_terminal_write_failures_as_failed_runs(
     def fake_run_firehose_job(**_: object) -> FirehoseRunResult:
         return FirehoseRunResult(
             status=FirehoseRunStatus.SUCCESS,
-            outcomes=[],
+            outcomes=[
+                FirehosePageOutcome(
+                    mode=FirehoseMode.NEW,
+                    page=1,
+                    anchor_date=date(2026, 3, 1),
+                    fetched_count=0,
+                    inserted_count=0,
+                    skipped_count=0,
+                ),
+            ],
             artifact_path=None,
             artifact_error=None,
         )
@@ -1006,6 +1017,13 @@ def test_has_pending_analyst_work_queries_for_accepted_repositories(monkeypatch)
         def all(self) -> list[object]:
             return self.values
 
+        def one(self) -> object:
+            return self.values[0] if self.values else 0
+
+    class StubSourceSettings:
+        firehose_enabled = True
+        backfill_enabled = False
+
     class StubSession:
         def __init__(self, engine: object) -> None:
             self.engine = engine
@@ -1017,15 +1035,24 @@ def test_has_pending_analyst_work_queries_for_accepted_repositories(monkeypatch)
         def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
             return None
 
+        def get(self, model_class: type, ident: object) -> object:
+            return StubSourceSettings()
+
         def exec(self, _statement: object) -> StubResult:
             self.exec_calls += 1
+            # First exec call is the scout_enabled_count query → return 0
             if self.exec_calls == 1:
+                return StubResult([0])
+            # Second call is the firehose accepted_repositories query
+            if self.exec_calls == 2:
                 repository = type(
                     "Repository",
                     (),
                     {
                         "github_repository_id": 123,
                         "analysis_status": RepositoryAnalysisStatus.PENDING,
+                        "discovery_source": "firehose",
+                        "triaged_at": None,
                     },
                 )()
                 return StubResult([repository])

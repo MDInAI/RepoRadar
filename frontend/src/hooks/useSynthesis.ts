@@ -3,6 +3,7 @@ import {
   fetchSynthesisRuns,
   fetchSynthesisRun,
   triggerCombiner,
+  triggerDeepSynthesis,
   type SynthesisRun,
   type TriggerCombinerRequest,
 } from "@/api/synthesis";
@@ -39,6 +40,16 @@ export function useTriggerCombiner() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: TriggerCombinerRequest) => triggerCombiner(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["synthesis-runs"] });
+    },
+  });
+}
+
+export function useTriggerDeepSynthesis() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (familyId: number) => triggerDeepSynthesis(familyId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["synthesis-runs"] });
     },

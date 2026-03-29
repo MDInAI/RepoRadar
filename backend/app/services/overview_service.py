@@ -11,8 +11,11 @@ from app.models import (
     AGENT_NAMES,
     AgentPauseState,
     AgentRun,
+    AnalystSourceSettings,
     FailureClassification,
     FailureSeverity,
+    IdeaSearch,
+    IdeaSearchDiscovery,
     RepositoryAnalysisStatus,
     RepositoryDiscoverySource,
     RepositoryIntake,
@@ -117,26 +120,68 @@ class OverviewService:
         return TriageMetrics(pending=pending or 0, accepted=accepted or 0, rejected=rejected or 0)
 
     def _get_analysis_metrics(self) -> AnalysisMetrics:
-        pending = self.session.scalar(
-            select(func.count(RepositoryIntake.github_repository_id)).where(
-                RepositoryIntake.analysis_status == RepositoryAnalysisStatus.PENDING
+        # Check if Scout-exclusive mode is active (firehose/backfill both disabled, Scout enabled)
+        source_settings = self.session.get(AnalystSourceSettings, 1)
+        firehose_enabled = bool(source_settings.firehose_enabled) if source_settings else False
+        backfill_enabled = bool(source_settings.backfill_enabled) if source_settings else False
+        scout_enabled_count = self.session.scalar(
+            select(func.count(IdeaSearch.id)).where(IdeaSearch.analyst_enabled.is_(True))
+        ) or 0
+        scout_exclusive = not firehose_enabled and not backfill_enabled and scout_enabled_count > 0
+
+        if scout_exclusive:
+            # Only count Scout repos in the analysis queue
+            scout_repo_ids = (
+                select(IdeaSearchDiscovery.github_repository_id)
+                .join(IdeaSearch, IdeaSearchDiscovery.idea_search_id == IdeaSearch.id)
+                .where(IdeaSearch.analyst_enabled.is_(True))
+                .distinct()
             )
-        )
-        in_progress = self.session.scalar(
-            select(func.count(RepositoryIntake.github_repository_id)).where(
-                RepositoryIntake.analysis_status == RepositoryAnalysisStatus.IN_PROGRESS
+            pending = self.session.scalar(
+                select(func.count(RepositoryIntake.github_repository_id)).where(
+                    RepositoryIntake.analysis_status == RepositoryAnalysisStatus.PENDING,
+                    RepositoryIntake.github_repository_id.in_(scout_repo_ids),
+                )
             )
-        )
-        completed = self.session.scalar(
-            select(func.count(RepositoryIntake.github_repository_id)).where(
-                RepositoryIntake.analysis_status == RepositoryAnalysisStatus.COMPLETED
+            in_progress = self.session.scalar(
+                select(func.count(RepositoryIntake.github_repository_id)).where(
+                    RepositoryIntake.analysis_status == RepositoryAnalysisStatus.IN_PROGRESS,
+                    RepositoryIntake.github_repository_id.in_(scout_repo_ids),
+                )
             )
-        )
-        failed = self.session.scalar(
-            select(func.count(RepositoryIntake.github_repository_id)).where(
-                RepositoryIntake.analysis_status == RepositoryAnalysisStatus.FAILED
+            completed = self.session.scalar(
+                select(func.count(RepositoryIntake.github_repository_id)).where(
+                    RepositoryIntake.analysis_status == RepositoryAnalysisStatus.COMPLETED,
+                    RepositoryIntake.github_repository_id.in_(scout_repo_ids),
+                )
             )
-        )
+            failed = self.session.scalar(
+                select(func.count(RepositoryIntake.github_repository_id)).where(
+                    RepositoryIntake.analysis_status == RepositoryAnalysisStatus.FAILED,
+                    RepositoryIntake.github_repository_id.in_(scout_repo_ids),
+                )
+            )
+        else:
+            pending = self.session.scalar(
+                select(func.count(RepositoryIntake.github_repository_id)).where(
+                    RepositoryIntake.analysis_status == RepositoryAnalysisStatus.PENDING
+                )
+            )
+            in_progress = self.session.scalar(
+                select(func.count(RepositoryIntake.github_repository_id)).where(
+                    RepositoryIntake.analysis_status == RepositoryAnalysisStatus.IN_PROGRESS
+                )
+            )
+            completed = self.session.scalar(
+                select(func.count(RepositoryIntake.github_repository_id)).where(
+                    RepositoryIntake.analysis_status == RepositoryAnalysisStatus.COMPLETED
+                )
+            )
+            failed = self.session.scalar(
+                select(func.count(RepositoryIntake.github_repository_id)).where(
+                    RepositoryIntake.analysis_status == RepositoryAnalysisStatus.FAILED
+                )
+            )
         return AnalysisMetrics(
             pending=pending or 0, in_progress=in_progress or 0, completed=completed or 0, failed=failed or 0
         )

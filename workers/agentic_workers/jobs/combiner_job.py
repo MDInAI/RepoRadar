@@ -17,7 +17,12 @@ from agentic_workers.providers.combiner_provider import (
     HeuristicCombinerProvider,
     RetryableCombinerProvider,
 )
+from agentic_workers.providers.deep_synthesis_provider import (
+    DeepSynthesisProvider,
+    parse_deep_synthesis_output,
+)
 from agentic_workers.storage.backend_models import (
+    IdeaFamily,
     RepositoryIntake,
     RepositoryArtifactKind,
     SynthesisRun,
@@ -99,10 +104,10 @@ def run_combiner_job(
             run_id=None,
         )
 
-    # Find pending synthesis runs
+    # Find pending synthesis runs (combiner or deep_synthesis)
     stmt = select(SynthesisRun).where(
         SynthesisRun.status == SynthesisRunStatus.PENDING,
-        SynthesisRun.run_type == "combiner",
+        SynthesisRun.run_type.in_(["combiner", "deep_synthesis"]),
     ).limit(1)
 
     run = session.exec(stmt).first()
@@ -176,6 +181,7 @@ def run_combiner_job(
             if readme_content is not None:
                 readme_contents.append(
                     {
+                        "repo_id": repo.github_repository_id,
                         "full_name": repo.full_name,
                         "content": readme_content,
                     }
@@ -192,19 +198,50 @@ def run_combiner_job(
             current_activity="Generating synthesis output.",
         )
 
-        # Generate synthesis output with retry logic
-        # Use LLM provider if API key available, fallback to heuristic
+        # Generate synthesis output
         import os
-        if os.environ.get("ANTHROPIC_API_KEY"):
-            provider = RetryableCombinerProvider(AnthropicCombinerProvider())
+        is_deep = run.run_type == "deep_synthesis"
+
+        if is_deep:
+            # Resolve idea_text context from linked family description or title
+            idea_text = ""
+            if run.idea_family_id:
+                family = session.get(IdeaFamily, run.idea_family_id)
+                if family:
+                    idea_text = family.description or family.title or ""
+
+            # Load ANALYSIS_RESULT artifacts in addition to READMEs
+            for repo_entry in readme_contents:
+                analysis_text = artifact_payload_repository.get_text_artifact(
+                    repo_entry["repo_id"],
+                    RepositoryArtifactKind.ANALYSIS_RESULT,
+                )
+                if analysis_text:
+                    repo_entry["analysis"] = analysis_text
+
+            if os.environ.get("ANTHROPIC_API_KEY"):
+                deep_provider = DeepSynthesisProvider()
+                synthesis_result = deep_provider.synthesize(
+                    readme_contents, idea_text, previous_insights
+                )
+            else:
+                provider = RetryableCombinerProvider(HeuristicCombinerProvider())
+                synthesis_result = provider.synthesize(readme_contents, previous_insights)
         else:
-            provider = RetryableCombinerProvider(HeuristicCombinerProvider())
-        synthesis_result = provider.synthesize(readme_contents, previous_insights)
+            if os.environ.get("ANTHROPIC_API_KEY"):
+                provider = RetryableCombinerProvider(AnthropicCombinerProvider())
+            else:
+                provider = RetryableCombinerProvider(HeuristicCombinerProvider())
+            synthesis_result = provider.synthesize(readme_contents, previous_insights)
+
         output = synthesis_result.output_text
 
         # Parse structured output
         try:
-            parsed = parse_synthesis_output(output)
+            if is_deep:
+                parsed = parse_deep_synthesis_output(output)
+            else:
+                parsed = parse_synthesis_output(output)
             run.title = parsed.get("title")
             run.summary = parsed.get("summary")
             run.key_insights = parsed.get("key_insights")
