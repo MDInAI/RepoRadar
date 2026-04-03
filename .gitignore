@@ -6,6 +6,7 @@ workers/locks/
 .bolt/
 .cursor/
 .claude/
+.docs/
 .replit
 # Environment files
 .env
@@ -55,3 +56,25 @@ htmlcov/
 *.tsbuildinfo
 
 .claude
+docs/AGENT_ARCHITECTURE.md
+docs/analyst-enhancement-master-plan.md
+docs/analyst-enhancement-testing-guide.md
+docs/analyst-first-opportunity-intelligence-roadmap.md
+docs/analyst-implementation-plan.md
+docs/configuration-ownership.md
+docs/deferrals.md
+docs/gateway-integration-contract.md
+docs/multi-agent-runtime-assumptions.md
+docs/openclaw-overlord-implementation-plan.md
+docs/opportunity-engine-proposal.md
+docs/overlord-openclaw-agent-prompt.md
+docs/overlord-openclaw-agent-spec.md
+docs/overlord-openclaw-feedback.md
+docs/storage-optimization-plan.md
+deployment/API-REFERENCE.md
+deployment/CONTROL-PANEL-GUIDE.md
+deployment/DEPLOYMENT-CHECKLIST.md
+deployment/GATEWAY-INTEGRATION.md
+deployment/INDEX.md
+deployment/WHAT-TO-DO-NOW.md
+deployment/YOUR-NEXT-STEPS.md
