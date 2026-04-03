@@ -3,7 +3,10 @@
 # logs, locks, temp files, and operator state. It should never be versioned.
 runtime/
 workers/locks/
-
+.bolt/
+.cursor/
+.claude/
+.replit
 # Environment files
 .env
 .env.local
