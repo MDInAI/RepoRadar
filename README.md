@@ -4,6 +4,31 @@ A local-first orchestration and operator dashboard for intelligent repository di
 
 This repository is published as **`agentic-parser`** on GitHub; internal Python packages and UI names may still use `agentic-workflow-*` for historical continuity.
 
+## Showcase
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="assets/1.png" alt="Overview dashboard showing pipeline status, agents, GitHub budget, Gemini pool, and analysis queue" width="100%" />
+      <br /><sub><b>Overview</b> — pipeline status, agents, API budgets, and analysis queue</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="assets/2.png" alt="Repositories view with corpus browser filters, processing backlog, and catalog table" width="100%" />
+      <br /><sub><b>Repositories</b> — search, filters, backlog, and catalog</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="assets/3.png" alt="Incidents view with severity cards and recent incident events" width="100%" />
+      <br /><sub><b>Incidents</b> — severity summary and event stream</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="assets/4.png" alt="Control panel with per-agent commands and Combiner status" width="100%" />
+      <br /><sub><b>Control panel</b> — per-agent commands and configuration</sub>
+    </td>
+  </tr>
+</table>
+
 ## Core Features
 
 ### 🧠 Multi-Agent Orchestration Pipeline
